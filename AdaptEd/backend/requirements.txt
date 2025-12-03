@@ -1,0 +1,14 @@
+FastAPI
+uvicorn
+pydantic
+httpx
+numpy
+pandas
+transformers>=4.41.0
+accelerate>=0.33.0
+safetensors>=0.4.3
+pypdf>=4.2.0
+python-dotenv>=1.0.1
+SQLAlchemy>=2.0.30
+psycopg2-binary>=2.9.9
+python-multipart>=0.0.9
