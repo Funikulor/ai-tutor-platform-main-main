@@ -1,21 +1,33 @@
 """
 API маршруты для домашних заданий
 """
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
 from typing import List, Optional, Dict, Any
 from datetime import datetime
 import json
 import re
 from agents.orchestrator import AgentOrchestrator
-from services.assistant import assistant_service
+from services.assistant import get_assistant_service
+from utils.db import get_db, has_db
+from sqlalchemy.orm import Session
+from models.homework import Homework, HomeworkSubmission as HomeworkSubmissionORM
+from utils.db import Base
+from sqlalchemy import select
 
 router = APIRouter()
 orchestrator = AgentOrchestrator()
+assistant_service = None  # будет создан по запросу
+
+def _assistant():
+	global assistant_service
+	if assistant_service is None:
+		assistant_service = get_assistant_service()
+	return assistant_service
 
 
-class HomeworkSubmission(BaseModel):
-    """Модель для сдачи домашнего задания"""
+class HomeworkSubmissionPayload(BaseModel):
+    """Модель для сдачи домашнего задания (старый формат, без БД)"""
     user_id: str
     homework_id: Optional[str] = None
     task_id: Optional[int] = None
@@ -48,8 +60,149 @@ class TestSubmission(BaseModel):
     answers: Dict[int, Any]  # {question_index: answer}
 
 
+# Новые схемы для работы с БД (должны быть определены до использования в эндпоинтах)
+class HomeworkCreate(BaseModel):
+    title: str
+    description: Optional[str] = None
+    subject: Optional[str] = None
+    due_date: Optional[datetime] = None
+    assigned_to: str
+    created_by: Optional[str] = None
+
+
+class HomeworkOut(BaseModel):
+    id: int
+    title: str
+    description: Optional[str]
+    subject: Optional[str]
+    due_date: Optional[datetime]
+    status: str
+    assigned_to: str
+    created_by: Optional[str]
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class HomeworkSubmitDB(BaseModel):
+    answer_text: Optional[str] = None
+    user_id: str
+
+
+# ====== Новые эндпоинты на Postgres ======
+
+@router.get("/homeworks", response_model=List[HomeworkOut])
+async def list_homeworks(user_id: Optional[str] = None, db: Session = Depends(get_db)):
+    if not has_db() or db is None:
+        raise HTTPException(status_code=503, detail="Database is not configured")
+    stmt = select(Homework)
+    if user_id:
+        stmt = stmt.where(Homework.assigned_to == user_id)
+    rows = db.execute(stmt).scalars().all()
+    return rows
+
+
+@router.post("/homeworks", response_model=HomeworkOut)
+async def create_homework(payload: HomeworkCreate, db: Session = Depends(get_db)):
+    if not has_db() or db is None:
+        raise HTTPException(status_code=503, detail="Database is not configured")
+    hw = Homework(
+        title=payload.title,
+        description=payload.description,
+        subject=payload.subject,
+        due_date=payload.due_date,
+        assigned_to=payload.assigned_to,
+        created_by=payload.created_by,
+        status="new",
+    )
+    db.add(hw)
+    db.commit()
+    db.refresh(hw)
+    return hw
+
+
+@router.post("/homeworks/{homework_id}/submit", response_model=Dict[str, Any])
+async def submit_homework_db(homework_id: int, payload: HomeworkSubmitDB, db: Session = Depends(get_db)):
+    if not has_db() or db is None:
+        raise HTTPException(status_code=503, detail="Database is not configured")
+
+    hw = db.get(Homework, homework_id)
+    if not hw:
+        raise HTTPException(status_code=404, detail="Homework not found")
+    if hw.assigned_to != payload.user_id:
+        # разрешаем сдавать только назначенному ученику
+        raise HTTPException(status_code=403, detail="Homework is assigned to another student")
+
+	submission = HomeworkSubmissionORM(
+        homework_id=homework_id,
+        user_id=payload.user_id,
+        answer_text=payload.answer_text or "",
+        created_at=datetime.utcnow(),
+    )
+
+    # Генерируем короткий фидбек через ассистента (неблокирующий)
+    feedback = None
+    try:
+        assist = _assistant()
+        prompt = (
+            "Кратко оцени ответ ученика и дай 1-2 рекомендации.\n"
+            f"Задание: {hw.title}\n"
+            f"Описание: {hw.description or ''}\n"
+            f"Ответ ученика: {payload.answer_text or ''}\n"
+        )
+        feedback = assist._generate(prompt, max_new_tokens=300)
+    except Exception:
+        feedback = None
+
+    submission.feedback = feedback
+    db.add(submission)
+
+    # Обновляем статус домашки
+    hw.status = "submitted"
+    db.add(hw)
+
+    db.commit()
+    db.refresh(submission)
+    db.refresh(hw)
+
+    return {
+        "status": "submitted",
+        "homework": hw,
+        "submission": {
+            "id": submission.id,
+            "user_id": submission.user_id,
+            "answer_text": submission.answer_text,
+            "feedback": submission.feedback,
+            "created_at": submission.created_at,
+        },
+    }
+
+
+@router.get("/homeworks/{homework_id}/submissions", response_model=List[Dict[str, Any]])
+async def list_submissions(homework_id: int, db: Session = Depends(get_db)):
+    if not has_db() or db is None:
+        raise HTTPException(status_code=503, detail="Database is not configured")
+    hw = db.get(Homework, homework_id)
+    if not hw:
+        raise HTTPException(status_code=404, detail="Homework not found")
+	stmt = select(HomeworkSubmissionORM).where(HomeworkSubmissionORM.homework_id == homework_id)
+    rows = db.execute(stmt).scalars().all()
+    return [
+        {
+            "id": s.id,
+            "user_id": s.user_id,
+            "answer_text": s.answer_text,
+            "feedback": s.feedback,
+            "score": s.score,
+            "created_at": s.created_at,
+        }
+        for s in rows
+    ]
+
+
 @router.post("/homework/submit", response_model=Dict[str, Any])
-async def submit_homework(submission: HomeworkSubmission):
+async def submit_homework(submission: HomeworkSubmissionPayload):
     """
     Сдача домашнего задания с анализом решения
     """
@@ -66,7 +219,7 @@ async def submit_homework(submission: HomeworkSubmission):
 
 Верни анализ в структурированном виде."""
         
-        analysis = assistant_service._generate(analysis_prompt, max_new_tokens=400)
+        analysis = _assistant()._generate(analysis_prompt, max_new_tokens=400)
         
         # Обновляем профиль ученика
         profile = orchestrator.profiler.get_profile(submission.user_id)
@@ -137,7 +290,7 @@ async def generate_test(request: TestGenerationRequest):
   ]
 }}"""
         
-        generated_text = assistant_service._generate(prompt, max_new_tokens=1000)
+        generated_text = _assistant()._generate(prompt, max_new_tokens=1000)
         
         # Ищем JSON в ответе
         json_match = re.search(r'\{.*\}', generated_text, re.DOTALL)
@@ -210,7 +363,7 @@ async def get_student_statistics(user_id: str):
     """
     try:
         profile = orchestrator.profiler.get_profile(user_id)
-        personality_profile = assistant_service.get_personality_profile(user_id)
+        personality_profile = _assistant().get_personality_profile(user_id)
         
         if not profile:
             raise HTTPException(status_code=404, detail="Profile not found")

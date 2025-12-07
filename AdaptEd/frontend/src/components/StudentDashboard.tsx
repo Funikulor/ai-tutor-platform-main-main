@@ -6,10 +6,11 @@ import { RecommendationPanel } from './RecommendationPanel';
 import { ChatTab } from './ChatTab';
 import { AIChatPanel } from './AIChatPanel';
 import { LibraryTab } from './LibraryTab';
-import { Brain, TrendingUp, Target, BookOpen, MessageCircle, Library } from 'lucide-react';
+import { HomeworkTab } from './HomeworkTab';
+import { Brain, TrendingUp, Target, BookOpen, MessageCircle, Library, ClipboardCheck } from 'lucide-react';
 
 export function StudentDashboard() {
-  const [currentView, setCurrentView] = useState<'overview' | 'task' | 'knowledge' | 'chat' | 'library'>('overview');
+  const [currentView, setCurrentView] = useState<'overview' | 'task' | 'knowledge' | 'chat' | 'library' | 'homework'>('overview');
   const [lastError, setLastError] = useState<any>(null);
   const [isChatMinimized, setIsChatMinimized] = useState(false);
   const [selectedMaterialId, setSelectedMaterialId] = useState<string | undefined>(undefined);
@@ -90,6 +91,17 @@ export function StudentDashboard() {
         >
           <Library className="w-5 h-5 inline mr-2" />
           Библиотека
+        </button>
+        <button
+          onClick={() => setCurrentView('homework')}
+          className={`flex-1 py-3 px-4 rounded-lg transition-all ${
+            currentView === 'homework'
+              ? 'bg-green-50 text-green-600'
+              : 'text-gray-600 hover:bg-gray-50'
+          }`}
+        >
+          <ClipboardCheck className="w-5 h-5 inline mr-2" />
+          Домашка
         </button>
         <button
           onClick={() => setCurrentView('chat')}
@@ -181,6 +193,12 @@ export function StudentDashboard() {
       {currentView === 'library' && (
         <div>
           <LibraryTab selectedMaterialId={selectedMaterialId} />
+        </div>
+      )}
+
+      {currentView === 'homework' && (
+        <div>
+          <HomeworkTab />
         </div>
       )}
 

@@ -83,6 +83,7 @@ export function AIChatPanel({ isMinimized = false, onToggleMinimize, fullscreen 
 
     try {
       // Формируем историю сообщений для API
+      const userName = localStorage.getItem('full_name') || undefined;
       const messageHistory = [...messages, userMessage].map(msg => ({
         role: msg.sender === 'user' ? 'user' : 'assistant',
         content: msg.text
@@ -93,6 +94,7 @@ export function AIChatPanel({ isMinimized = false, onToggleMinimize, fullscreen 
         messages: messageHistory,
         mode: 'general',
         user_id: localStorage.getItem('user_id') || null,
+        user_name: userName,
       }, {
         timeout: 120000, // 120 секунд для Ollama
       });

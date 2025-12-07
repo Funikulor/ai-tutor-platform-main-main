@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from routes import lessons, users, agents, auth
-from routes import assistant, homework
+from routes import assistant, homework, tests
 
 try:
 	from dotenv import load_dotenv  # type: ignore
@@ -44,6 +44,7 @@ app.include_router(users.router, tags=["Users"])
 app.include_router(agents.router, tags=["Agents"])
 app.include_router(assistant.router, tags=["Assistant"])
 app.include_router(homework.router, tags=["Homework"])
+app.include_router(tests.router, tags=["Tests"])
 
 @app.get("/")
 def read_root():

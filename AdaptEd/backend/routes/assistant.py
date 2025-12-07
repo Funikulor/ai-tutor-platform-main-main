@@ -17,6 +17,7 @@ class ChatRequest(BaseModel):
 	mode: Optional[str] = "general"  # general | hint
 	context: Optional[Dict[str, Any]] = None
 	user_id: Optional[str] = None  # ID ученика для персонализации
+	user_name: Optional[str] = None  # Имя ученика
 
 
 class MotivationRequest(BaseModel):
@@ -72,6 +73,7 @@ async def assistant_chat(req: ChatRequest):
 			text = assistant_service.chat(
 				messages=messages,
 				user_id=req.user_id,
+				user_name=req.user_name,
 				student_weaknesses=student_weaknesses
 			)
 		

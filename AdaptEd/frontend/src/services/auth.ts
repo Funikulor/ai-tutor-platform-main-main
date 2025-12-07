@@ -22,6 +22,9 @@ export const authService = {
         localStorage.setItem('token', response.data.access_token);
         localStorage.setItem('user_id', response.data.user_id);
         localStorage.setItem('role', response.data.role);
+        if (response.data.full_name) {
+          localStorage.setItem('full_name', response.data.full_name);
+        }
       }
       return response.data;
     } catch (error: any) {
@@ -55,11 +58,15 @@ export const authService = {
           Authorization: `Bearer ${token}`,
         },
       });
+      if (response.data?.full_name) {
+        localStorage.setItem('full_name', response.data.full_name);
+      }
       return response.data;
     } catch (error) {
       localStorage.removeItem('token');
       localStorage.removeItem('user_id');
       localStorage.removeItem('role');
+      localStorage.removeItem('full_name');
       return null;
     }
   },
@@ -68,6 +75,7 @@ export const authService = {
     localStorage.removeItem('token');
     localStorage.removeItem('user_id');
     localStorage.removeItem('role');
+    localStorage.removeItem('full_name');
   },
 
   isAuthenticated() {

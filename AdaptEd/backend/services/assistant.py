@@ -192,8 +192,43 @@ class AssistantService:
 		
 		return "Извините, модель временно недоступна. Убедитесь, что Ollama запущена (ollama serve) или проверьте настройки провайдера."
 
+	def _get_homeworks_context(self, user_id: str) -> str:
+		"""Краткий контекст по активным ДЗ ученика (из БД, если доступно)."""
+		if not has_db():
+			return ""
+		sess = get_db()
+		if sess is None:
+			return ""
+		try:
+			from models.homework import Homework  # type: ignore
+			rows = (
+				sess.query(Homework)
+				.filter(Homework.assigned_to == user_id)
+				.filter(Homework.status.in_(["new", "in_progress", "submitted"]))
+				.order_by(Homework.due_date.asc().nulls_last())
+				.limit(5)
+				.all()
+			)
+			if not rows:
+				return ""
+			lines = []
+			for hw in rows:
+				title = hw.title or "Задание"
+				status = hw.status or "new"
+				due = hw.due_date.strftime("%Y-%m-%d") if hw.due_date else "без дедлайна"
+				lines.append(f"- {title} (статус: {status}, дедлайн: {due})")
+			return "\nАктивные домашние задания:\n" + "\n".join(lines)
+		except Exception:
+			return ""
+		finally:
+			try:
+				sess.close()
+			except Exception:
+				pass
+
 	def chat(self, messages: List[Dict[str, str]], system_prompt: Optional[str] = None, 
-	         user_id: Optional[str] = None, student_weaknesses: Optional[List[str]] = None) -> str:
+	         user_id: Optional[str] = None, student_weaknesses: Optional[List[str]] = None,
+	         user_name: Optional[str] = None) -> str:
 		"""Чат с учетом личности и слабых мест ученика"""
 		# Получаем профиль личности если есть user_id
 		personality_context = ""
@@ -212,8 +247,17 @@ class AssistantService:
 				
 				personality_context = f"\n[Контекст ученика: {style_text}.{weaknesses_text}]\n"
 		
+		# Контекст по ДЗ
+		homeworks_ctx = ""
+		if user_id:
+			homeworks_ctx = self._get_homeworks_context(user_id)
+
+		# Имя ученика (если есть)
+		name_text = f"\nИмя ученика: {user_name}." if user_name else ""
+
 		# Формируем системный промпт
 		base_system = system_prompt or "Ты дружелюбный образовательный ассистент. Помогай ученику учиться, объясняй понятно и поддерживай."
+		base_system = base_system + name_text
 		
 		# Для Ollama используем формат с системным сообщением
 		if self.provider == "ollama":
@@ -221,12 +265,15 @@ class AssistantService:
 			formatted_messages = [{"role": "system", "content": f"{base_system}{personality_context}"}]
 			# Добавляем последние сообщения из истории
 			formatted_messages.extend(messages[-10:])  # Последние 10 сообщений для контекста
+			# Контекст по ДЗ
+			if homeworks_ctx:
+				formatted_messages.append({"role": "system", "content": homeworks_ctx})
 			return self._generate("", max_new_tokens=2048, messages=formatted_messages)
 		else:
 			# Для других провайдеров используем старый формат
 			history = "\n".join([f"{m.get('role','user')}: {m.get('content','')}" for m in messages[-5:]])
-			prompt = f"{base_system}{personality_context}\n{history}\nassistant:"
-			return self._generate(prompt, max_new_tokens=300)
+			prompt = f"{base_system}{personality_context}\n{homeworks_ctx}\n{history}\nassistant:"
+			return self._generate(prompt, max_new_tokens=2048)
 
 	def hint(self, task_text: str, student_level: Optional[str] = None) -> str:
 		policy = (
