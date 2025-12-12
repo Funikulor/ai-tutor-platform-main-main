@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import { Users, TrendingDown, AlertCircle, Download, Filter, PlusCircle, Loader2, Check } from 'lucide-react';
 import { createHomework } from '../services/homework';
-import { TeacherTestsTab } from './TeacherTestsTab';
+import { TestCreator } from './TestCreator';
 
 export function TeacherDashboard() {
   const [selectedClass, setSelectedClass] = useState('9А');
@@ -206,7 +206,7 @@ export function TeacherDashboard() {
       )}
 
       {currentTab === 'tests' && (
-        <TeacherTestsTab />
+        <TestCreator />
       )}
 
       {/* Header Controls */}

@@ -134,7 +134,7 @@ async def submit_homework_db(homework_id: int, payload: HomeworkSubmitDB, db: Se
         # разрешаем сдавать только назначенному ученику
         raise HTTPException(status_code=403, detail="Homework is assigned to another student")
 
-	submission = HomeworkSubmissionORM(
+    submission = HomeworkSubmissionORM(
         homework_id=homework_id,
         user_id=payload.user_id,
         answer_text=payload.answer_text or "",
@@ -186,7 +186,7 @@ async def list_submissions(homework_id: int, db: Session = Depends(get_db)):
     hw = db.get(Homework, homework_id)
     if not hw:
         raise HTTPException(status_code=404, detail="Homework not found")
-	stmt = select(HomeworkSubmissionORM).where(HomeworkSubmissionORM.homework_id == homework_id)
+    stmt = select(HomeworkSubmissionORM).where(HomeworkSubmissionORM.homework_id == homework_id)
     rows = db.execute(stmt).scalars().all()
     return [
         {
