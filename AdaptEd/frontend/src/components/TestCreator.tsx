@@ -32,12 +32,14 @@ export function TestCreator() {
     timeLimit: 45,
     questions: []
   });
+
   const [generateSettings, setGenerateSettings] = useState({
     topic: '',
     questionCount: 10,
     difficulty: 'medium' as 'easy' | 'medium' | 'hard',
     includeExplanations: true
   });
+
   const [showPreview, setShowPreview] = useState(false);
   const [noTimeLimit, setNoTimeLimit] = useState(false);
 
@@ -148,8 +150,8 @@ export function TestCreator() {
               onClick={() => setMode('create')}
               className={`px-4 py-2 rounded-lg flex items-center gap-2 transition-colors ${
                 mode === 'create' 
-                  ? 'bg-blue-600 text-white' 
-                  : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                  ? 'bg-blue-600 text-white shadow-md' 
+                  : 'bg-white text-gray-700 border border-gray-300 hover:bg-gray-50'
               }`}
             >
               <Plus className="w-4 h-4" />
@@ -157,10 +159,10 @@ export function TestCreator() {
             </button>
             <button
               onClick={() => setMode('generate')}
-              className={`px-4 py-2 rounded-lg flex items-center gap-2 transition-colors ${
+              className={`px-4 py-2 rounded-lg flex items-center gap-2 transition-all ${
                 mode === 'generate' 
-                  ? 'bg-purple-600 text-white' 
-                  : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                  ? 'bg-purple-600 text-white shadow-md' 
+                  : 'bg-white text-gray-700 border border-gray-300 hover:bg-gray-50'
               }`}
             >
               <Wand2 className="w-4 h-4" />
@@ -319,7 +321,16 @@ export function TestCreator() {
           </div>
           <button
             onClick={handleGenerate}
-            className="w-full px-4 py-2 bg-gradient-to-r from-purple-600 to-blue-600 text-white rounded-lg hover:from-purple-700 hover:to-blue-700 transition-all flex items-center justify-center gap-2"
+            className="w-full px-4 py-2 text-white rounded-lg transition-all flex items-center justify-center gap-2 shadow-md hover:shadow-lg"
+            style={{
+              background: 'linear-gradient(to right, rgb(147, 51, 234), rgb(59, 130, 246))'
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.background = 'linear-gradient(to right, rgb(126, 34, 206), rgb(37, 99, 235))';
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.background = 'linear-gradient(to right, rgb(147, 51, 234), rgb(59, 130, 246))';
+            }}
           >
             <Wand2 className="w-4 h-4" />
             Сгенерировать вопросы
@@ -344,6 +355,7 @@ export function TestCreator() {
             </button>
           )}
         </div>
+
         <div className="space-y-4">
           {test.questions.length === 0 ? (
             <div className="text-center py-12 bg-gray-50 rounded-lg">
@@ -388,6 +400,7 @@ export function TestCreator() {
                       rows={2}
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none mb-3"
                     />
+
                     {/* Options for single/multiple choice */}
                     {(question.type === 'single' || question.type === 'multiple') && question.options && (
                       <div className="space-y-2">
@@ -427,6 +440,7 @@ export function TestCreator() {
                         <p className="text-xs text-gray-500">Отметьте правильный(е) ответ(ы)</p>
                       </div>
                     )}
+
                     {/* Numeric answer */}
                     {question.type === 'numeric' && (
                       <div>
@@ -440,6 +454,7 @@ export function TestCreator() {
                         />
                       </div>
                     )}
+
                     {/* Text answer */}
                     {question.type === 'text' && (
                       <div>
@@ -453,6 +468,7 @@ export function TestCreator() {
                         />
                       </div>
                     )}
+
                     {/* Explanation */}
                     <div className="mt-3">
                       <label className="block text-sm text-gray-700 mb-1">Объяснение (необязательно):</label>
@@ -584,4 +600,3 @@ export function TestCreator() {
     </div>
   );
 }
-

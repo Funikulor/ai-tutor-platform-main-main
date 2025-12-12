@@ -1,20 +1,11 @@
 import { useState } from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
-import { Users, TrendingDown, AlertCircle, Download, Filter, PlusCircle, Loader2, Check } from 'lucide-react';
-import { createHomework } from '../services/homework';
+import { Users, TrendingDown, AlertCircle, Download, Filter, BarChart3, FileText } from 'lucide-react';
 import { TestCreator } from './TestCreator';
 
 export function TeacherDashboard() {
   const [selectedClass, setSelectedClass] = useState('9А');
-  const [currentTab, setCurrentTab] = useState<'overview' | 'homework' | 'tests'>('overview');
-  const [hwTitle, setHwTitle] = useState('');
-  const [hwDesc, setHwDesc] = useState('');
-  const [hwSubject, setHwSubject] = useState('');
-  const [hwDue, setHwDue] = useState('');
-  const [hwStudent, setHwStudent] = useState('');
-  const [hwLoading, setHwLoading] = useState(false);
-  const [hwSuccess, setHwSuccess] = useState(false);
-  const [hwError, setHwError] = useState<string | null>(null);
+  const [currentView, setCurrentView] = useState<'analytics' | 'tests'>('analytics');
 
   // Class performance data
   const classData = [
@@ -45,37 +36,6 @@ export function TeacherDashboard() {
     { topic: 'Проценты', avgScore: 82, completion: 90 }
   ];
 
-  const handleCreateHomework = async () => {
-    if (!hwTitle.trim() || !hwStudent.trim()) {
-      setHwError('Заполните тему и ученика');
-      return;
-    }
-    setHwLoading(true);
-    setHwError(null);
-    setHwSuccess(false);
-    try {
-      await createHomework({
-        title: hwTitle,
-        description: hwDesc || undefined,
-        subject: hwSubject || undefined,
-        due_date: hwDue || undefined,
-        assigned_to: hwStudent,
-        created_by: localStorage.getItem('user_id') || 'teacher',
-      });
-      setHwSuccess(true);
-      setHwTitle('');
-      setHwDesc('');
-      setHwSubject('');
-      setHwDue('');
-      setHwStudent('');
-      setTimeout(() => setHwSuccess(false), 2000);
-    } catch (e: any) {
-      setHwError(e?.response?.data?.detail || 'Не удалось создать ДЗ');
-    } finally {
-      setHwLoading(false);
-    }
-  };
-
   const getStatusBadge = (status: string) => {
     const styles = {
       excellent: 'bg-green-100 text-green-700',
@@ -98,120 +58,39 @@ export function TeacherDashboard() {
 
   return (
     <div className="space-y-6">
-      {/* Tabs */}
-      <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-1 flex gap-2">
+      {/* Navigation Tabs */}
+      <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-1 flex">
         <button
-          onClick={() => setCurrentTab('overview')}
+          onClick={() => setCurrentView('analytics')}
           className={`flex-1 py-3 px-4 rounded-lg transition-all ${
-            currentTab === 'overview'
-              ? 'bg-blue-50 text-blue-600 shadow-sm'
+            currentView === 'analytics'
+              ? 'bg-blue-50 text-blue-600'
               : 'text-gray-600 hover:bg-gray-50'
           }`}
         >
-          Обзор и аналитика
+          <BarChart3 className="w-5 h-5 inline mr-2" />
+          Аналитика класса
         </button>
         <button
-          onClick={() => setCurrentTab('homework')}
+          onClick={() => setCurrentView('tests')}
           className={`flex-1 py-3 px-4 rounded-lg transition-all ${
-            currentTab === 'homework'
-              ? 'bg-green-50 text-green-600 shadow-sm'
+            currentView === 'tests'
+              ? 'bg-green-50 text-green-600'
               : 'text-gray-600 hover:bg-gray-50'
           }`}
         >
-          Задать ДЗ
-        </button>
-        <button
-          onClick={() => setCurrentTab('tests')}
-          className={`flex-1 py-3 px-4 rounded-lg transition-all ${
-            currentTab === 'tests'
-              ? 'bg-indigo-50 text-indigo-600 shadow-sm'
-              : 'text-gray-600 hover:bg-gray-50'
-          }`}
-        >
-          Тесты
+          <FileText className="w-5 h-5 inline mr-2" />
+          Создание тестов
         </button>
       </div>
 
-      {currentTab === 'homework' && (
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 space-y-4">
-          <div className="flex items-center gap-2">
-            <PlusCircle className="w-5 h-5 text-blue-600" />
-            <h3 className="text-gray-900">Создать домашнее задание</h3>
-          </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <label className="text-sm text-gray-600">Тема / заголовок</label>
-              <input
-                value={hwTitle}
-                onChange={(e) => setHwTitle(e.target.value)}
-                className="w-full border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                placeholder="Например: ДЗ по алгебре (квадратные уравнения)"
-              />
-            </div>
-            <div className="space-y-2">
-              <label className="text-sm text-gray-600">Предмет</label>
-              <input
-                value={hwSubject}
-                onChange={(e) => setHwSubject(e.target.value)}
-                className="w-full border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                placeholder="Математика / Физика / Английский"
-              />
-            </div>
-            <div className="space-y-2">
-              <label className="text-sm text-gray-600">Дедлайн</label>
-              <input
-                type="datetime-local"
-                value={hwDue}
-                onChange={(e) => setHwDue(e.target.value)}
-                className="w-full border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
-            </div>
-            <div className="space-y-2">
-              <label className="text-sm text-gray-600">Ученику (user_id)</label>
-              <input
-                value={hwStudent}
-                onChange={(e) => setHwStudent(e.target.value)}
-                className="w-full border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                placeholder="Например: user123"
-              />
-            </div>
-            <div className="space-y-2 md:col-span-2">
-              <label className="text-sm text-gray-600">Описание</label>
-              <textarea
-                value={hwDesc}
-                onChange={(e) => setHwDesc(e.target.value)}
-                className="w-full border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                rows={3}
-                placeholder="Что нужно сделать, ссылки на материалы, критерии"
-              />
-            </div>
-          </div>
-          {hwError && <div className="p-3 rounded-lg bg-red-50 text-red-700 text-sm">{hwError}</div>}
-          {hwSuccess && (
-            <div className="p-3 rounded-lg bg-green-50 text-green-700 text-sm flex items-center gap-2">
-              <Check className="w-4 h-4" /> ДЗ создано
-            </div>
-          )}
-          <div className="flex justify-end">
-            <button
-              onClick={handleCreateHomework}
-              disabled={hwLoading}
-              className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition disabled:opacity-50"
-            >
-              {hwLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <PlusCircle className="w-4 h-4" />}
-              Создать
-            </button>
-          </div>
-        </div>
-      )}
+      {/* Tests View */}
+      {currentView === 'tests' && <TestCreator />}
 
-      {currentTab === 'tests' && (
-        <TestCreator />
-      )}
-
-      {/* Header Controls */}
-      {currentTab === 'overview' && (
+      {/* Analytics View */}
+      {currentView === 'analytics' && (
         <>
+      {/* Header Controls */}
       <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
         <div className="flex items-center justify-between">
           <div>
