@@ -3,6 +3,7 @@ from pydantic import BaseModel
 from typing import List, Optional, Dict, Any
 
 from services.assistant import get_assistant_service
+from services.student_analytics import get_analytics_service
 
 router = APIRouter()
 
@@ -36,19 +37,48 @@ class DocumentUpload(BaseModel):
 	content: str  # plain text for now; could be extracted from PDF elsewhere
 
 
+class TestResultRequest(BaseModel):
+	"""Запрос для обработки результата теста"""
+	user_id: str
+	subject: str
+	accuracy: float  # 0-100
+	errors: List[str] = []
+	time_spent_seconds: Optional[float] = None
+
+
+class TaskAttemptRequest(BaseModel):
+	"""Запрос для обработки попытки выполнения задания"""
+	user_id: str
+	is_correct: bool
+	error_type: Optional[str] = None
+	time_spent_seconds: Optional[float] = None
+
+
 @router.post("/assistant/chat", response_model=Dict[str, Any])
 async def assistant_chat(req: ChatRequest):
 	try:
 		assistant_service = get_assistant_service()
+		analytics_service = get_analytics_service()
 		messages = [m.dict() for m in req.messages]
+		
+		# Получаем последнее сообщение пользователя для анализа
+		last_user_message = None
+		for msg in reversed(messages):
+			if msg.get("role") == "user":
+				last_user_message = msg.get("content", "")
+				break
 		
 		# Получаем слабые места ученика если есть user_id
 		student_weaknesses = None
+		cognitive_profile = None
+		analytics_result = None
+		
 		if req.user_id:
 			# Получаем профиль когнитивный для слабых мест
 			from agents.orchestrator import AgentOrchestrator
 			orchestrator = AgentOrchestrator()
 			profile = orchestrator.profiler.get_profile(req.user_id)
+			cognitive_profile = profile
 			if profile:
 				# Извлекаем слабые места из профиля
 				weaknesses = []
@@ -64,11 +94,23 @@ async def assistant_chat(req: ChatRequest):
 			
 			# Обновляем профиль личности на основе диалога
 			assistant_service.update_personality_from_chat(req.user_id, messages)
+			
+			# Обрабатываем сообщение через адаптивного педагога-аналитика
+			if last_user_message:
+				analytics_result = analytics_service.process_chat_message(
+					user_id=req.user_id,
+					message=last_user_message,
+					cognitive_profile=cognitive_profile
+				)
 		
 		if req.mode == "hint" and req.context:
 			task_text = str(req.context.get("task", ""))
 			student_level = str(req.context.get("level", "")) or None
 			text = assistant_service.hint(task_text=task_text, student_level=student_level)
+			
+			# Записываем запрос подсказки
+			if req.user_id:
+				analytics_service.record_hint_request(req.user_id)
 		else:
 			text = assistant_service.chat(
 				messages=messages,
@@ -88,6 +130,10 @@ async def assistant_chat(req: ChatRequest):
 					"traits": {k: v.score for k, v in personality_profile.traits.items()},
 					"mentioned_weaknesses": personality_profile.mentioned_weaknesses
 				}
+			
+			# Добавляем сообщение об этике если это первое взаимодействие
+			if analytics_result and analytics_result.get("ethics_message"):
+				response["ethics_message"] = analytics_result["ethics_message"]
 		
 		return response
 	except Exception as e:
@@ -112,7 +158,13 @@ async def assistant_motivation(req: MotivationRequest):
 async def assistant_hint(req: HintRequest):
 	try:
 		assistant_service = get_assistant_service()
+		analytics_service = get_analytics_service()
 		text = assistant_service.hint(task_text=req.task_text, student_level=req.student_level)
+		
+		# Записываем запрос подсказки (если есть user_id в контексте)
+		# В реальном приложении user_id должен передаваться в запросе
+		# Пока оставляем как есть
+		
 		return {"message": text}
 	except Exception as e:
 		raise HTTPException(status_code=500, detail=str(e))
@@ -150,5 +202,77 @@ async def upload_document_pdf(file: UploadFile = File(...), title: Optional[str]
 		return {"status": "ok", "title": title or file.filename}
 	except HTTPException:
 		raise
+	except Exception as e:
+		raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/assistant/analytics/{user_id}", response_model=Dict[str, Any])
+async def get_student_analytics(user_id: str):
+	"""Получить аналитические данные об ученике"""
+	try:
+		analytics_service = get_analytics_service()
+		analytics_data = analytics_service.get_analytics(user_id)
+		return analytics_data
+	except Exception as e:
+		raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/assistant/analytics/test-result", response_model=Dict[str, Any])
+async def process_test_result(req: TestResultRequest):
+	"""Обработать результат теста и обновить аналитику"""
+	try:
+		analytics_service = get_analytics_service()
+		
+		# Получаем cognitive profile для синхронизации
+		cognitive_profile = None
+		if req.user_id:
+			from agents.orchestrator import AgentOrchestrator
+			orchestrator = AgentOrchestrator()
+			cognitive_profile = orchestrator.profiler.get_profile(req.user_id)
+		
+		test_result = {
+			"subject": req.subject,
+			"accuracy": req.accuracy,
+			"errors": req.errors,
+			"time_spent_seconds": req.time_spent_seconds
+		}
+		
+		result = analytics_service.process_test_result(
+			user_id=req.user_id,
+			test_result=test_result,
+			cognitive_profile=cognitive_profile
+		)
+		
+		return result
+	except Exception as e:
+		raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/assistant/analytics/task-attempt", response_model=Dict[str, Any])
+async def process_task_attempt(req: TaskAttemptRequest):
+	"""Обработать попытку выполнения задания и обновить аналитику"""
+	try:
+		analytics_service = get_analytics_service()
+		
+		# Получаем cognitive profile для синхронизации
+		cognitive_profile = None
+		if req.user_id:
+			from agents.orchestrator import AgentOrchestrator
+			orchestrator = AgentOrchestrator()
+			cognitive_profile = orchestrator.profiler.get_profile(req.user_id)
+		
+		task_attempt = {
+			"is_correct": req.is_correct,
+			"error_type": req.error_type,
+			"time_spent_seconds": req.time_spent_seconds
+		}
+		
+		result = analytics_service.process_task_attempt(
+			user_id=req.user_id,
+			task_attempt=task_attempt,
+			cognitive_profile=cognitive_profile
+		)
+		
+		return result
 	except Exception as e:
 		raise HTTPException(status_code=500, detail=str(e))
