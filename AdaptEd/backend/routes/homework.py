@@ -4,9 +4,10 @@ API маршруты для домашних заданий
 from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
 from typing import List, Optional, Dict, Any
-from datetime import datetime
+from datetime import datetime, timedelta
 import json
 import re
+from collections import defaultdict
 from agents.orchestrator import AgentOrchestrator
 from services.assistant import get_assistant_service
 from utils.db import get_db, has_db
@@ -14,6 +15,7 @@ from sqlalchemy.orm import Session
 from models.homework import Homework, HomeworkSubmission as HomeworkSubmissionORM
 from utils.db import Base
 from sqlalchemy import select
+from models.test import TestSubmission, Test
 
 router = APIRouter()
 orchestrator = AgentOrchestrator()
@@ -414,6 +416,193 @@ async def get_student_statistics(user_id: str):
             ],
             "personality": personality_profile.dict() if personality_profile else None
         }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/progress/{user_id}", response_model=Dict[str, Any])
+async def get_student_progress(user_id: str, db: Session = Depends(get_db)):
+    """
+    Получение полной статистики прогресса ученика для дашборда
+    Включает: статистику, слабые места, недельные данные, недавнюю активность
+    """
+    try:
+        # Получаем базовую статистику
+        profile = orchestrator.profiler.get_profile(user_id)
+        if not profile:
+            raise HTTPException(status_code=404, detail="Profile not found")
+        
+        # Получаем аналитику
+        analytics_data = None
+        try:
+            from services.student_analytics import get_analytics_service
+            analytics_service = get_analytics_service()
+            analytics_data = analytics_service.get_analytics(user_id)
+        except Exception:
+            pass
+        
+        # Получаем историю тестов из БД
+        test_submissions = []
+        weekly_data = defaultdict(lambda: {"scores": [], "tasks": 0})
+        recent_activities = []
+        
+        if has_db() and db is not None:
+            try:
+                # Получаем последние 30 дней тестов
+                thirty_days_ago = datetime.utcnow() - timedelta(days=30)
+                stmt = select(TestSubmission).where(
+                    TestSubmission.user_id == user_id,
+                    TestSubmission.created_at >= thirty_days_ago
+                ).order_by(TestSubmission.created_at.desc())
+                submissions = db.execute(stmt).scalars().all()
+                
+                for sub in submissions:
+                    # Получаем информацию о тесте
+                    topic = "Неизвестная тема"
+                    try:
+                        if sub.test_id:
+                            test = db.get(Test, sub.test_id)
+                            if test and hasattr(test, 'topic') and test.topic:
+                                topic = test.topic
+                    except Exception:
+                        pass
+                    
+                    test_submissions.append({
+                        "date": sub.created_at.isoformat() if sub.created_at else None,
+                        "topic": topic,
+                        "score": sub.score or 0,
+                        "test_id": sub.test_id
+                    })
+                    
+                    # Добавляем в недавнюю активность (последние 10)
+                    if len(recent_activities) < 10:
+                        recent_activities.append({
+                            "date": sub.created_at.strftime("%Y-%m-%d") if sub.created_at else "",
+                            "topic": topic,
+                            "score": sub.score or 0,
+                            "time": 0  # Время не сохраняется в TestSubmission
+                        })
+                    
+                    # Группируем по неделям для графика
+                    if sub.created_at:
+                        week_start = sub.created_at - timedelta(days=sub.created_at.weekday())
+                        week_key = week_start.strftime("%Y-%m-%d")
+                        weekly_data[week_key]["scores"].append(sub.score or 0)
+                        weekly_data[week_key]["tasks"] += 1
+            except Exception as e:
+                print(f"Error fetching test submissions: {e}")
+        
+        # Формируем недельные данные для графика (последние 7 дней)
+        weekly_chart_data = []
+        day_names = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс']
+        today = datetime.utcnow()
+        
+        for i in range(6, -1, -1):  # Последние 7 дней
+            day = today - timedelta(days=i)
+            day_key = day.strftime("%Y-%m-%d")
+            day_name = day_names[day.weekday()]
+            
+            # Находим все тесты за этот день
+            day_scores = []
+            day_tasks = 0
+            for sub in test_submissions:
+                if sub["date"] and sub["date"].startswith(day_key):
+                    day_scores.append(sub["score"])
+                    day_tasks += 1
+            
+            avg_score = sum(day_scores) / len(day_scores) if day_scores else 0
+            weekly_chart_data.append({
+                "day": day_name,
+                "score": round(avg_score, 1),
+                "tasks": day_tasks
+            })
+        
+        # Добавляем задания из истории в недавнюю активность
+        if profile.task_history:
+            for task in sorted(profile.task_history, key=lambda t: t.timestamp, reverse=True)[:10]:
+                if len(recent_activities) >= 10:
+                    break
+                task_date = task.timestamp.strftime("%Y-%m-%d") if hasattr(task.timestamp, 'strftime') else str(task.timestamp)[:10]
+                # Извлекаем тему из вопроса или используем общую
+                topic = "Задание"
+                if hasattr(task, 'question') and task.question:
+                    # Пытаемся найти тему в вопросе
+                    for known_topic in profile.topic_mastery.keys():
+                        if known_topic.lower() in str(task.question).lower():
+                            topic = known_topic
+                            break
+                
+                score = 100 if task.is_correct else 0
+                time_spent = task.time_spent_seconds or 0
+                
+                recent_activities.append({
+                    "date": task_date,
+                    "topic": topic,
+                    "score": score,
+                    "time": time_spent // 60  # Конвертируем секунды в минуты
+                })
+        
+        # Сортируем недавнюю активность по дате (новые первые)
+        recent_activities.sort(key=lambda x: x["date"], reverse=True)
+        recent_activities = recent_activities[:10]  # Берем только последние 10
+        
+        # Определяем слабые места
+        weak_topics = []
+        for topic, mastery in profile.topic_mastery.items():
+            if mastery < 0.7:  # Темы с мастерством меньше 70%
+                # Подсчитываем ошибки по этой теме из истории заданий
+                errors_count = sum(1 for task in profile.task_history 
+                                 if not task.is_correct and topic.lower() in str(task.question).lower())
+                weak_topics.append({
+                    "name": topic,
+                    "progress": int(mastery * 100),
+                    "errors": errors_count
+                })
+        
+        # Сортируем по прогрессу (меньше = хуже)
+        weak_topics.sort(key=lambda x: x["progress"])
+        weak_topics = weak_topics[:3]  # Топ-3 слабых места
+        
+        # Подсчитываем общее количество тем
+        total_topics = len(profile.topic_mastery) if profile.topic_mastery else 24
+        completed_topics = sum(1 for mastery in profile.topic_mastery.values() if mastery >= 0.7) if profile.topic_mastery else 0
+        
+        # Подсчитываем streak (дни подряд с активностью)
+        current_streak = 0
+        if profile.task_history:
+            # Сортируем по дате
+            sorted_tasks = sorted(profile.task_history, key=lambda t: t.timestamp, reverse=True)
+            current_date = datetime.utcnow().date()
+            for i, task in enumerate(sorted_tasks):
+                task_date = task.timestamp.date() if hasattr(task.timestamp, 'date') else datetime.fromisoformat(str(task.timestamp)).date() if isinstance(task.timestamp, str) else current_date
+                days_diff = (current_date - task_date).days
+                if days_diff == i:
+                    current_streak += 1
+                else:
+                    break
+        
+        return {
+            "user_id": user_id,
+            "progress": {
+                "totalTopics": total_topics,
+                "completedTopics": completed_topics,
+                "currentStreak": current_streak,
+                "totalPoints": profile.points,
+                "averageAccuracy": round(profile.accuracy_rate, 1),
+                "weakTopics": weak_topics,
+                "recentActivities": recent_activities[:10]  # Последние 10 активностей
+            },
+            "weeklyData": weekly_chart_data,
+            "statistics": {
+                "total_tasks": profile.total_tasks_completed,
+                "correct_tasks": profile.correct_tasks_count,
+                "accuracy_rate": profile.accuracy_rate,
+                "level": profile.level,
+                "points": profile.points
+            }
+        }
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

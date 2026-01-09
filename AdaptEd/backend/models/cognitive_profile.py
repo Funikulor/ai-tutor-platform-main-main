@@ -54,8 +54,8 @@ class TaskAttempt(BaseModel):
     """Попытка выполнения задания"""
     task_id: int
     question: str
-    user_answer: Optional[int]
-    correct_answer: int
+    user_answer: Optional[str]  # Может быть строкой для разных типов заданий (число, текст, уравнение)
+    correct_answer: str  # Может быть строкой для разных типов заданий
     is_correct: bool
     time_spent_seconds: Optional[int] = None
     attempts_count: int = 1

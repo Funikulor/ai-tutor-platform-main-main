@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { KnowledgeGraph } from './KnowledgeGraph';
 import { AdaptiveTask } from './AdaptiveTask';
 import { ProgressStats } from './ProgressStats';
@@ -8,40 +8,96 @@ import { AIChatPanel } from './AIChatPanel';
 import { LibraryTab } from './LibraryTab';
 import { HomeworkTab } from './HomeworkTab';
 import { Brain, TrendingUp, Target, BookOpen, MessageCircle, Library, ClipboardCheck } from 'lucide-react';
+import api from '../services/api';
+
+interface ProgressData {
+  totalTopics: number;
+  completedTopics: number;
+  currentStreak: number;
+  totalPoints: number;
+  averageAccuracy: number;
+  weakTopics: Array<{
+    name: string;
+    progress: number;
+    errors: number;
+  }>;
+  recentActivities: Array<{
+    date: string;
+    topic: string;
+    score: number;
+    time: number;
+  }>;
+}
 
 export function StudentDashboard() {
   const [currentView, setCurrentView] = useState<'overview' | 'task' | 'knowledge' | 'chat' | 'library' | 'homework'>('overview');
   const [lastError, setLastError] = useState<any>(null);
   const [isChatMinimized, setIsChatMinimized] = useState(false);
   const [selectedMaterialId, setSelectedMaterialId] = useState<string | undefined>(undefined);
+  const [studentProgress, setStudentProgress] = useState<ProgressData>({
+    totalTopics: 0,
+    completedTopics: 0,
+    currentStreak: 0,
+    totalPoints: 0,
+    averageAccuracy: 0,
+    weakTopics: [],
+    recentActivities: []
+  });
+  const [weeklyData, setWeeklyData] = useState<Array<{day: string; score: number; tasks: number}>>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    loadProgressData();
+  }, []);
+
+  const loadProgressData = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      const userId = localStorage.getItem('user_id');
+      if (!userId) {
+        throw new Error('User ID not found');
+      }
+
+      const response = await api.get(`/progress/${userId}`);
+      const data = response.data;
+
+      if (data.progress) {
+        setStudentProgress(data.progress);
+      }
+      if (data.weeklyData) {
+        setWeeklyData(data.weeklyData);
+      }
+    } catch (err: any) {
+      console.error('Error loading progress data:', err);
+      setError(err.response?.data?.detail || 'Не удалось загрузить данные прогресса');
+      // Используем значения по умолчанию при ошибке
+      setStudentProgress({
+        totalTopics: 0,
+        completedTopics: 0,
+        currentStreak: 0,
+        totalPoints: 0,
+        averageAccuracy: 0,
+        weakTopics: [],
+        recentActivities: []
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const handleMaterialClick = (materialId: string) => {
     setSelectedMaterialId(materialId);
     setCurrentView('library');
   };
 
-  const studentProgress = {
-    totalTopics: 24,
-    completedTopics: 18,
-    currentStreak: 7,
-    totalPoints: 1250,
-    averageAccuracy: 87,
-    weakTopics: [
-      { name: 'Теорема Пифагора', progress: 45, errors: 8 },
-      { name: 'Квадратные уравнения', progress: 62, errors: 5 },
-      { name: 'Тригонометрия', progress: 38, errors: 12 }
-    ],
-    recentActivities: [
-      { date: '2025-11-29', topic: 'Линейные уравнения', score: 92, time: 15 },
-      { date: '2025-11-28', topic: 'Проценты', score: 88, time: 12 },
-      { date: '2025-11-27', topic: 'Дроби', score: 95, time: 10 }
-    ]
-  };
-
   const handleTaskComplete = (result: any) => {
     if (!result.correct) {
       setLastError(result.analysis);
     }
+    // Обновляем данные прогресса после выполнения задания
+    loadProgressData();
   };
 
   return (
@@ -118,54 +174,68 @@ export function StudentDashboard() {
 
       {/* Quick Stats */}
       {currentView === 'overview' && (
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-          <div className="bg-gradient-to-br from-blue-500 to-blue-600 rounded-xl p-6 text-white">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-blue-100">Изучено тем</p>
-                <p className="text-3xl mt-2">{studentProgress.completedTopics}/{studentProgress.totalTopics}</p>
-              </div>
-              <BookOpen className="w-12 h-12 text-blue-200 opacity-80" />
+        <>
+          {loading && (
+            <div className="text-center py-8">
+              <p className="text-gray-500">Загрузка данных...</p>
             </div>
-          </div>
+          )}
+          {error && (
+            <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-4">
+              <p className="text-red-600">{error}</p>
+            </div>
+          )}
+          {!loading && (
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+              <div className="bg-gradient-to-br from-blue-500 to-blue-600 rounded-xl p-6 text-white">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-blue-100">Изучено тем</p>
+                    <p className="text-3xl mt-2">{studentProgress.completedTopics}/{studentProgress.totalTopics || 0}</p>
+                  </div>
+                  <BookOpen className="w-12 h-12 text-blue-200 opacity-80" />
+                </div>
+              </div>
 
-          <div className="bg-gradient-to-br from-green-500 to-green-600 rounded-xl p-6 text-white">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-green-100">Точность</p>
-                <p className="text-3xl mt-2">{studentProgress.averageAccuracy}%</p>
+              <div className="bg-gradient-to-br from-green-500 to-green-600 rounded-xl p-6 text-white">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-green-100">Точность</p>
+                    <p className="text-3xl mt-2">{studentProgress.averageAccuracy.toFixed(1)}%</p>
+                  </div>
+                  <Target className="w-12 h-12 text-green-200 opacity-80" />
+                </div>
               </div>
-              <Target className="w-12 h-12 text-green-200 opacity-80" />
-            </div>
-          </div>
 
-          <div className="bg-gradient-to-br from-purple-500 to-purple-600 rounded-xl p-6 text-white">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-purple-100">Дней подряд</p>
-                <p className="text-3xl mt-2">{studentProgress.currentStreak}</p>
+              <div className="bg-gradient-to-br from-purple-500 to-purple-600 rounded-xl p-6 text-white">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-purple-100">Дней подряд</p>
+                    <p className="text-3xl mt-2">{studentProgress.currentStreak}</p>
+                  </div>
+                  <TrendingUp className="w-12 h-12 text-purple-200 opacity-80" />
+                </div>
               </div>
-              <TrendingUp className="w-12 h-12 text-purple-200 opacity-80" />
-            </div>
-          </div>
 
-          <div className="bg-gradient-to-br from-orange-500 to-orange-600 rounded-xl p-6 text-white">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-orange-100">Баллы</p>
-                <p className="text-3xl mt-2">{studentProgress.totalPoints}</p>
+              <div className="bg-gradient-to-br from-orange-500 to-orange-600 rounded-xl p-6 text-white">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-orange-100">Баллы</p>
+                    <p className="text-3xl mt-2">{studentProgress.totalPoints}</p>
+                  </div>
+                  <Brain className="w-12 h-12 text-orange-200 opacity-80" />
+                </div>
               </div>
-              <Brain className="w-12 h-12 text-orange-200 opacity-80" />
             </div>
-          </div>
-        </div>
+          )}
+        </>
       )}
 
       {/* Main Content Area */}
-      {currentView === 'overview' && (
+      {currentView === 'overview' && !loading && (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           <div className="lg:col-span-2">
-            <ProgressStats progress={studentProgress} />
+            <ProgressStats progress={studentProgress} weeklyData={weeklyData} />
           </div>
           <div>
             <RecommendationPanel error={lastError} onMaterialClick={handleMaterialClick} />
@@ -176,7 +246,10 @@ export function StudentDashboard() {
       {currentView === 'task' && (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           <div className="lg:col-span-2">
-            <AdaptiveTask onComplete={handleTaskComplete} />
+            <AdaptiveTask 
+              key="adaptive-task" 
+              onComplete={handleTaskComplete}
+            />
           </div>
           <div>
             <RecommendationPanel error={lastError} onMaterialClick={handleMaterialClick} />

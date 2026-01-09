@@ -20,16 +20,22 @@ interface ProgressData {
   }>;
 }
 
-export function ProgressStats({ progress }: { progress: ProgressData }) {
-  // Weekly progress data
-  const weeklyData = [
-    { day: 'Пн', score: 85, tasks: 12 },
-    { day: 'Вт', score: 78, tasks: 15 },
-    { day: 'Ср', score: 92, tasks: 10 },
-    { day: 'Чт', score: 88, tasks: 14 },
-    { day: 'Пт', score: 90, tasks: 11 },
-    { day: 'Сб', score: 87, tasks: 9 },
-    { day: 'Вс', score: 94, tasks: 8 }
+export function ProgressStats({ 
+  progress, 
+  weeklyData = [] 
+}: { 
+  progress: ProgressData;
+  weeklyData?: Array<{day: string; score: number; tasks: number}>;
+}) {
+  // Используем реальные данные или значения по умолчанию
+  const chartData = weeklyData.length > 0 ? weeklyData : [
+    { day: 'Пн', score: 0, tasks: 0 },
+    { day: 'Вт', score: 0, tasks: 0 },
+    { day: 'Ср', score: 0, tasks: 0 },
+    { day: 'Чт', score: 0, tasks: 0 },
+    { day: 'Пт', score: 0, tasks: 0 },
+    { day: 'Сб', score: 0, tasks: 0 },
+    { day: 'Вс', score: 0, tasks: 0 }
   ];
 
   // Topic distribution
@@ -78,7 +84,7 @@ export function ProgressStats({ progress }: { progress: ProgressData }) {
           <TrendingUp className="w-6 h-6 text-green-600" />
         </div>
         <ResponsiveContainer width="100%" height={300}>
-          <LineChart data={weeklyData}>
+          <LineChart data={chartData}>
             <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
             <XAxis dataKey="day" stroke="#6b7280" />
             <YAxis stroke="#6b7280" />

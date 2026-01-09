@@ -24,7 +24,7 @@ class AgentOrchestrator:
         self.teacher_analytics = TeacherAnalyticsAgent()
     
     def process_task_submission(self, user_id: str, task_id: int, question: str, 
-                                user_answer: int, correct_answer: int) -> Dict[str, Any]:
+                                user_answer: str, correct_answer: str) -> Dict[str, Any]:
         """
         Обрабатывает отправку задания учеником
         
@@ -34,8 +34,19 @@ class AgentOrchestrator:
         - mentor_message: сообщение от наставника
         - updated_profile: обновленный профиль
         """
-        # Проверяем ответ
-        is_correct = user_answer == correct_answer
+        # Проверяем ответ (с учетом разных типов: строки, числа, уравнения)
+        # Нормализуем ответы для сравнения
+        user_ans_normalized = str(user_answer).strip().lower()
+        correct_ans_normalized = str(correct_answer).strip().lower()
+        
+        # Для числовых ответов сравниваем как числа
+        try:
+            user_num = float(user_ans_normalized)
+            correct_num = float(correct_ans_normalized)
+            is_correct = abs(user_num - correct_num) < 0.01  # Допуск для числовых ответов
+        except (ValueError, TypeError):
+            # Для текстовых ответов сравниваем строки
+            is_correct = user_ans_normalized == correct_ans_normalized
         
         # Создаем попытку выполнения
         task_attempt = TaskAttempt(

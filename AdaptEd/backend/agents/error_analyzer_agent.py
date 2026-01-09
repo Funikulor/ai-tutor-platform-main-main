@@ -89,16 +89,41 @@ class ErrorAnalyzerAgent(BaseAgent):
         self.log(f"Error analysis complete: {result['error_type']}")
         return result
     
-    def _analyze_error_type(self, user_answer: int, correct_answer: int, question: str) -> Dict[str, Any]:
+    def _analyze_error_type(self, user_answer: str, correct_answer: str, question: str) -> Dict[str, Any]:
         """Определяет тип ошибки на основе разницы между ответами"""
         
-        difference = abs(user_answer - correct_answer)
+        # Пытаемся сравнить как числа
+        try:
+            user_num = float(str(user_answer).strip())
+            correct_num = float(str(correct_answer).strip())
+            difference = abs(user_num - correct_num)
+        except (ValueError, TypeError):
+            # Если не числа, сравниваем как строки
+            difference = 0 if str(user_answer).strip().lower() == str(correct_answer).strip().lower() else 999
         
-        # Анализ по разнице
-        if difference == 1:
+        # Анализ по разнице (для числовых ответов)
+        if difference < 0.01:  # Ответы совпадают (для чисел)
+            error_type = ErrorTag.CARELESSNESS
+            justification = "Ответы очень близки, возможно небольшая описка."
+        elif difference == 999:  # Строковые ответы не совпадают
+            # Анализируем строковые ответы
+            user_lower = str(user_answer).strip().lower()
+            correct_lower = str(correct_answer).strip().lower()
+            
+            # Проверяем, есть ли общие части
+            if any(word in correct_lower for word in user_lower.split() if len(word) > 2):
+                error_type = ErrorTag.CARELESSNESS
+                justification = "Ответ частично правильный, но есть неточности в формулировке."
+            elif "x" in question.lower() or "=" in question:
+                error_type = ErrorTag.MISSING_FORMULA
+                justification = "Не использована правильная формула или метод решения уравнения."
+            else:
+                error_type = ErrorTag.CONCEPT_CONFUSION
+                justification = "Неправильное понимание концепции задачи."
+        elif difference == 1:
             error_type = ErrorTag.CARELESSNESS
             justification = "Незначительная ошибка на единицу. Вероятно, описка в вычислении."
-        elif difference > user_answer * 0.5:  # Большая разница
+        elif difference > 10:  # Большая разница
             error_type = ErrorTag.LOGIC_GAP
             justification = "Существенная ошибка в логике решения."
         elif difference % 10 == 0:  # Ошибка в разряде

@@ -281,7 +281,7 @@ export function Auth({ onSuccess }: AuthProps) {
               <button
                 type="submit"
                 disabled={loading || backendStatus === 'offline'}
-                className="w-full bg-gradient-to-r from-blue-500 to-purple-600 text-white py-3 rounded-lg font-medium hover:from-blue-600 hover:to-purple-700 transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-lg"
+                className="w-full bg-purple-600 text-white py-3 rounded-lg font-semibold hover:bg-purple-700 hover:shadow-xl transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-lg"
               >
                 {loading ? 'Вход...' : 'Войти'}
               </button>
@@ -399,7 +399,7 @@ export function Auth({ onSuccess }: AuthProps) {
               <button
                 type="submit"
                 disabled={loading || backendStatus === 'offline'}
-                className="w-full bg-gradient-to-r from-blue-500 to-purple-600 text-white py-3 rounded-lg font-medium hover:from-blue-600 hover:to-purple-700 transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-lg"
+                className="w-full bg-purple-600 text-white py-3 rounded-lg font-semibold hover:bg-purple-700 hover:shadow-xl transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-lg"
               >
                 {loading ? 'Регистрация...' : 'Зарегистрироваться'}
               </button>
