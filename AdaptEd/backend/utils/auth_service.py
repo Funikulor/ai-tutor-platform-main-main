@@ -1,5 +1,5 @@
 """
-Сервис авторизации
+Сервис авторизации с поддержкой БД
 """
 import hashlib
 import secrets
@@ -7,6 +7,7 @@ from datetime import datetime, timedelta
 from typing import Optional, Dict, List
 from models.auth import User, UserRole
 from utils.persistent_storage import persistent_storage
+from utils.db import get_db, has_db
 
 
 class AuthService:
@@ -21,11 +22,41 @@ class AuthService:
         admin_id = "admin_001"
         admin_email = "admin@adapted.ru"
         admin_password = "admin123"  # В продакшене должен быть сложный пароль
+        hashed_password = self.hash_password(admin_password)
         
-        # Проверяем, не существует ли уже админ
+        # Пробуем создать в БД
+        if has_db():
+            db = get_db()
+            if db:
+                try:
+                    from models.user_db import User as UserDB
+                    # Проверяем, не существует ли уже админ
+                    existing = db.query(UserDB).filter(
+                        (UserDB.user_id == admin_id) | (UserDB.email == admin_email)
+                    ).first()
+                    
+                    if not existing:
+                        admin = UserDB(
+                            user_id=admin_id,
+                            email=admin_email,
+                            password_hash=hashed_password,
+                            full_name="Системный Администратор",
+                            role="admin",
+                            class_id=None,
+                            phone=None,
+                            is_active=True
+                        )
+                        db.add(admin)
+                        db.commit()
+                        print(f"[Auth] Создан администратор: {admin_email}")
+                except Exception as e:
+                    print(f"[Auth] Ошибка создания админа в БД: {e}")
+                finally:
+                    db.close()
+                return
+        
+        # Fallback на persistent_storage
         if admin_id not in persistent_storage.get("users", {}):
-            hashed_password = self.hash_password(admin_password)
-            
             admin_data = {
                 "user_id": admin_id,
                 "email": admin_email,
@@ -38,7 +69,6 @@ class AuthService:
                 "password": hashed_password
             }
             
-            # Получаем существующих пользователей и добавляем админа
             existing_users = persistent_storage.get("users", {})
             existing_users[admin_id] = admin_data
             persistent_storage.set("users", existing_users)
@@ -61,16 +91,62 @@ class AuthService:
                      role: UserRole, class_id: Optional[str] = None,
                      phone: Optional[str] = None) -> Optional[User]:
         """Регистрирует нового пользователя"""
-        # Проверяем, не существует ли уже пользователь
+        hashed_password = self.hash_password(password)
+        
+        # Пробуем создать в БД
+        if has_db():
+            db = get_db()
+            if db:
+                try:
+                    from models.user_db import User as UserDB
+                    # Проверяем, не существует ли уже пользователь
+                    existing = db.query(UserDB).filter(UserDB.email == email).first()
+                    if existing:
+                        return None
+                    
+                    # Генерируем user_id
+                    count = db.query(UserDB).count()
+                    user_id = f"{role.value}_{count + 1:03d}"
+                    
+                    # Создаем пользователя
+                    user_db = UserDB(
+                        user_id=user_id,
+                        email=email,
+                        password_hash=hashed_password,
+                        full_name=full_name,
+                        role=role.value,
+                        class_id=class_id,
+                        phone=phone,
+                        is_active=True
+                    )
+                    db.add(user_db)
+                    db.commit()
+                    
+                    # Возвращаем Pydantic модель
+                    return User(
+                        user_id=user_id,
+                        email=email,
+                        full_name=full_name,
+                        role=role,
+                        class_id=class_id,
+                        phone=phone,
+                        created_at=user_db.created_at,
+                        is_active=True
+                    )
+                except Exception as e:
+                    print(f"[Auth] Ошибка регистрации в БД: {e}")
+                    db.rollback()
+                finally:
+                    db.close()
+        
+        # Fallback на persistent_storage
         users = persistent_storage.get("users", {})
         for user_id, user_data in users.items():
             if user_data.get("email") == email:
                 return None
         
-        # Создаем пользователя
         users = persistent_storage.get("users", {})
         user_id = f"{role.value}_{len(users) + 1:03d}"
-        hashed_password = self.hash_password(password)
         
         user = User(
             user_id=user_id,
@@ -83,8 +159,6 @@ class AuthService:
             is_active=True
         )
         
-        # Сохраняем в базу данных
-        users = persistent_storage.get("users", {})
         users[user_id] = {
             **user.dict(),
             "password": hashed_password
@@ -96,46 +170,85 @@ class AuthService:
     def authenticate_user(self, email: str, password: str) -> Optional[Dict]:
         """Аутентифицирует пользователя"""
         hashed_password = self.hash_password(password)
-        print(f"DEBUG: Trying to authenticate email: {email}")
-        print(f"DEBUG: Password hash: {hashed_password}")
         
-        # Ищем пользователя
+        # Пробуем найти в БД
+        if has_db():
+            db = get_db()
+            if db:
+                try:
+                    from models.user_db import User as UserDB
+                    user_db = db.query(UserDB).filter(
+                        UserDB.email == email,
+                        UserDB.password_hash == hashed_password,
+                        UserDB.is_active == True
+                    ).first()
+                    
+                    if user_db:
+                        token = self.generate_token(user_db.user_id, UserRole(user_db.role))
+                        return {
+                            "token": token,
+                            "user_id": user_db.user_id,
+                            "role": user_db.role
+                        }
+                except Exception as e:
+                    print(f"[Auth] Ошибка аутентификации в БД: {e}")
+                finally:
+                    db.close()
+        
+        # Fallback на persistent_storage
         users = persistent_storage.get("users", {})
-        print(f"DEBUG: Available users: {list(users.keys())}")
-        
         for user_id, user_data in users.items():
-            print(f"DEBUG: Checking user {user_id}, email: {user_data.get('email')}")
             if user_data.get("email") == email and user_data.get("password") == hashed_password:
-                print(f"DEBUG: Password match for user {user_id}")
                 if user_data.get("is_active"):
                     token = self.generate_token(user_id, UserRole(user_data["role"]))
-                    print(f"DEBUG: Generated token for user {user_id}")
                     return {
                         "token": token,
                         "user_id": user_id,
                         "role": user_data["role"]
                     }
-                else:
-                    print(f"DEBUG: User {user_id} is not active")
         
-        print(f"DEBUG: Authentication failed for email: {email}")
         return None
     
     def get_user_from_token(self, token: str) -> Optional[Dict]:
         """Получает информацию о пользователе из токена"""
-        if token in self.sessions:
-            session = self.sessions[token]
-            user_id = session["user_id"]
-            
-            if user_id in persistent_storage.get("users", {}):
-                user_data = persistent_storage.get("users", {})[user_id]
-                return {
-                    "user_id": user_id,
-                    "email": user_data.get("email"),
-                    "full_name": user_data.get("full_name"),
-                    "role": user_data.get("role"),
-                    "class_id": user_data.get("class_id")
-                }
+        if token not in self.sessions:
+            return None
+        
+        session = self.sessions[token]
+        user_id = session["user_id"]
+        
+        # Пробуем получить из БД
+        if has_db():
+            db = get_db()
+            if db:
+                try:
+                    from models.user_db import User as UserDB
+                    user_db = db.query(UserDB).filter(UserDB.user_id == user_id).first()
+                    if user_db and user_db.is_active:
+                        return {
+                            "user_id": user_db.user_id,
+                            "email": user_db.email,
+                            "full_name": user_db.full_name,
+                            "role": user_db.role,
+                            "class_id": user_db.class_id,
+                            "phone": user_db.phone
+                        }
+                except Exception as e:
+                    print(f"[Auth] Ошибка получения пользователя из БД: {e}")
+                finally:
+                    db.close()
+        
+        # Fallback на persistent_storage
+        if user_id in persistent_storage.get("users", {}):
+            user_data = persistent_storage.get("users", {})[user_id]
+            return {
+                "user_id": user_id,
+                "email": user_data.get("email"),
+                "full_name": user_data.get("full_name"),
+                "role": user_data.get("role"),
+                "class_id": user_data.get("class_id"),
+                "phone": user_data.get("phone")
+            }
         
         return None
     
@@ -146,15 +259,72 @@ class AuthService:
     
     def get_all_users(self) -> List[Dict]:
         """Получить всех пользователей"""
-        users_data = persistent_storage.get("users", {})
-        print(f"DEBUG: persistent_storage users: {users_data}")
         users = []
+        
+        # Пробуем получить из БД
+        if has_db():
+            db = get_db()
+            if db:
+                try:
+                    from models.user_db import User as UserDB
+                    users_db = db.query(UserDB).all()
+                    for user_db in users_db:
+                        users.append({
+                            "user_id": user_db.user_id,
+                            "email": user_db.email,
+                            "full_name": user_db.full_name,
+                            "role": user_db.role,
+                            "class_id": user_db.class_id,
+                            "phone": user_db.phone,
+                            "is_active": user_db.is_active,
+                            "created_at": user_db.created_at.isoformat() if user_db.created_at else None
+                        })
+                    return users
+                except Exception as e:
+                    print(f"[Auth] Ошибка получения пользователей из БД: {e}")
+                finally:
+                    db.close()
+        
+        # Fallback на persistent_storage
+        users_data = persistent_storage.get("users", {})
         for user_id, user_data in users_data.items():
-            # Исключаем пароль из ответа
             user_info = {k: v for k, v in user_data.items() if k != "password"}
             users.append(user_info)
-        print(f"DEBUG: returning {len(users)} users")
+        
         return users
+    
+    def get_user_by_id(self, user_id: str) -> Optional[Dict]:
+        """Получить пользователя по ID"""
+        # Пробуем получить из БД
+        if has_db():
+            db = get_db()
+            if db:
+                try:
+                    from models.user_db import User as UserDB
+                    user_db = db.query(UserDB).filter(UserDB.user_id == user_id).first()
+                    if user_db:
+                        return {
+                            "user_id": user_db.user_id,
+                            "email": user_db.email,
+                            "full_name": user_db.full_name,
+                            "role": user_db.role,
+                            "class_id": user_db.class_id,
+                            "phone": user_db.phone,
+                            "is_active": user_db.is_active,
+                            "created_at": user_db.created_at.isoformat() if user_db.created_at else None
+                        }
+                except Exception as e:
+                    print(f"[Auth] Ошибка получения пользователя из БД: {e}")
+                finally:
+                    db.close()
+        
+        # Fallback на persistent_storage
+        users = persistent_storage.get("users", {})
+        if user_id in users:
+            user_data = users[user_id]
+            return {k: v for k, v in user_data.items() if k != "password"}
+        
+        return None
 
 
 # Создаем глобальный экземпляр

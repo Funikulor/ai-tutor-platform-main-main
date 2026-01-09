@@ -21,6 +21,9 @@ export interface GeneratedTestRequest {
   question_count?: number;
   creator_id?: string;
   user_id?: string;
+  subject?: string;
+  grade?: string;
+  include_explanations?: boolean;
 }
 
 export interface TestSummary {
@@ -38,6 +41,7 @@ export interface TestQuestion {
   question: string;
   options: string[];
   correct_index: number;
+  question_type?: 'single' | 'multiple' | 'text' | 'numeric';
   explanation?: string;
 }
 
@@ -51,10 +55,28 @@ export async function createManualTest(payload: ManualTestCreate) {
 }
 
 export async function generateTest(payload: GeneratedTestRequest) {
-  const resp = await api.post<{ test: TestDetail }>('/tests/generate', payload);
-  // бэкенд возвращает { test: {...} }, но на всякий случай поддержим прямой объект
-  const data = resp.data as any;
-  return (data && (data.test || data)) as TestDetail;
+  try {
+    const resp = await api.post<{ test: TestDetail }>('/tests/generate', payload);
+    // бэкенд возвращает { test: {...} }, но на всякий случай поддержим прямой объект
+    const data = resp.data as any;
+    if (data && data.test) {
+      return data.test as TestDetail;
+    }
+    if (data && data.id) {
+      // Если вернулся прямой объект теста
+      return data as TestDetail;
+    }
+    throw new Error('Неверный формат ответа от сервера');
+  } catch (error: any) {
+    // Пробрасываем ошибку дальше с правильной информацией
+    if (error.response) {
+      const detail = error.response.data?.detail || error.response.data?.message || error.response.statusText;
+      const err = new Error(detail || 'Ошибка генерации теста');
+      (err as any).response = error.response;
+      throw err;
+    }
+    throw error;
+  }
 }
 
 export async function listTests(params?: { topic?: string; creator_id?: string }) {

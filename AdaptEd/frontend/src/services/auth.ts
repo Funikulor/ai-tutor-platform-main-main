@@ -22,8 +22,16 @@ export const authService = {
         localStorage.setItem('token', response.data.access_token);
         localStorage.setItem('user_id', response.data.user_id);
         localStorage.setItem('role', response.data.role);
-        if (response.data.full_name) {
-          localStorage.setItem('full_name', response.data.full_name);
+        
+        // Получаем полную информацию о пользователе
+        try {
+          const userInfo = await this.getCurrentUser();
+          if (userInfo) {
+            localStorage.setItem('full_name', userInfo.full_name || '');
+            localStorage.setItem('email', userInfo.email || email);
+          }
+        } catch (e) {
+          // Если не удалось получить, используем то что есть
         }
       }
       return response.data;

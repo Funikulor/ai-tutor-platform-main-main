@@ -15,8 +15,7 @@ except Exception:
 	NullPool = None  # type: ignore
 	SQLA_AVAILABLE = False
 
-DATABASE_URL = os.getenv("DATABASE_URL")
-
+# Инициализация Base (не зависит от DATABASE_URL)
 if SQLA_AVAILABLE:
 	Base = declarative_base()
 else:
@@ -35,14 +34,14 @@ def _make_engine(db_url: str):
 		engine_kwargs = {"pool_pre_ping": True, "pool_size": 10, "max_overflow": 20}
 	return create_engine(db_url, connect_args=connect_args, **engine_kwargs)
 
-
-_engine = _make_engine(DATABASE_URL) if (SQLA_AVAILABLE and DATABASE_URL) else None
-_SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=_engine) if _engine else None
+# Инициализация engine будет выполнена после загрузки .env
+_engine = None
+_SessionLocal = None
 
 
 def _ensure_engine():
 	"""Создаёт engine/Session, если они ещё не инициализированы, но DATABASE_URL уже есть (например, после load_dotenv)."""
-	global _engine, _SessionLocal, DATABASE_URL
+	global _engine, _SessionLocal
 	if _engine is None and SQLA_AVAILABLE:
 		DATABASE_URL = os.getenv("DATABASE_URL")
 		if DATABASE_URL:
@@ -51,18 +50,38 @@ def _ensure_engine():
 
 
 def init_db():
+	"""Инициализирует базу данных: создает engine и все таблицы (только если их нет)"""
 	_ensure_engine()
 	if _engine is None or not SQLA_AVAILABLE:
 		return
+	
 	# import models to register metadata (only when SQLAlchemy is available)
 	try:
 		from models.document import Document  # noqa: F401
 		from models.homework import Homework, HomeworkSubmission  # noqa: F401
 		from models.test import Test, TestQuestion, TestSubmission  # noqa: F401
-		Base.metadata.create_all(bind=_engine)
-	except Exception:
-		# Silently skip DB init if models import fails
-		return
+		from models.user_db import User  # noqa: F401
+		
+		# Проверяем, существуют ли уже таблицы
+		from sqlalchemy import inspect
+		inspector = inspect(_engine)
+		existing_tables = inspector.get_table_names()
+		
+		# Список ожидаемых таблиц
+		expected_tables = ['documents', 'homeworks', 'homework_submissions', 
+		                  'tests', 'test_questions', 'test_submissions', 'users']
+		
+		# Проверяем, все ли таблицы существуют
+		missing_tables = [tbl for tbl in expected_tables if tbl not in existing_tables]
+		
+		if missing_tables:
+			# Создаем только недостающие таблицы
+			Base.metadata.create_all(bind=_engine)
+		# Если все таблицы есть, ничего не делаем
+		
+	except Exception as e:
+		# Тихо пропускаем ошибки при инициализации
+		pass
 
 
 def get_db() -> Optional["Session"]:

@@ -13,19 +13,23 @@ try:
 	print(f"[App] ASSISTANT_PROVIDER={os.getenv('ASSISTANT_PROVIDER', 'не установлен')}")
 	print(f"[App] OLLAMA_URL={os.getenv('OLLAMA_URL', 'не установлен')}")
 	print(f"[App] OLLAMA_MODEL={os.getenv('OLLAMA_MODEL', 'не установлен')}")
-	
-	# Инициализируем assistant_service после загрузки .env
-	from services.assistant import get_assistant_service
-	get_assistant_service()  # Создаем экземпляр с правильными настройками
-	print(f"[App] AssistantService инициализирован")
+	print(f"[App] DATABASE_URL={'установлен' if os.getenv('DATABASE_URL') else 'не установлен'}")
 except Exception as e:
 	def load_dotenv():
 		return None
 	print(f"[App] Ошибка загрузки .env: {e}")
 
+# Инициализируем БД ПОСЛЕ загрузки .env
 from utils.db import init_db
+init_db()  # Создает таблицы только если их нет
 
-init_db()
+# Инициализируем assistant_service после инициализации БД
+try:
+	from services.assistant import get_assistant_service
+	get_assistant_service()  # Создаем экземпляр с правильными настройками
+	print(f"[App] AssistantService инициализирован")
+except Exception as e:
+	print(f"[App] Ошибка инициализации AssistantService: {e}")
 
 app = FastAPI()
 

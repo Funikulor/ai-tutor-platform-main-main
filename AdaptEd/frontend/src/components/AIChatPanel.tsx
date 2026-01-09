@@ -21,19 +21,59 @@ interface AIChatPanelProps {
 }
 
 export function AIChatPanel({ isMinimized = false, onToggleMinimize, fullscreen = false }: AIChatPanelProps) {
-  const [messages, setMessages] = useState<Message[]>([
-    {
+  // Загружаем сообщения из localStorage при инициализации
+  const loadMessagesFromStorage = (): Message[] => {
+    try {
+      const saved = localStorage.getItem('ai_chat_messages');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        // Преобразуем timestamp обратно в Date объекты
+        return parsed.map((msg: any) => ({
+          ...msg,
+          timestamp: new Date(msg.timestamp)
+        }));
+      }
+    } catch (e) {
+      console.error('Error loading messages from storage:', e);
+    }
+    // Возвращаем начальное сообщение, если нет сохраненных
+    return [
+      {
+        id: 1,
+        text: 'Привет! Я твой AI-помощник 🌟 Готов помочь тебе с учебой! О чем хочешь поговорить?',
+        sender: 'ai',
+        timestamp: new Date(),
+        emotion: 'happy'
+      }
+    ];
+  };
+
+  const [messages, setMessages] = useState<Message[]>(loadMessagesFromStorage);
+  const [inputValue, setInputValue] = useState('');
+  const [isTyping, setIsTyping] = useState(false);
+  const [currentEmotion, setCurrentEmotion] = useState<'happy' | 'thinking' | 'excited' | 'encouraging' | 'surprised'>('happy');
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  // Сохраняем сообщения в localStorage при каждом изменении
+  useEffect(() => {
+    try {
+      localStorage.setItem('ai_chat_messages', JSON.stringify(messages));
+    } catch (e) {
+      console.error('Error saving messages to storage:', e);
+    }
+  }, [messages]);
+
+  // Функция для очистки чата (опционально, можно добавить кнопку)
+  const clearChat = () => {
+    const initialMessage: Message = {
       id: 1,
       text: 'Привет! Я твой AI-помощник 🌟 Готов помочь тебе с учебой! О чем хочешь поговорить?',
       sender: 'ai',
       timestamp: new Date(),
       emotion: 'happy'
-    }
-  ]);
-  const [inputValue, setInputValue] = useState('');
-  const [isTyping, setIsTyping] = useState(false);
-  const [currentEmotion, setCurrentEmotion] = useState<'happy' | 'thinking' | 'excited' | 'encouraging' | 'surprised'>('happy');
-  const messagesEndRef = useRef<HTMLDivElement>(null);
+    };
+    setMessages([initialMessage]);
+  };
 
   const starterQuestions = [
     { text: 'Расскажи про дроби', icon: '🔢' },
@@ -177,7 +217,7 @@ export function AIChatPanel({ isMinimized = false, onToggleMinimize, fullscreen 
       </div>
 
       {/* Messages Area */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-gradient-to-b from-purple-50/30 to-blue-50/30">
+      <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-gradient-to-b from-purple-50/30 to-blue-50/30 overflow-x-hidden">
         {messages.length === 1 && (
           <div className="mb-4">
             <p className="text-center text-gray-600 text-sm mb-3">Начни с вопроса или выбери тему:</p>
@@ -215,13 +255,20 @@ export function AIChatPanel({ isMinimized = false, onToggleMinimize, fullscreen 
               )}
 
               <div
-                className={`max-w-[75%] p-3 rounded-2xl ${message.sender === 'user'
+                className={`max-w-[75%] min-w-0 p-3 rounded-2xl ${message.sender === 'user'
                     ? 'bg-gradient-to-br from-blue-500 to-purple-600 text-white rounded-br-sm'
                     : 'bg-white border-2 border-purple-200 text-gray-800 rounded-bl-sm shadow-sm'
                   }`}
               >
-                <div className="prose prose-sm max-w-none">
-                  <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                <div className="prose prose-sm max-w-none break-words overflow-wrap-anywhere">
+                  <ReactMarkdown 
+                    remarkPlugins={[remarkGfm]}
+                    components={{
+                      p: ({node, ...props}) => <p className="break-words overflow-wrap-anywhere" {...props} />,
+                      code: ({node, ...props}) => <code className="break-words overflow-wrap-anywhere whitespace-pre-wrap" {...props} />,
+                      pre: ({node, ...props}) => <pre className="break-words overflow-wrap-anywhere whitespace-pre-wrap max-w-full overflow-x-auto" {...props} />
+                    }}
+                  >
                     {message.text}
                   </ReactMarkdown>
                 </div>

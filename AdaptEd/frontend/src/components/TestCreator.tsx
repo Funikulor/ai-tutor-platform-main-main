@@ -1,5 +1,7 @@
-import { useState } from 'react';
-import { Plus, Wand2, Trash2, Save, Eye, Copy, Download } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { Plus, Wand2, Trash2, Save, Eye, Copy, Download, Loader2 } from 'lucide-react';
+import { generateTest, createManualTest } from '../services/tests';
+import api from '../services/api';
 
 interface Question {
   id: string;
@@ -42,51 +44,116 @@ export function TestCreator() {
 
   const [showPreview, setShowPreview] = useState(false);
   const [noTimeLimit, setNoTimeLimit] = useState(false);
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [students, setStudents] = useState<Array<{user_id: string; full_name: string}>>([]);
+  const [selectedStudentId, setSelectedStudentId] = useState<string>('');
+  const [isAdaptive, setIsAdaptive] = useState(false);
+  const [savedTestId, setSavedTestId] = useState<number | null>(null);
+
+  // Загружаем список учеников при монтировании
+  useEffect(() => {
+    const loadStudents = async () => {
+      try {
+        const response = await api.get('/all');
+        const allUsers = response.data || [];
+        const studentsList = allUsers
+          .filter((u: any) => u.role === 'student')
+          .map((u: any) => ({ user_id: u.user_id, full_name: u.full_name || u.email || u.user_id }));
+        setStudents(studentsList);
+      } catch (error) {
+        console.error('Ошибка загрузки учеников:', error);
+      }
+    };
+    loadStudents();
+  }, []);
 
   // Генерация тестов с помощью AI
-  const handleGenerate = () => {
-    const topics = generateSettings.topic.split(',').map(t => t.trim());
-    const generatedQuestions: Question[] = [];
-
-    for (let i = 0; i < generateSettings.questionCount; i++) {
-      const topic = topics[i % topics.length];
-      const questionTypes: Question['type'][] = ['single', 'multiple', 'text', 'numeric'];
-      const type = questionTypes[Math.floor(Math.random() * questionTypes.length)];
-
-      let question: Question = {
-        id: `q-${Date.now()}-${i}`,
-        type,
-        question: `Сгенерированный вопрос ${i + 1} по теме "${topic}"`,
-        points: generateSettings.difficulty === 'easy' ? 5 : generateSettings.difficulty === 'medium' ? 10 : 15,
-      };
-
-      if (type === 'single' || type === 'multiple') {
-        question.options = [
-          `Вариант ответа A для "${topic}"`,
-          `Вариант ответа B для "${topic}"`,
-          `Вариант ответа C для "${topic}"`,
-          `Вариант ответа D для "${topic}"`
-        ];
-        question.correctAnswer = type === 'single' ? question.options[0] : [question.options[0], question.options[1]];
-      } else if (type === 'numeric') {
-        question.correctAnswer = Math.floor(Math.random() * 100);
-      } else {
-        question.correctAnswer = `Пример правильного ответа для вопроса по теме "${topic}"`;
-      }
-
-      if (generateSettings.includeExplanations) {
-        question.explanation = `Объяснение: это автоматически сгенерированное объяснение для вопроса по теме "${topic}".`;
-      }
-
-      generatedQuestions.push(question);
+  const handleGenerate = async () => {
+    if (!generateSettings.topic.trim()) {
+      alert('Пожалуйста, укажите тему для генерации');
+      return;
     }
 
-    setTest({
-      ...test,
-      title: `Тест: ${generateSettings.topic}`,
-      description: `Автоматически сгенерированный тест по теме "${generateSettings.topic}"`,
-      questions: generatedQuestions
-    });
+    setIsGenerating(true);
+    try {
+      const creatorId = localStorage.getItem('user_id') || undefined;
+      const topics = generateSettings.topic.split(',').map(t => t.trim()).join(', ');
+      
+      const testData = await generateTest({
+        topic: topics,
+        difficulty: generateSettings.difficulty,
+        question_count: generateSettings.questionCount,
+        creator_id: creatorId,
+        user_id: isAdaptive && selectedStudentId ? selectedStudentId : undefined,
+        subject: test.subject,
+        grade: test.grade,
+        include_explanations: generateSettings.includeExplanations,
+      });
+
+      // Конвертируем вопросы из API в формат компонента
+      const convertedQuestions: Question[] = (testData.questions || []).map((q: any, index: number) => {
+        const questionType = q.question_type || (q.options && q.options.length > 1 ? 'single' : 'text');
+        let correctAnswer: string | string[] | number;
+        
+        if (questionType === 'single' || questionType === 'multiple') {
+          if (questionType === 'multiple' && Array.isArray(q.correct_index)) {
+            correctAnswer = q.correct_index.map((idx: number) => q.options[idx]);
+          } else {
+            correctAnswer = q.options[q.correct_index] || q.options[0];
+          }
+        } else if (questionType === 'numeric') {
+          correctAnswer = parseFloat(q.options[0] || '0');
+        } else {
+          correctAnswer = q.options[0] || '';
+        }
+
+        return {
+          id: `q-${q.id || index}`,
+          type: questionType as Question['type'],
+          question: q.question,
+          points: generateSettings.difficulty === 'easy' ? 5 : generateSettings.difficulty === 'medium' ? 10 : 15,
+          options: q.options || [],
+          correctAnswer,
+          explanation: q.explanation,
+        };
+      });
+
+      setTest({
+        ...test,
+        title: testData.title || `Тест: ${topics}`,
+        description: testData.topic ? `Автоматически сгенерированный тест по теме "${testData.topic}"` : test.description,
+        questions: convertedQuestions
+      });
+      
+      setSavedTestId(testData.id);
+      alert(`Тест успешно сгенерирован! Создано ${convertedQuestions.length} вопросов.`);
+    } catch (error: any) {
+      console.error('Ошибка генерации теста:', error);
+      
+      // Извлекаем сообщение об ошибке из разных форматов
+      let errorMessage = 'Неизвестная ошибка';
+      
+      if (error?.response?.data) {
+        const data = error.response.data;
+        if (typeof data === 'string') {
+          errorMessage = data;
+        } else if (data.detail) {
+          errorMessage = typeof data.detail === 'string' ? data.detail : JSON.stringify(data.detail);
+        } else if (data.message) {
+          errorMessage = typeof data.message === 'string' ? data.message : JSON.stringify(data.message);
+        } else {
+          errorMessage = JSON.stringify(data);
+        }
+      } else if (error?.message) {
+        errorMessage = error.message;
+      } else if (typeof error === 'string') {
+        errorMessage = error;
+      }
+      
+      alert(`Ошибка генерации теста: ${errorMessage}`);
+    } finally {
+      setIsGenerating(false);
+    }
   };
 
   const addQuestion = () => {
@@ -129,9 +196,133 @@ export function TestCreator() {
     });
   };
 
-  const saveTest = () => {
-    console.log('Сохранение теста:', test);
-    alert(`Тест "${test.title}" успешно сохранен!\n\nВопросов: ${test.questions.length}\nОбщий балл: ${test.questions.reduce((sum, q) => sum + q.points, 0)}`);
+  const saveTest = async () => {
+    if (!test.title.trim()) {
+      alert('Пожалуйста, укажите название теста');
+      return;
+    }
+    if (test.questions.length === 0) {
+      alert('Добавьте хотя бы один вопрос');
+      return;
+    }
+
+    try {
+      const creatorId = localStorage.getItem('user_id') || undefined;
+      
+      // Конвертируем вопросы в формат API
+      const apiQuestions = test.questions.map(q => {
+        if (q.type === 'single' || q.type === 'multiple') {
+          const options = q.options || [];
+          let correctIndex = 0;
+          if (q.type === 'single') {
+            const correctAnswer = q.correctAnswer as string;
+            correctIndex = options.findIndex(opt => opt === correctAnswer);
+            if (correctIndex === -1) correctIndex = 0;
+          } else {
+            // Для multiple берем первый правильный
+            const correctAnswers = q.correctAnswer as string[];
+            if (correctAnswers && correctAnswers.length > 0) {
+              correctIndex = options.findIndex(opt => correctAnswers.includes(opt));
+              if (correctIndex === -1) correctIndex = 0;
+            }
+          }
+          return {
+            question: q.question,
+            options: options,
+            correct_index: correctIndex,
+            explanation: q.explanation,
+          };
+        } else {
+          // Для text и numeric
+          const correctAnswer = String(q.correctAnswer || '');
+          return {
+            question: q.question,
+            options: [correctAnswer],
+            correct_index: 0,
+            explanation: q.explanation,
+          };
+        }
+      });
+
+      const testData = await createManualTest({
+        title: test.title,
+        topic: test.description || test.subject,
+        difficulty: test.difficulty,
+        creator_id: creatorId,
+        questions: apiQuestions,
+      });
+
+      setSavedTestId(testData.id);
+      alert(`Тест "${test.title}" успешно сохранен!\n\nВопросов: ${test.questions.length}\nОбщий балл: ${test.questions.reduce((sum, q) => sum + q.points, 0)}`);
+    } catch (error: any) {
+      console.error('Ошибка сохранения теста:', error);
+      
+      // Извлекаем сообщение об ошибке из разных форматов
+      let errorMessage = 'Неизвестная ошибка';
+      
+      if (error?.response?.data) {
+        const data = error.response.data;
+        if (typeof data === 'string') {
+          errorMessage = data;
+        } else if (data.detail) {
+          errorMessage = typeof data.detail === 'string' ? data.detail : JSON.stringify(data.detail);
+        } else if (data.message) {
+          errorMessage = typeof data.message === 'string' ? data.message : JSON.stringify(data.message);
+        } else {
+          errorMessage = JSON.stringify(data);
+        }
+      } else if (error?.message) {
+        errorMessage = error.message;
+      } else if (typeof error === 'string') {
+        errorMessage = error;
+      }
+      
+      alert(`Ошибка сохранения теста: ${errorMessage}`);
+    }
+  };
+
+  const duplicateTest = () => {
+    const duplicatedTest = {
+      ...test,
+      title: `${test.title} (копия)`,
+      questions: test.questions.map(q => ({
+        ...q,
+        id: `q-${Date.now()}-${Math.random()}`,
+      })),
+    };
+    setTest(duplicatedTest);
+    setSavedTestId(null);
+    alert('Тест продублирован! Вы можете отредактировать его и сохранить как новый.');
+  };
+
+  const exportTest = () => {
+    const exportData = {
+      title: test.title,
+      description: test.description,
+      subject: test.subject,
+      grade: test.grade,
+      difficulty: test.difficulty,
+      timeLimit: noTimeLimit ? null : test.timeLimit,
+      questions: test.questions.map(q => ({
+        type: q.type,
+        question: q.question,
+        points: q.points,
+        options: q.options,
+        correctAnswer: q.correctAnswer,
+        explanation: q.explanation,
+      })),
+    };
+
+    const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${test.title.replace(/[^a-z0-9]/gi, '_')}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    alert('Тест экспортирован в JSON файл!');
   };
 
   const totalPoints = test.questions.reduce((sum, q) => sum + q.points, 0);
@@ -319,9 +510,52 @@ export function TestCreator() {
               </label>
             </div>
           </div>
+          
+          {/* Адаптивная генерация */}
+          <div className="mb-4 p-4 bg-white rounded-lg border border-purple-200">
+            <div className="flex items-center gap-2 mb-3">
+              <input
+                type="checkbox"
+                id="isAdaptive"
+                checked={isAdaptive}
+                onChange={(e) => {
+                  setIsAdaptive(e.target.checked);
+                  if (!e.target.checked) setSelectedStudentId('');
+                }}
+                className="w-4 h-4 text-purple-600 rounded focus:ring-2 focus:ring-purple-500"
+              />
+              <label htmlFor="isAdaptive" className="text-sm font-semibold text-gray-900">
+                Адаптивная генерация (под слабые темы и интересы ученика)
+              </label>
+            </div>
+            {isAdaptive && (
+              <div>
+                <label className="block text-sm text-gray-700 mb-2">Выберите ученика:</label>
+                <select
+                  value={selectedStudentId}
+                  onChange={(e) => setSelectedStudentId(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                >
+                  <option value="">-- Выберите ученика --</option>
+                  {students.map((student) => (
+                    <option key={student.user_id} value={student.user_id}>
+                      {student.full_name}
+                    </option>
+                  ))}
+                </select>
+                {selectedStudentId && (
+                  <p className="mt-2 text-xs text-gray-600">
+                    Тест будет сгенерирован с учетом слабых тем и интересов выбранного ученика
+                  </p>
+                )}
+              </div>
+            )}
+          </div>
+          
           <button
             onClick={handleGenerate}
-            className="w-full px-4 py-2 text-white rounded-lg transition-all flex items-center justify-center gap-2 shadow-md hover:shadow-lg"
+            disabled={isGenerating}
+            className="w-full px-4 py-2 text-white rounded-lg transition-all flex items-center justify-center gap-2 shadow-md hover:shadow-lg disabled:opacity-50 disabled:cursor-not-allowed"
             style={{
               background: 'linear-gradient(to right, rgb(147, 51, 234), rgb(59, 130, 246))'
             }}
@@ -332,8 +566,17 @@ export function TestCreator() {
               e.currentTarget.style.background = 'linear-gradient(to right, rgb(147, 51, 234), rgb(59, 130, 246))';
             }}
           >
-            <Wand2 className="w-4 h-4" />
-            Сгенерировать вопросы
+            {isGenerating ? (
+              <>
+                <Loader2 className="w-4 h-4 animate-spin" />
+                Генерация вопросов...
+              </>
+            ) : (
+              <>
+                <Wand2 className="w-4 h-4" />
+                Сгенерировать вопросы
+              </>
+            )}
           </button>
         </div>
       )}
@@ -512,11 +755,17 @@ export function TestCreator() {
                 <Eye className="w-4 h-4" />
                 {showPreview ? 'Скрыть' : 'Предпросмотр'}
               </button>
-              <button className="px-4 py-2 bg-blue-100 text-blue-600 rounded-lg hover:bg-blue-200 transition-colors flex items-center gap-2">
+              <button
+                onClick={duplicateTest}
+                className="px-4 py-2 bg-blue-100 text-blue-600 rounded-lg hover:bg-blue-200 transition-colors flex items-center gap-2"
+              >
                 <Copy className="w-4 h-4" />
                 Дублировать
               </button>
-              <button className="px-4 py-2 bg-green-100 text-green-600 rounded-lg hover:bg-green-200 transition-colors flex items-center gap-2">
+              <button
+                onClick={exportTest}
+                className="px-4 py-2 bg-green-100 text-green-600 rounded-lg hover:bg-green-200 transition-colors flex items-center gap-2"
+              >
                 <Download className="w-4 h-4" />
                 Экспорт
               </button>

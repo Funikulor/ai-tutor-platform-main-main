@@ -30,6 +30,7 @@ class TestQuestion(Base):  # type: ignore
 	question = Column(Text, nullable=False)
 	options = Column(JSON, nullable=False)  # list of str
 	correct_index = Column(Integer, nullable=False)
+	question_type = Column(String(20), nullable=True, default="single")  # single, multiple, text, numeric
 	explanation = Column(Text, nullable=True)
 
 	test = relationship("Test", back_populates="questions")

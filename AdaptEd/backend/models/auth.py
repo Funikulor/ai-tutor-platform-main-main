@@ -52,4 +52,6 @@ class Token(BaseModel):
     token_type: str = "bearer"
     user_id: str
     role: str
+    full_name: Optional[str] = None  # Добавляем имя для удобства
+    email: Optional[str] = None  # Добавляем email для удобства
 

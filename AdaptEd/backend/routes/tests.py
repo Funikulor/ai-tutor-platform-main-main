@@ -64,16 +64,32 @@ def _serialize_test(test: Test, include_questions: bool = False) -> Dict[str, An
 		"created_at": test.created_at.isoformat() if test.created_at else None,
 	}
 	if include_questions:
-		data["questions"] = [
-			{
+		data["questions"] = []
+		for q in test.questions:
+			# Определяем тип вопроса автоматически если не указан
+			q_type = getattr(q, 'question_type', None)
+			if not q_type:
+				opts = q.options or []
+				if len(opts) > 1:
+					q_type = "single"  # По умолчанию single, можно улучшить логику для multiple
+				elif len(opts) == 1:
+					# Пытаемся определить text или numeric
+					try:
+						float(opts[0])
+						q_type = "numeric"
+					except (ValueError, TypeError):
+						q_type = "text"
+				else:
+					q_type = "single"
+			
+			data["questions"].append({
 				"id": q.id,
 				"question": q.question,
 				"options": q.options,
 				"correct_index": q.correct_index,
+				"question_type": q_type,
 				"explanation": q.explanation,
-			}
-			for q in test.questions
-		]
+			})
 	return data
 
 
@@ -117,10 +133,12 @@ async def create_manual_test(payload: ManualTestCreate, db: Session = Depends(ge
 async def generate_test(request: Request, db: Session = Depends(get_db)):
 	if not has_db() or db is None:
 		raise HTTPException(status_code=503, detail="Database is not configured")
+	
 	try:
 		payload = await request.json()
-	except Exception:
-		payload = None
+	except Exception as e:
+		print(f"[Tests] Ошибка парсинга JSON: {e}")
+		raise HTTPException(status_code=400, detail=f"Некорректный формат JSON запроса: {str(e)}")
 
 	if payload is None:
 		raise HTTPException(status_code=400, detail="Укажите тему для генерации теста (topic)")
@@ -132,15 +150,66 @@ async def generate_test(request: Request, db: Session = Depends(get_db)):
 	difficulty = payload.get("difficulty") or "medium"
 	question_count = payload.get("question_count") or 5
 	creator_id = payload.get("creator_id")
+	user_id = payload.get("user_id")  # Для адаптивной генерации
+	subject = payload.get("subject", "Математика")
+	grade = payload.get("grade", "9")
+	include_explanations = payload.get("include_explanations", True)
 
 	if not topic:
 		raise HTTPException(status_code=400, detail="Укажите тему для генерации теста (topic)")
 
 	assist = _assistant()
-	print(f"[Tests] generate start topic='{topic}' diff='{difficulty}' count={question_count} creator={creator_id} db={getattr(getattr(db, 'bind', None), 'url', None)}")
-	prompt = f"""Создай тест по теме "{topic}".
+	
+	# Получаем профиль ученика для адаптивной генерации
+	student_context = ""
+	weak_topics = []
+	interests = []
+	
+	if user_id:
+		try:
+			from agents.orchestrator import AgentOrchestrator
+			orchestrator = AgentOrchestrator()
+			profile = orchestrator.profiler.get_profile(user_id)
+			personality_profile = assist.get_personality_profile(user_id)
+			
+			if profile:
+				# Собираем слабые темы
+				for topic_name, mastery in profile.topic_mastery.items():
+					if mastery < 0.5:
+						weak_topics.append(f"{topic_name} (мастерство: {mastery:.0%})")
+				
+				# Добавляем частые ошибки
+				if profile.error_frequency:
+					top_errors = sorted(profile.error_frequency.items(), key=lambda x: x[1], reverse=True)[:3]
+					for err_tag, count in top_errors:
+						weak_topics.append(f"{str(err_tag.value)} (ошибок: {count})")
+			
+			if personality_profile:
+				interests = personality_profile.interests or []
+			
+			if weak_topics:
+				student_context += f"\nСлабые места ученика: {', '.join(weak_topics[:5])}. Сфокусируй вопросы на этих темах для улучшения понимания."
+			
+			if interests:
+				student_context += f"\nИнтересы ученика: {', '.join(interests[:3])}. Используй примеры из этих областей в вопросах (например, если ученик любит футбол, используй задачи про футбол)."
+		except Exception as e:
+			print(f"[Tests] Ошибка получения профиля ученика: {e}")
+	
+	print(f"[Tests] generate start topic='{topic}' diff='{difficulty}' count={question_count} creator={creator_id} user_id={user_id} adaptive={bool(user_id)}")
+	
+	# Формируем промпт с учетом адаптивности
+	prompt = f"""Создай тест по теме "{topic}" для {grade} класса по предмету {subject}.
 Сложность: {difficulty}.
 Количество вопросов: {question_count}.
+{student_context}
+
+ВАЖНО: Создай разнообразные типы вопросов:
+- Один вариант ответа (single choice) - вопросы с 4 вариантами, один правильный
+- Несколько вариантов (multiple choice) - вопросы где может быть несколько правильных ответов
+- Текстовый ответ (text) - вопросы требующие развернутого ответа
+- Числовой ответ (numeric) - вопросы с числовым ответом
+
+Распредели типы вопросов разнообразно. Для каждого вопроса укажи тип.
 
 Формат ответа строго JSON:
 {{
@@ -149,34 +218,49 @@ async def generate_test(request: Request, db: Session = Depends(get_db)):
   "difficulty": "...",
   "questions": [
     {{
+      "type": "single" | "multiple" | "text" | "numeric",
       "question": "...",
-      "options": ["...", "...", "...", "..."],
-      "correct_index": 0,
-      "explanation": "краткое объяснение"
+      "options": ["вариант1", "вариант2", "вариант3", "вариант4"] (только для single/multiple),
+      "correct_index": 0 (для single - индекс правильного, для multiple - массив индексов [0, 2]),
+      "correct_answer": "текст или число" (для text/numeric),
+      "explanation": "краткое объяснение"{' (обязательно)' if include_explanations else ' (необязательно)'}
     }}
   ]
 }}
-"""
-	raw = assist._generate(prompt, max_new_tokens=800)
-	print(f"[Tests] raw response len={len(raw)}")
+
+Создай реальные, качественные вопросы по теме, а не примеры!"""
+	
+	try:
+		raw = assist._generate(prompt, max_new_tokens=2000)
+		print(f"[Tests] raw response len={len(raw)}")
+	except Exception as e:
+		print(f"[Tests] Ошибка генерации через AI: {e}")
+		raise HTTPException(status_code=500, detail=f"Ошибка генерации через AI: {str(e)}. Убедитесь, что Ollama запущена или проверьте настройки провайдера.")
+
+	if not raw or len(raw.strip()) == 0:
+		raise HTTPException(status_code=500, detail="AI не вернул ответ. Проверьте настройки Ollama или другого провайдера.")
 
 	# Пытаемся вытащить JSON
 	json_match = re.search(r"\{.*\}", raw, re.DOTALL)
 	if not json_match:
-		print("[Tests] JSON not found in raw response")
-		raise HTTPException(status_code=500, detail="Failed to parse generated test")
+		print(f"[Tests] JSON not found in raw response. First 500 chars: {raw[:500]}")
+		raise HTTPException(status_code=500, detail="Не удалось найти JSON в ответе AI. Попробуйте еще раз или проверьте настройки AI.")
 	try:
 		data = json.loads(json_match.group())
-	except Exception as e:
+	except json.JSONDecodeError as e:
 		print(f"[Tests] JSON parse error: {e}")
-		raise HTTPException(status_code=500, detail="Failed to parse generated test JSON")
+		print(f"[Tests] JSON snippet: {json_match.group()[:200]}")
+		raise HTTPException(status_code=500, detail=f"Ошибка парсинга JSON от AI: {str(e)}. Попробуйте еще раз.")
+	except Exception as e:
+		print(f"[Tests] Unexpected error parsing JSON: {e}")
+		raise HTTPException(status_code=500, detail=f"Неожиданная ошибка при обработке ответа AI: {str(e)}")
 
 	questions = data.get("questions") or []
 	if not questions:
 		print("[Tests] No questions in generated test")
 		raise HTTPException(status_code=500, detail="No questions in generated test")
 
-	title = data.get("title") or f"Тест по теме {topic}"
+	title = data.get("title") or f"Тест: {topic}"
 	topic = data.get("topic") or topic
 	diff = data.get("difficulty") or difficulty
 	print(f"[Tests] parsed title='{title}' topic='{topic}' diff='{diff}' questions={len(questions)}")
@@ -193,20 +277,39 @@ async def generate_test(request: Request, db: Session = Depends(get_db)):
 	db.flush()
 
 	for q in questions:
+		q_type = q.get("type", "single")
 		opts = q.get("options") or []
-		# поддерживаем оба ключа: correct_index и correct_answer
-		correct_index = q.get("correct_index")
-		if correct_index is None:
-			correct_index = q.get("correct_answer", 0)
-		if not isinstance(correct_index, int):
+		
+		# Для разных типов вопросов обрабатываем по-разному
+		if q_type in ["single", "multiple"]:
+			if not opts or len(opts) < 2:
+				# Если нет вариантов, пропускаем или создаем дефолтные
+				continue
+			correct_index = q.get("correct_index")
+			if correct_index is None:
+				correct_index = q.get("correct_answer", 0)
+			# Для multiple choice может быть массив
+			if q_type == "multiple" and isinstance(correct_index, list):
+				# Берем первый правильный индекс для хранения
+				correct_index = correct_index[0] if correct_index else 0
+			if not isinstance(correct_index, int):
+				correct_index = 0
+			if correct_index < 0 or correct_index >= len(opts):
+				correct_index = 0
+		else:
+			# Для text и numeric - сохраняем правильный ответ в options[0] как строку
+			correct_answer = q.get("correct_answer", "")
+			opts = [str(correct_answer)] if correct_answer else [""]
 			correct_index = 0
+		
 		db.add(
 			TestQuestion(
 				test_id=test.id,
 				question=q.get("question", ""),
 				options=opts,
 				correct_index=correct_index,
-				explanation=q.get("explanation"),
+				question_type=q_type,
+				explanation=q.get("explanation") if include_explanations else None,
 			)
 		)
 

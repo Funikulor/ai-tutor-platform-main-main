@@ -69,10 +69,15 @@ async def login(login_data: UserLogin):
         if not result:
             raise HTTPException(status_code=401, detail="Invalid email or password")
         
+        # Получаем полную информацию о пользователе
+        user_data = auth_service.get_user_by_id(result["user_id"])
+        
         return Token(
             access_token=result["token"],
             user_id=result["user_id"],
-            role=result["role"]
+            role=result["role"],
+            full_name=user_data.get("full_name") if user_data else None,
+            email=user_data.get("email") if user_data else login_data.email
         )
     
     except HTTPException:
@@ -100,19 +105,38 @@ async def get_user_profile(user_id: str, current_user: dict = Depends(get_curren
     Получение профиля пользователя
     
     Ученики могут видеть только свой профиль
-    Учителя - профили своих учеников
+    Учителя и админы - профили всех пользователей
     """
-    from utils.database import database
-    
     # Проверяем доступ
     if current_user["role"] == "student" and current_user["user_id"] != user_id:
         raise HTTPException(status_code=403, detail="Access denied")
     
-    if user_id in database["users"]:
-        user_data = database["users"][user_id]
-        # Не возвращаем пароль
-        user_data.pop("password", None)
-        return user_data
+    # Получаем пользователя через AuthService
+    user_data = auth_service.get_user_by_id(user_id)
     
-    raise HTTPException(status_code=404, detail="User not found")
+    if not user_data:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    return user_data
+
+
+@router.get("/auth/profile", response_model=dict)
+async def get_profile(current_user: dict = Depends(get_current_user)):
+    """Получение полного профиля текущего пользователя"""
+    user_id = current_user["user_id"]
+    user_data = auth_service.get_user_by_id(user_id)
+    
+    if not user_data:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    # Добавляем дополнительную информацию из аналитики (если есть)
+    try:
+        from services.student_analytics import get_analytics_service
+        analytics_service = get_analytics_service()
+        analytics = analytics_service.get_analytics(user_id)
+        user_data["analytics"] = analytics
+    except Exception:
+        pass  # Аналитика опциональна
+    
+    return user_data
 

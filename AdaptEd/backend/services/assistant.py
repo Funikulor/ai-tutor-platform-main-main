@@ -42,10 +42,18 @@ class AssistantService:
 				try:
 					# Lazy import Document only when DB is present
 					from models.document import Document  # type: ignore
-					rows = sess.query(Document).limit(1000).all()
-					return [{"title": r.title, "content": r.content} for r in rows]
-				finally:
-					sess.close()
+					from sqlalchemy.exc import OperationalError, ProgrammingError
+					try:
+						rows = sess.query(Document).limit(1000).all()
+						return [{"title": r.title, "content": r.content} for r in rows]
+					except (OperationalError, ProgrammingError) as e:
+						# Таблицы еще не созданы, используем fallback
+						print(f"[Assistant] Таблицы БД еще не созданы, используем fallback хранилище: {e}")
+						sess.close()
+				except Exception as e:
+					print(f"[Assistant] Ошибка загрузки документов из БД: {e}")
+					if sess:
+						sess.close()
 		docs = persistent_storage.get("documents", [])
 		return docs if isinstance(docs, list) else []
 
