@@ -18,6 +18,10 @@ interface ProgressData {
     score: number;
     time: number;
   }>;
+  errorTypes?: Array<{
+    type: string;
+    count: number;
+  }>;
 }
 
 export function ProgressStats({ 
@@ -181,29 +185,33 @@ export function ProgressStats({
       {/* Error Types Analysis */}
       <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
         <h3 className="text-gray-900 mb-4">Типы ошибок (NLP анализ)</h3>
-        <ResponsiveContainer width="100%" height={250}>
-          <BarChart data={[
-            { type: 'Концептуальные', count: 15, color: '#ef4444' },
-            { type: 'Вычислительные', count: 8, color: '#f59e0b' },
-            { type: 'Опечатки', count: 5, color: '#eab308' },
-            { type: 'Неточности', count: 3, color: '#84cc16' }
-          ]}>
-            <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-            <XAxis dataKey="type" stroke="#6b7280" />
-            <YAxis stroke="#6b7280" />
-            <Tooltip 
-              contentStyle={{ 
-                backgroundColor: 'white', 
-                border: '1px solid #e5e7eb',
-                borderRadius: '8px'
-              }}
-            />
-            <Bar dataKey="count" fill="#3b82f6" radius={[8, 8, 0, 0]} />
-          </BarChart>
-        </ResponsiveContainer>
-        <p className="text-sm text-gray-600 mt-4">
-          Система NLP классифицирует каждую ошибку для персонализированных рекомендаций
-        </p>
+        {progress.errorTypes && progress.errorTypes.length > 0 ? (
+          <>
+            <ResponsiveContainer width="100%" height={250}>
+              <BarChart data={progress.errorTypes}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+                <XAxis dataKey="type" stroke="#6b7280" />
+                <YAxis stroke="#6b7280" />
+                <Tooltip 
+                  contentStyle={{ 
+                    backgroundColor: 'white', 
+                    border: '1px solid #e5e7eb',
+                    borderRadius: '8px'
+                  }}
+                />
+                <Bar dataKey="count" fill="#3b82f6" radius={[8, 8, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+            <p className="text-sm text-gray-600 mt-4">
+              Система NLP классифицирует каждую ошибку для персонализированных рекомендаций
+            </p>
+          </>
+        ) : (
+          <div className="text-center py-12">
+            <p className="text-gray-500">Пока нет данных об ошибках</p>
+            <p className="text-sm text-gray-400 mt-2">Данные появятся после решения заданий</p>
+          </div>
+        )}
       </div>
     </div>
   );

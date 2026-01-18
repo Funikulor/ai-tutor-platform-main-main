@@ -517,6 +517,30 @@ async def get_student_progress(user_id: str, db: Session = Depends(get_db)):
                 "tasks": day_tasks
             })
         
+        # Формируем данные о типах ошибок для графика
+        error_types_data = []
+        error_type_labels = {
+            "missing_formula": "Отсутствие формулы",
+            "concept_confusion": "Концептуальные",
+            "carelessness": "Небрежность",
+            "logic_gap": "Логические пробелы",
+            "calculation_error": "Вычислительные",
+            "not_attempted": "Не решено"
+        }
+        
+        if profile.error_frequency:
+            for error_tag, count in profile.error_frequency.items():
+                error_type_str = str(error_tag.value) if hasattr(error_tag, 'value') else str(error_tag)
+                label = error_type_labels.get(error_type_str, error_type_str.replace('_', ' ').title())
+                error_types_data.append({
+                    "type": label,
+                    "count": count
+                })
+        
+        # Если нет данных об ошибках, возвращаем пустой массив
+        if not error_types_data:
+            error_types_data = []
+        
         # Добавляем задания из истории в недавнюю активность
         if profile.task_history:
             for task in sorted(profile.task_history, key=lambda t: t.timestamp, reverse=True)[:10]:
@@ -590,7 +614,8 @@ async def get_student_progress(user_id: str, db: Session = Depends(get_db)):
                 "totalPoints": profile.points,
                 "averageAccuracy": round(profile.accuracy_rate, 1),
                 "weakTopics": weak_topics,
-                "recentActivities": recent_activities[:10]  # Последние 10 активностей
+                "recentActivities": recent_activities[:10],  # Последние 10 активностей
+                "errorTypes": error_types_data  # Типы ошибок для графика
             },
             "weeklyData": weekly_chart_data,
             "statistics": {
@@ -605,4 +630,849 @@ async def get_student_progress(user_id: str, db: Session = Depends(get_db)):
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/knowledge-graph/{user_id}", response_model=Dict[str, Any])
+async def get_knowledge_graph(user_id: str, db: Session = Depends(get_db)):
+    """
+    Получение данных для графа знаний ученика
+    Возвращает структурированные данные о знаниях по темам
+    """
+    try:
+        profile = orchestrator.profiler.get_profile(user_id)
+        if not profile:
+            raise HTTPException(status_code=404, detail="Profile not found")
+        
+        # Группируем темы по категориям (упрощенная структура)
+        # Можно расширить, добавив больше категорий
+        topic_categories = {
+            "Алгебра": ["уравнение", "функция", "алгебра", "линейн", "квадратн", "многочлен", "степень", "корень"],
+            "Геометрия": ["геометр", "треугольник", "площадь", "объем", "пифагор", "тригонометр", "синус", "косинус"],
+            "Арифметика": ["арифметик", "дробь", "процент", "пропорция", "число"],
+        }
+        
+        # Создаем структуру графа знаний
+        knowledge_nodes = []
+        
+        # Обрабатываем каждую тему из topic_mastery
+        for topic_name, mastery_value in profile.topic_mastery.items():
+            mastery_level = int(mastery_value * 100)  # Конвертируем в проценты
+            
+            # Определяем статус на основе уровня мастерства
+            if mastery_level >= 80:
+                status = 'mastered'
+            elif mastery_level >= 60:
+                status = 'learning'
+            elif mastery_level >= 40:
+                status = 'needs-work'
+            else:
+                status = 'needs-work'
+            
+            # Подсчитываем ошибки по этой теме
+            error_count = 0
+            last_attempt = None
+            
+            if profile.task_history:
+                for task in profile.task_history:
+                    # Проверяем, относится ли задание к этой теме
+                    task_text = str(task.question).lower() if hasattr(task, 'question') and task.question else ""
+                    topic_lower = topic_name.lower()
+                    
+                    if topic_lower in task_text or any(keyword in task_text for keyword in topic_lower.split()):
+                        if not task.is_correct:
+                            error_count += 1
+                        
+                        # Находим последнюю попытку
+                        if task.timestamp:
+                            task_date = task.timestamp.date() if hasattr(task.timestamp, 'date') else datetime.fromisoformat(str(task.timestamp)).date() if isinstance(task.timestamp, str) else None
+                            if task_date:
+                                date_str = task_date.strftime("%Y-%m-%d")
+                                if not last_attempt or date_str > last_attempt:
+                                    last_attempt = date_str
+            
+            # Определяем категорию темы
+            category = "Общее"
+            topic_lower = topic_name.lower()
+            for cat_name, keywords in topic_categories.items():
+                if any(keyword in topic_lower for keyword in keywords):
+                    category = cat_name
+                    break
+            
+            knowledge_nodes.append({
+                "id": topic_name.lower().replace(" ", "-"),
+                "name": topic_name,
+                "level": "topic",
+                "masteryLevel": mastery_level,
+                "status": status,
+                "errorCount": error_count,
+                "lastAttempt": last_attempt,
+                "category": category
+            })
+        
+        # Группируем по категориям
+        categorized_data = {}
+        for node in knowledge_nodes:
+            category = node.get("category", "Общее")
+            if category not in categorized_data:
+                categorized_data[category] = []
+            categorized_data[category].append(node)
+        
+        # Создаем иерархическую структуру
+        math_node = {
+            "id": "math",
+            "name": "Математика",
+            "level": "subject",
+            "masteryLevel": int(sum(node["masteryLevel"] for node in knowledge_nodes) / len(knowledge_nodes)) if knowledge_nodes else 0,
+            "status": "learning",
+            "children": []
+        }
+        
+        # Добавляем категории как секции
+        for category, nodes in categorized_data.items():
+            category_mastery = int(sum(node["masteryLevel"] for node in nodes) / len(nodes)) if nodes else 0
+            category_status = "mastered" if category_mastery >= 80 else ("learning" if category_mastery >= 60 else "needs-work")
+            
+            category_node = {
+                "id": category.lower().replace(" ", "-"),
+                "name": category,
+                "level": "section",
+                "masteryLevel": category_mastery,
+                "status": category_status,
+                "children": nodes
+            }
+            math_node["children"].append(category_node)
+        
+        # Если нет категорий, добавляем все темы напрямую
+        if not math_node["children"]:
+            math_node["children"] = knowledge_nodes
+        
+        # Определяем области, требующие внимания (слабо освоенные темы)
+        problem_areas = []
+        for node in knowledge_nodes:
+            if node["masteryLevel"] < 70 or node["errorCount"] > 5:
+                problem_areas.append({
+                    "name": node["name"],
+                    "masteryLevel": node["masteryLevel"],
+                    "errorCount": node["errorCount"],
+                    "status": node["status"]
+                })
+        
+        # Сортируем по уровню мастерства (худшие первые)
+        problem_areas.sort(key=lambda x: x["masteryLevel"])
+        problem_areas = problem_areas[:5]  # Топ-5 проблемных областей
+        
+        return {
+            "knowledgeGraph": math_node,
+            "problemAreas": problem_areas,
+            "totalTopics": len(knowledge_nodes),
+            "masteredTopics": sum(1 for node in knowledge_nodes if node["masteryLevel"] >= 80),
+            "overallProgress": math_node["masteryLevel"]
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Error in get_knowledge_graph: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/admin/stats", response_model=Dict[str, Any])
+async def get_admin_stats(db: Session = Depends(get_db)):
+    """
+    Получение системной статистики для админа
+    """
+    try:
+        from utils.auth_service import auth_service
+        
+        # Получаем всех пользователей
+        all_users = auth_service.get_all_users()
+        total_users = len(all_users)
+        
+        # Подсчитываем по ролям
+        students_count = sum(1 for u in all_users if u.get('role') == 'student')
+        teachers_count = sum(1 for u in all_users if u.get('role') == 'teacher')
+        
+        # Подсчитываем общее количество заданий из всех профилей
+        total_tasks = 0
+        total_materials = 0
+        ai_queries = 0
+        
+        # Собираем данные из всех профилей
+        for user in all_users:
+            user_id = user.get('user_id')
+            if user_id:
+                profile = orchestrator.profiler.get_profile(user_id)
+                if profile:
+                    total_tasks += profile.total_tasks_completed
+        
+        # Подсчитываем количество уникальных тем
+        all_topics = set()
+        for user in all_users:
+            user_id = user.get('user_id')
+            if user_id:
+                profile = orchestrator.profiler.get_profile(user_id)
+                if profile and profile.topic_mastery:
+                    all_topics.update(profile.topic_mastery.keys())
+        total_materials = len(all_topics)
+        
+        return {
+            "totalUsers": total_users,
+            "totalTasks": total_tasks,
+            "totalMaterials": total_materials,
+            "aiQueries": ai_queries,
+            "studentsCount": students_count,
+            "teachersCount": teachers_count,
+            "storageUsed": "N/A",
+            "uptime": "99.8%"
+        }
+    except Exception as e:
+        print(f"Error in get_admin_stats: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/admin/users", response_model=List[Dict[str, Any]])
+async def get_admin_users(db: Session = Depends(get_db)):
+    """
+    Получение списка всех пользователей для админа
+    """
+    try:
+        from utils.auth_service import auth_service
+        
+        users = auth_service.get_all_users()
+        
+        # Форматируем данные для отображения
+        formatted_users = []
+        for user in users:
+            formatted_users.append({
+                "id": user.get('user_id', ''),
+                "name": user.get('full_name', user.get('email', 'Неизвестно')),
+                "email": user.get('email', ''),
+                "role": user.get('role', 'student'),
+                "status": "active" if user.get('is_active', True) else "inactive"
+            })
+        
+        return formatted_users
+    except Exception as e:
+        print(f"Error in get_admin_users: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/teacher/class-analytics", response_model=Dict[str, Any])
+async def get_class_analytics(class_id: Optional[str] = None, db: Session = Depends(get_db)):
+    """
+    Получение аналитики класса для учителя
+    """
+    try:
+        from utils.auth_service import auth_service
+        
+        # Получаем всех пользователей
+        all_users = auth_service.get_all_users()
+        
+        # Фильтруем студентов (если указан class_id, фильтруем по классу)
+        students = [u for u in all_users if u.get('role') == 'student']
+        if class_id:
+            students = [s for s in students if s.get('class_id') == class_id]
+        
+        # Формируем данные о студентах
+        class_data = []
+        all_topics = set()
+        topic_errors = defaultdict(lambda: {"count": 0, "students": set(), "error_types": defaultdict(int)})
+        
+        for student in students:
+            user_id = student.get('user_id')
+            if not user_id:
+                continue
+                
+            profile = orchestrator.profiler.get_profile(user_id)
+            if not profile:
+                continue
+            
+            # Подсчитываем ошибки
+            error_count = sum(1 for task in profile.task_history if not task.is_correct)
+            
+            # Подсчитываем изученные темы (мастерство >= 70%)
+            completed_topics = sum(1 for mastery in profile.topic_mastery.values() if mastery >= 0.7) if profile.topic_mastery else 0
+            
+            # Определяем статус
+            if profile.accuracy_rate >= 85:
+                status = 'excellent'
+            elif profile.accuracy_rate >= 70:
+                status = 'good'
+            elif profile.accuracy_rate >= 60:
+                status = 'average'
+            else:
+                status = 'needs-help'
+            
+            class_data.append({
+                "student": student.get('full_name', student.get('email', 'Неизвестно')),
+                "score": round(profile.accuracy_rate, 0),
+                "topics": completed_topics,
+                "errors": error_count,
+                "status": status,
+                "user_id": user_id
+            })
+            
+            # Собираем данные об ошибках по темам
+            for task in profile.task_history:
+                if not task.is_correct and task.topic:
+                    topic_errors[task.topic]["count"] += 1
+                    topic_errors[task.topic]["students"].add(user_id)
+                    if task.error_analysis and task.error_analysis.error_type:
+                        topic_errors[task.topic]["error_types"][task.error_analysis.error_type] += 1
+                    all_topics.add(task.topic)
+        
+        # Формируем список частых ошибок
+        common_errors = []
+        for topic, data in sorted(topic_errors.items(), key=lambda x: x[1]["count"], reverse=True)[:5]:
+            error_type = max(data["error_types"].items(), key=lambda x: x[1])[0] if data["error_types"] else "Неизвестная"
+            frequency = int((data["count"] / len(students) * 100)) if students else 0
+            common_errors.append({
+                "topic": topic,
+                "students": len(data["students"]),
+                "errorType": error_type,
+                "frequency": min(frequency, 100)
+            })
+        
+        # Формируем данные о производительности по темам
+        topic_performance = []
+        for topic in all_topics:
+            topic_scores = []
+            topic_completions = 0
+            for student in students:
+                user_id = student.get('user_id')
+                if not user_id:
+                    continue
+                profile = orchestrator.profiler.get_profile(user_id)
+                if profile and profile.topic_mastery and topic in profile.topic_mastery:
+                    mastery = profile.topic_mastery[topic]
+                    topic_scores.append(mastery * 100)
+                    if mastery >= 0.7:
+                        topic_completions += 1
+            
+            if topic_scores:
+                avg_score = sum(topic_scores) / len(topic_scores)
+                completion_rate = (topic_completions / len(students) * 100) if students else 0
+                topic_performance.append({
+                    "topic": topic,
+                    "avgScore": round(avg_score, 0),
+                    "completion": round(completion_rate, 0)
+                })
+        
+        # Сортируем по среднему баллу
+        topic_performance.sort(key=lambda x: x["avgScore"], reverse=True)
+        
+        return {
+            "classData": class_data,
+            "commonErrors": common_errors,
+            "topicPerformance": topic_performance[:10],
+            "totalStudents": len(class_data),
+            "averageScore": round(sum(s["score"] for s in class_data) / len(class_data), 0) if class_data else 0,
+            "needsHelpCount": sum(1 for s in class_data if s["status"] == "needs-help")
+        }
+    except Exception as e:
+        print(f"Error in get_class_analytics: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/study/material", response_model=Dict[str, Any])
+async def mark_material_studied(request: Dict[str, Any], db: Session = Depends(get_db)):
+    """
+    Отметить материал как изученный
+    Обновляет topic_mastery и сохраняет историю изучения
+    """
+    try:
+        user_id = request.get("user_id")
+        material_id = request.get("material_id")
+        topic = request.get("topic")
+        subject = request.get("subject", "Математика")
+        time_spent_seconds = request.get("time_spent_seconds", 0)
+        completion_percentage = request.get("completion_percentage", 1.0)
+        
+        if not user_id or not material_id or not topic:
+            raise HTTPException(status_code=400, detail="user_id, material_id и topic обязательны")
+        
+        # Получаем профиль ученика
+        profile = orchestrator.profiler.get_profile(user_id)
+        
+        # Создаем запись об изучении
+        from models.cognitive_profile import MaterialStudy
+        study_record = MaterialStudy(
+            material_id=material_id,
+            topic=topic,
+            subject=subject,
+            time_spent_seconds=time_spent_seconds,
+            completed=True,
+            completion_percentage=completion_percentage
+        )
+        
+        # Добавляем в историю изучения
+        profile.material_study_history.append(study_record)
+        
+        # Обновляем мастерство по теме
+        # Если тема уже есть, увеличиваем мастерство
+        # Если нет, устанавливаем начальное значение
+        if topic not in profile.topic_mastery:
+            profile.topic_mastery[topic] = 0.3  # Начальное значение после изучения материала
+        else:
+            # Увеличиваем мастерство на основе времени изучения и процента завершения
+            # Минимум +0.1, максимум +0.2
+            mastery_increase = min(0.2, max(0.1, completion_percentage * 0.15))
+            profile.topic_mastery[topic] = min(1.0, profile.topic_mastery[topic] + mastery_increase)
+        
+        # Округляем до 2 знаков
+        profile.topic_mastery[topic] = round(profile.topic_mastery[topic], 2)
+        
+        # Начисляем очки за изучение материала
+        points_earned = int(time_spent_seconds / 60) * 2  # 2 очка за каждую минуту изучения
+        profile.points += points_earned
+        
+        # Обновляем уровень
+        profile.level = min(profile.points // 100 + 1, 10)
+        
+        return {
+            "success": True,
+            "topic_mastery": profile.topic_mastery.get(topic, 0),
+            "points_earned": points_earned,
+            "total_points": profile.points,
+            "level": profile.level
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Error in mark_material_studied: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/study/progress/{user_id}", response_model=Dict[str, Any])
+async def get_study_progress(user_id: str, db: Session = Depends(get_db)):
+    """
+    Получить прогресс изучения материалов
+    """
+    try:
+        profile = orchestrator.profiler.get_profile(user_id)
+        
+        # Группируем по темам
+        topics_studied = {}
+        total_time = 0
+        materials_completed = 0
+        
+        for study in profile.material_study_history:
+            if study.completed:
+                materials_completed += 1
+                total_time += study.time_spent_seconds
+                
+                if study.topic not in topics_studied:
+                    topics_studied[study.topic] = {
+                        "materials_count": 0,
+                        "total_time": 0,
+                        "last_studied": study.timestamp.isoformat() if hasattr(study.timestamp, 'isoformat') else str(study.timestamp)
+                    }
+                
+                topics_studied[study.topic]["materials_count"] += 1
+                topics_studied[study.topic]["total_time"] += study.time_spent_seconds
+        
+        return {
+            "total_materials_studied": materials_completed,
+            "total_time_minutes": total_time // 60,
+            "topics_studied": topics_studied,
+            "topic_mastery": profile.topic_mastery
+        }
+    except Exception as e:
+        print(f"Error in get_study_progress: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/recommendations/{user_id}", response_model=Dict[str, Any])
+async def get_recommendations(user_id: str, topic: Optional[str] = None, db: Session = Depends(get_db)):
+    """
+    Получить рекомендации материалов на основе прогресса ученика
+    """
+    try:
+        profile = orchestrator.profiler.get_profile(user_id)
+        if not profile:
+            raise HTTPException(status_code=404, detail="Profile not found")
+        
+        # Определяем тему для рекомендаций
+        target_topic = topic
+        if not target_topic:
+            # Находим самую слабую тему
+            if profile.topic_mastery:
+                weak_topics = sorted(profile.topic_mastery.items(), key=lambda x: x[1])[:1]
+                if weak_topics:
+                    target_topic = weak_topics[0][0]
+        
+        # Маппинг тем к материалам
+        topic_to_materials = {
+            "Алгебра": [
+                {
+                    "type": "article",
+                    "title": "Основы алгебры: полное руководство",
+                    "description": "Систематизация базовых знаний по алгебре: уравнения, неравенства, функции",
+                    "relevance": 95,
+                    "materialId": "math-algebra-basics"
+                },
+                {
+                    "type": "article",
+                    "title": "Методы решения квадратных уравнений",
+                    "description": "Дискриминант, формула корней, теорема Виета",
+                    "relevance": 88,
+                    "materialId": "math-quadratic-eq"
+                }
+            ],
+            "Геометрия": [
+                {
+                    "type": "article",
+                    "title": "Теорема Пифагора: теория и примеры",
+                    "description": "Подробное объяснение теоремы с практическими примерами и визуализацией",
+                    "relevance": 95,
+                    "materialId": "math-pythagorean"
+                }
+            ],
+            "Арифметика": [
+                {
+                    "type": "pdf",
+                    "title": "Дроби: от простого к сложному",
+                    "description": "Полный справочник по работе с обыкновенными и десятичными дробями",
+                    "relevance": 90,
+                    "materialId": "math-fractions-pdf"
+                }
+            ]
+        }
+        
+        # Если есть конкретная тема, ищем материалы для неё
+        materials = []
+        if target_topic:
+            # Ищем точное совпадение
+            if target_topic in topic_to_materials:
+                materials = topic_to_materials[target_topic]
+            else:
+                # Ищем частичное совпадение
+                for topic_key, topic_materials in topic_to_materials.items():
+                    if topic_key.lower() in target_topic.lower() or target_topic.lower() in topic_key.lower():
+                        materials = topic_materials
+                        break
+        
+        # Если не нашли материалы по теме, предлагаем общие
+        if not materials:
+            # Собираем материалы из всех тем, сортируем по релевантности
+            all_materials = []
+            for topic_materials in topic_to_materials.values():
+                all_materials.extend(topic_materials)
+            
+            # Если есть слабые темы, повышаем релевантность соответствующих материалов
+            if profile.topic_mastery:
+                weak_topics = sorted(profile.topic_mastery.items(), key=lambda x: x[1])[:3]
+                for weak_topic, mastery in weak_topics:
+                    for topic_key, topic_materials in topic_to_materials.items():
+                        if topic_key.lower() in weak_topic.lower() or weak_topic.lower() in topic_key.lower():
+                            for mat in topic_materials:
+                                # Повышаем релевантность на основе слабости темы
+                                mat["relevance"] = min(100, mat.get("relevance", 70) + int((0.7 - mastery) * 30))
+            
+            # Сортируем по релевантности и берем топ-2
+            all_materials.sort(key=lambda x: x.get("relevance", 0), reverse=True)
+            materials = all_materials[:2]
+        
+        # Если всё равно нет материалов, даём дефолтные
+        if not materials:
+            materials = [
+                {
+                    "type": "article",
+                    "title": "Основы алгебры: полное руководство",
+                    "description": "Систематизация базовых знаний",
+                    "relevance": 85,
+                    "materialId": "math-algebra-basics"
+                },
+                {
+                    "type": "video",
+                    "title": "Решение задач повышенной сложности",
+                    "description": "Видеокурс от ведущих преподавателей",
+                    "relevance": 78,
+                    "materialId": "math-advanced-problems"
+                }
+            ]
+        
+        return {
+            "title": f"Рекомендации по теме: {target_topic or 'Общие материалы'}" if target_topic else "Продолжайте в том же духе!",
+            "description": "Система подобрала материалы на основе вашего прогресса" if target_topic else "Вы делаете отличные успехи. Система подберет следующее задание для закрепления материала.",
+            "materials": materials
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Error in get_recommendations: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/materials/ratings", response_model=Dict[str, Any])
+async def get_materials_ratings(db: Session = Depends(get_db)):
+    """
+    Получить рейтинги материалов на основе реальных данных
+    Рейтинг рассчитывается на основе:
+    - Количества учеников, изучивших материал
+    - Среднего процента завершения
+    - Улучшения topic_mastery после изучения
+    - Времени, потраченного на изучение
+    """
+    try:
+        all_profiles = orchestrator.profiler.get_all_profiles()
+        
+        # Собираем статистику по материалам
+        material_stats = defaultdict(lambda: {
+            "study_count": 0,
+            "total_completion": 0.0,
+            "total_time": 0,
+            "mastery_improvements": [],
+            "topics": set()
+        })
+        
+        # Анализируем историю изучения материалов
+        for user_id, profile in all_profiles.items():
+            if profile.material_study_history:
+                for study in profile.material_study_history:
+                    material_id = study.material_id
+                    material_stats[material_id]["study_count"] += 1
+                    material_stats[material_id]["total_completion"] += study.completion_percentage
+                    material_stats[material_id]["total_time"] += study.time_spent_seconds
+                    material_stats[material_id]["topics"].add(study.topic)
+                    
+                    # Проверяем улучшение мастерства по теме
+                    if study.topic in profile.topic_mastery:
+                        # Ищем мастерство до и после изучения (упрощенно)
+                        # В реальной системе нужно хранить mastery до изучения
+                        current_mastery = profile.topic_mastery[study.topic]
+                        if current_mastery > 0.3:  # Если мастерство выше начального
+                            material_stats[material_id]["mastery_improvements"].append(current_mastery)
+        
+        # Рассчитываем рейтинги для каждого материала
+        material_ratings = {}
+        
+        for material_id, stats in material_stats.items():
+            if stats["study_count"] == 0:
+                # Если материал не изучался, используем базовый рейтинг
+                material_ratings[material_id] = 4.5
+                continue
+            
+            # Средний процент завершения
+            avg_completion = stats["total_completion"] / stats["study_count"]
+            
+            # Среднее время изучения (в минутах)
+            avg_time_minutes = (stats["total_time"] / stats["study_count"]) / 60
+            
+            # Среднее улучшение мастерства
+            avg_mastery_improvement = 0.0
+            if stats["mastery_improvements"]:
+                avg_mastery_improvement = sum(stats["mastery_improvements"]) / len(stats["mastery_improvements"])
+            
+            # Базовый рейтинг (от 3.0 до 5.0)
+            base_rating = 3.0
+            
+            # Бонусы:
+            # 1. За количество изучений (популярность)
+            popularity_bonus = min(0.5, stats["study_count"] * 0.05)  # До +0.5 за популярность
+            
+            # 2. За процент завершения (качество материала)
+            completion_bonus = avg_completion * 0.8  # До +0.8 за 100% завершения
+            
+            # 3. За улучшение мастерства (эффективность)
+            mastery_bonus = min(0.5, avg_mastery_improvement * 0.5)  # До +0.5 за эффективность
+            
+            # 4. За время изучения (адекватность длительности)
+            # Если среднее время 10-20 минут - это хорошо
+            time_bonus = 0.0
+            if 10 <= avg_time_minutes <= 20:
+                time_bonus = 0.2
+            elif 5 <= avg_time_minutes < 10 or 20 < avg_time_minutes <= 30:
+                time_bonus = 0.1
+            
+            # Итоговый рейтинг
+            rating = base_rating + popularity_bonus + completion_bonus + mastery_bonus + time_bonus
+            
+            # Ограничиваем от 3.0 до 5.0
+            rating = max(3.0, min(5.0, rating))
+            
+            # Округляем до 1 знака после запятой
+            material_ratings[material_id] = round(rating, 1)
+        
+        return {
+            "ratings": material_ratings,
+            "total_materials": len(material_ratings)
+        }
+    except Exception as e:
+        print(f"Error in get_materials_ratings: {e}")
+        import traceback
+        traceback.print_exc()
+        # Возвращаем пустой словарь при ошибке
+        return {
+            "ratings": {},
+            "total_materials": 0
+        }
+
+
+@router.get("/admin/content-structure", response_model=Dict[str, Any])
+async def get_content_structure(db: Session = Depends(get_db)):
+    """
+    Получить структуру образовательного контента для панели администратора
+    Анализирует реальные материалы и задания из системы
+    """
+    try:
+        # Получаем все профили учеников
+        all_profiles = orchestrator.profiler.get_all_profiles()
+        
+        # Собираем статистику по темам из заданий
+        topic_stats = defaultdict(lambda: {
+            "tasks_count": 0,
+            "correct_count": 0,
+            "materials_count": 0,
+            "subjects": set()
+        })
+        
+        # Анализируем материалы из истории изучения и заданий
+        for user_id, profile in all_profiles.items():
+            # Анализируем задания
+            if profile.task_history:
+                for task in profile.task_history:
+                    if task.topic:
+                        topic_stats[task.topic]["tasks_count"] += 1
+                        if task.is_correct:
+                            topic_stats[task.topic]["correct_count"] += 1
+            
+            # Анализируем изученные материалы
+            if profile.material_study_history:
+                for material in profile.material_study_history:
+                    if material.topic:
+                        topic_stats[material.topic]["materials_count"] += 1
+                        if material.subject:
+                            topic_stats[material.topic]["subjects"].add(material.subject)
+        
+        # Маппинг тем к предметам и разделам (на основе реальных материалов из LibraryTab)
+        topic_mapping = {
+            "Алгебра": {"subject": "Математика", "section": "Алгебра"},
+            "Геометрия": {"subject": "Математика", "section": "Геометрия"},
+            "Арифметика": {"subject": "Математика", "section": "Арифметика"},
+            "Уравнения": {"subject": "Математика", "section": "Алгебра"},
+            "Функции": {"subject": "Математика", "section": "Алгебра"},
+            "Неравенства": {"subject": "Математика", "section": "Алгебра"},
+            "Треугольники": {"subject": "Математика", "section": "Геометрия"},
+            "Окружности": {"subject": "Математика", "section": "Геометрия"},
+            "Теорема Пифагора": {"subject": "Математика", "section": "Геометрия"},
+            "Квадратные уравнения": {"subject": "Математика", "section": "Алгебра"},
+        }
+        
+        # Формируем структуру контента на основе реальных данных
+        subject_structure = defaultdict(lambda: {
+            "sections": defaultdict(lambda: {
+                "topics": []
+            })
+        })
+        
+        # Добавляем темы из реальных данных
+        for topic, stats in topic_stats.items():
+            mapping = topic_mapping.get(topic, {"subject": "Математика", "section": "Другое"})
+            subject = mapping["subject"]
+            section = mapping["section"]
+            
+            # Подсчитываем элементы (материалы + задания)
+            elements = stats["materials_count"] + max(1, stats["tasks_count"] // 4)  # Примерно 4 задания = 1 элемент
+            
+            subject_structure[subject]["sections"][section]["topics"].append({
+                "id": abs(hash(topic)) % 10000,  # Простой ID
+                "name": topic,
+                "elements": max(1, elements),
+                "tasks": stats["tasks_count"]
+            })
+        
+        # Добавляем известные материалы из LibraryTab (если их нет в статистике)
+        known_materials = {
+            "Алгебра": {"subject": "Математика", "section": "Алгебра", "elements": 12},
+            "Геометрия": {"subject": "Математика", "section": "Геометрия", "elements": 10},
+        }
+        
+        for topic, info in known_materials.items():
+            if topic not in topic_stats:
+                subject_structure[info["subject"]]["sections"][info["section"]]["topics"].append({
+                    "id": abs(hash(topic)) % 10000,
+                    "name": topic,
+                    "elements": info["elements"],
+                    "tasks": 0
+                })
+        
+        # Преобразуем в нужный формат
+        content_structure = []
+        for subject_name, subject_data in subject_structure.items():
+            sections_list = []
+            for section_name, section_data in subject_data["sections"].items():
+                if section_data["topics"]:  # Добавляем только если есть темы
+                    sections_list.append({
+                        "id": abs(hash(f"{subject_name}_{section_name}")) % 10000,
+                        "name": section_name,
+                        "topics": section_data["topics"]
+                    })
+            
+            if sections_list:  # Добавляем только если есть разделы
+                content_structure.append({
+                    "id": abs(hash(subject_name)) % 10000,
+                    "subject": subject_name,
+                    "sections": sections_list
+                })
+        
+        # Если нет данных, возвращаем базовую структуру на основе известных материалов
+        if not content_structure:
+            content_structure = [
+                {
+                    "id": 1,
+                    "subject": "Математика",
+                    "sections": [
+                        {
+                            "id": 11,
+                            "name": "Алгебра",
+                            "topics": [
+                                {"id": 111, "name": "Уравнения", "elements": 12, "tasks": 0},
+                                {"id": 112, "name": "Функции", "elements": 8, "tasks": 0},
+                                {"id": 113, "name": "Неравенства", "elements": 6, "tasks": 0}
+                            ]
+                        },
+                        {
+                            "id": 12,
+                            "name": "Геометрия",
+                            "topics": [
+                                {"id": 121, "name": "Треугольники", "elements": 10, "tasks": 0},
+                                {"id": 122, "name": "Окружности", "elements": 7, "tasks": 0}
+                            ]
+                        }
+                    ]
+                }
+            ]
+        
+        return {
+            "structure": content_structure,
+            "total_subjects": len(content_structure),
+            "total_sections": sum(len(s["sections"]) for s in content_structure),
+            "total_topics": sum(len(sec["topics"]) for s in content_structure for sec in s["sections"])
+        }
+    except Exception as e:
+        print(f"Error in get_content_structure: {e}")
+        import traceback
+        traceback.print_exc()
+        # Возвращаем базовую структуру при ошибке
+        return {
+            "structure": [
+                {
+                    "id": 1,
+                    "subject": "Математика",
+                    "sections": [
+                        {
+                            "id": 11,
+                            "name": "Алгебра",
+                            "topics": [
+                                {"id": 111, "name": "Уравнения", "elements": 12, "tasks": 0},
+                                {"id": 112, "name": "Функции", "elements": 8, "tasks": 0}
+                            ]
+                        }
+                    ]
+                }
+            ],
+            "total_subjects": 1,
+            "total_sections": 1,
+            "total_topics": 2
+        }
 

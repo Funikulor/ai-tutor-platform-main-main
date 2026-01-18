@@ -74,7 +74,9 @@ async def submit_task(submission: TaskSubmission):
             task_id=submission.task_id,
             question=submission.question,
             user_answer=submission.user_answer,
-            correct_answer=submission.correct_answer
+            correct_answer=submission.correct_answer,
+            topic=submission.topic,
+            time_spent_seconds=submission.time_spent_seconds
         )
         
         # Также сохраняем в аналитику
@@ -191,10 +193,14 @@ async def generate_adaptive_task(request: Dict[str, Any]):
 КРИТИЧЕСКИ ВАЖНО:
 - НЕ используй LaTeX синтаксис (\\frac, \\sqrt, \\(, \\[ и т.д.)
 - Пиши математические формулы обычным текстом:
-  * Дроби: (3x - 5) / 2 или 3x-5/2
+  * Дроби: ВСЕГДА используй скобки для числителя и знаменателя, если они содержат операции:
+    - ПРАВИЛЬНО: (3x - 5) / 2, (2x + 3) / 4, (x + 1) / (x - 1)
+    - НЕПРАВИЛЬНО: 2x+3/4 (без скобок), 3x-5/2 (без скобок)
+    - Для простых дробей можно: x/2, 3/4, но для сложных ВСЕГДА скобки: (2x+3)/4
   * Степени: x^2 или x²
   * Корни: √(x+1) или корень из (x+1)
   * Пример: "Решите уравнение: (3x - 5) / 2 = x + 4" вместо "\\frac{{3x-5}}{{2}} = x+4"
+  * Пример: "Найдите значение: (2x + 3) / 4 = 5 - x/2" (обрати внимание на скобки!)
 
 ОБЯЗАТЕЛЬНО верни ответ ТОЛЬКО в формате JSON, без дополнительного текста до или после JSON.
 
@@ -232,7 +238,7 @@ async def generate_adaptive_task(request: Dict[str, Any]):
         
         # Генерируем через assistant service
         assistant = get_assistant_service()
-        raw_response = assistant._generate(prompt, max_new_tokens=800)
+        raw_response = assistant._generate(prompt, max_new_tokens=1200)
         
         # Логируем ответ для отладки
         print(f"[AdaptiveTask] Raw AI response length: {len(raw_response)}")
@@ -348,11 +354,12 @@ async def generate_adaptive_task(request: Dict[str, Any]):
 - НЕ используй markdown форматирование (**, ###, --- и т.д.)
 - Пиши простым, понятным языком, как будто объясняешь другу
 - Сделай объяснение интересным и увлекательным
-- Используй эмодзи для визуального разделения шагов (например: 🔹, 📝, ✅)
+- Используй эмодзи для визуального разделения шагов (например: 🔹, 📝, ✅, 💡)
 - Объяснение должно быть понятным для ученика 9 класса
-- Начни с краткого введения, затем опиши каждый шаг по порядку"""
+- Начни с краткого введения, затем опиши каждый шаг по порядку
+- КРИТИЧЕСКИ ВАЖНО: Объяснение должно быть ПОЛНЫМ и ЗАВЕРШЕННЫМ - опиши все шаги до финального ответа, не обрывай на середине"""
                 
-                explanation_response = assistant._generate(explanation_prompt, max_new_tokens=400)
+                explanation_response = assistant._generate(explanation_prompt, max_new_tokens=1000)
                 # Очищаем ответ от лишнего
                 explanation_clean = explanation_response.strip()
                 # Убираем кавычки, если они есть

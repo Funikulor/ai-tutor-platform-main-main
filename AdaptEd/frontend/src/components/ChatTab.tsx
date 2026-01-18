@@ -1,11 +1,99 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { AIChatPanel } from './AIChatPanel';
 import { AICharacter } from './AICharacter';
 import { motion } from 'motion/react';
 import { Sparkles, MessageCircle, Lightbulb, Heart } from 'lucide-react';
+import api from '../services/api';
 
 export function ChatTab() {
   const [showWelcome, setShowWelcome] = useState(true);
+  const [chatProgress, setChatProgress] = useState({
+    questionsAsked: 0,
+    topicsStudied: 0
+  });
+  const [loadingProgress, setLoadingProgress] = useState(true);
+
+  // Загрузка реальных данных о прогрессе
+  useEffect(() => {
+    const loadChatProgress = async () => {
+      try {
+        const userId = localStorage.getItem('user_id');
+        if (!userId) {
+          setLoadingProgress(false);
+          return;
+        }
+
+        // Подсчитываем количество сообщений пользователя из localStorage
+        const savedMessages = localStorage.getItem('ai_chat_messages');
+        let questionsCount = 0;
+        if (savedMessages) {
+          try {
+            const messages = JSON.parse(savedMessages);
+            questionsCount = messages.filter((msg: any) => msg.sender === 'user').length;
+          } catch (e) {
+            console.error('Error parsing chat messages:', e);
+          }
+        }
+
+        // Получаем количество изученных тем из API
+        try {
+          const progressResponse = await api.get(`/progress/${userId}`);
+          const progressData = progressResponse.data;
+          const topicsStudied = progressData.progress?.completedTopics || 
+                                Object.keys(progressData.progress?.topicMastery || {}).filter(
+                                  (topic: string) => progressData.progress?.topicMastery?.[topic] >= 0.7
+                                ).length || 0;
+
+          setChatProgress({
+            questionsAsked: questionsCount,
+            topicsStudied: topicsStudied
+          });
+        } catch (err) {
+          // Если API не доступен, используем только данные из localStorage
+          setChatProgress({
+            questionsAsked: questionsCount,
+            topicsStudied: 0
+          });
+        }
+      } catch (err) {
+        console.error('Error loading chat progress:', err);
+      } finally {
+        setLoadingProgress(false);
+      }
+    };
+
+    loadChatProgress();
+
+    // Обновляем данные при изменении сообщений в localStorage
+    const handleStorageChange = () => {
+      const savedMessages = localStorage.getItem('ai_chat_messages');
+      if (savedMessages) {
+        try {
+          const messages = JSON.parse(savedMessages);
+          const questionsCount = messages.filter((msg: any) => msg.sender === 'user').length;
+          setChatProgress(prev => ({ ...prev, questionsAsked: questionsCount }));
+        } catch (e) {
+          // Ignore
+        }
+      }
+    };
+
+    window.addEventListener('storage', handleStorageChange);
+    // Также проверяем периодически (на случай, если изменения происходят в том же окне)
+    const interval = setInterval(handleStorageChange, 2000);
+
+    return () => {
+      window.removeEventListener('storage', handleStorageChange);
+      clearInterval(interval);
+    };
+  }, []);
+
+  // Обработчик клика по популярной теме
+  const handleTopicClick = (topic: string) => {
+    // Отправляем сообщение через глобальное событие
+    const event = new CustomEvent('chat-send-message', { detail: { message: `Расскажи про ${topic.toLowerCase()}` } });
+    window.dispatchEvent(event);
+  };
 
   const features = [
     {
@@ -140,7 +228,8 @@ export function ChatTab() {
             ].map((item, index) => (
               <button
                 key={index}
-                className="w-full p-3 bg-purple-50 hover:bg-purple-100 rounded-xl transition-all text-left flex items-center justify-between group"
+                onClick={() => handleTopicClick(item.topic)}
+                className="w-full p-3 bg-purple-50 hover:bg-purple-100 rounded-xl transition-all text-left flex items-center justify-between group cursor-pointer"
               >
                 <div className="flex items-center gap-3">
                   <span className="text-2xl">{item.emoji}</span>
@@ -157,31 +246,45 @@ export function ChatTab() {
         {/* Your Progress */}
         <div className="bg-gradient-to-br from-green-50 to-emerald-50 rounded-2xl p-6 border-2 border-green-200">
           <h3 className="text-gray-900 mb-4">📊 Твой прогресс в чате</h3>
-          <div className="space-y-3">
-            <div>
-              <div className="flex items-center justify-between text-sm mb-1">
-                <span className="text-gray-700">Задано вопросов</span>
-                <span className="text-green-700">47</span>
+          {loadingProgress ? (
+            <div className="text-center py-4">
+              <p className="text-sm text-gray-500">Загрузка...</p>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              <div>
+                <div className="flex items-center justify-between text-sm mb-1">
+                  <span className="text-gray-700">Задано вопросов</span>
+                  <span className="text-green-700 font-semibold">{chatProgress.questionsAsked}</span>
+                </div>
+                <div className="h-2 bg-white rounded-full overflow-hidden">
+                  <div 
+                    className="h-full bg-gradient-to-r from-green-400 to-emerald-500 transition-all duration-300" 
+                    style={{ width: `${Math.min((chatProgress.questionsAsked / 100) * 100, 100)}%` }} 
+                  />
+                </div>
               </div>
-              <div className="h-2 bg-white rounded-full overflow-hidden">
-                <div className="h-full bg-gradient-to-r from-green-400 to-emerald-500 w-[70%]" />
+              <div>
+                <div className="flex items-center justify-between text-sm mb-1">
+                  <span className="text-gray-700">Изучено тем</span>
+                  <span className="text-green-700 font-semibold">{chatProgress.topicsStudied}</span>
+                </div>
+                <div className="h-2 bg-white rounded-full overflow-hidden">
+                  <div 
+                    className="h-full bg-gradient-to-r from-green-400 to-emerald-500 transition-all duration-300" 
+                    style={{ width: `${Math.min((chatProgress.topicsStudied / 20) * 100, 100)}%` }} 
+                  />
+                </div>
+              </div>
+              <div className="pt-3 border-t border-green-200">
+                <p className="text-xs text-gray-600 text-center">
+                  {chatProgress.questionsAsked === 0 && chatProgress.topicsStudied === 0
+                    ? 'Начни задавать вопросы! 💪'
+                    : 'Продолжай в том же духе! 🌟'}
+                </p>
               </div>
             </div>
-            <div>
-              <div className="flex items-center justify-between text-sm mb-1">
-                <span className="text-gray-700">Изучено тем</span>
-                <span className="text-green-700">12</span>
-              </div>
-              <div className="h-2 bg-white rounded-full overflow-hidden">
-                <div className="h-full bg-gradient-to-r from-green-400 to-emerald-500 w-[45%]" />
-              </div>
-            </div>
-            <div className="pt-3 border-t border-green-200">
-              <p className="text-xs text-gray-600 text-center">
-                Продолжай в том же духе! 🌟
-              </p>
-            </div>
-          </div>
+          )}
         </div>
 
         {/* Fun Fact */}

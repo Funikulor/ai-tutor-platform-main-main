@@ -56,6 +56,10 @@ class ProfilerAgent(BaseAgent):
         # Обновляем статистику
         self._update_statistics(profile)
         
+        # Обновляем мастерство по темам
+        if task_attempt:
+            self._update_topic_mastery(profile, task_attempt)
+        
         # Обновляем историю ошибок
         if error_analysis:
             self._update_error_patterns(profile, error_analysis)
@@ -86,12 +90,39 @@ class ProfilerAgent(BaseAgent):
             self.profiles[user_id] = CognitiveProfile(user_id=user_id)
         return self.profiles.get(user_id)
     
+    def get_all_profiles(self) -> Dict[str, CognitiveProfile]:
+        """Получить все профили учеников"""
+        return self.profiles
+    
     def _update_statistics(self, profile: CognitiveProfile):
         """Обновление статистики"""
         profile.total_tasks_completed = len(profile.task_history)
         correct_count = sum(1 for attempt in profile.task_history if attempt.is_correct)
         profile.correct_tasks_count = correct_count
-        profile.accuracy_rate = (correct_count / profile.total_tasks_completed * 100) if profile.total_tasks_completed > 0 else 0
+        # accuracy_rate в процентах (0-100)
+        profile.accuracy_rate = (correct_count / profile.total_tasks_completed * 100) if profile.total_tasks_completed > 0 else 0.0
+    
+    def _update_topic_mastery(self, profile: CognitiveProfile, task_attempt: TaskAttempt):
+        """Обновляет мастерство по темам на основе выполнения заданий"""
+        if not task_attempt.topic:
+            return
+        
+        topic = task_attempt.topic
+        
+        # Инициализируем тему, если её нет
+        if topic not in profile.topic_mastery:
+            profile.topic_mastery[topic] = 0.5  # Начальное значение 50%
+        
+        # Обновляем мастерство на основе результата
+        if task_attempt.is_correct:
+            # Правильный ответ: увеличиваем мастерство
+            profile.topic_mastery[topic] = min(1.0, profile.topic_mastery[topic] + 0.05)  # +5% за правильный ответ
+        else:
+            # Неправильный ответ: уменьшаем мастерство
+            profile.topic_mastery[topic] = max(0.0, profile.topic_mastery[topic] - 0.03)  # -3% за неправильный ответ
+        
+        # Округляем до 2 знаков после запятой
+        profile.topic_mastery[topic] = round(profile.topic_mastery[topic], 2)
     
     def _update_error_patterns(self, profile: CognitiveProfile, error_analysis: Dict[str, Any]):
         """Обновление паттернов ошибок"""

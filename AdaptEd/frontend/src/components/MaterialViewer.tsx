@@ -1,13 +1,265 @@
-import { ArrowLeft, BookOpen, Video, FileText, Clock, Star, Download, Share2 } from 'lucide-react';
+import { useState, useEffect, useRef } from 'react';
+import { ArrowLeft, BookOpen, Video, FileText, Clock, Star, Download, Share2, CheckCircle, Target, Lightbulb, AlertCircle, Zap } from 'lucide-react';
 import { motion } from 'motion/react';
 import type { Material } from './LibraryTab';
+import api from '../services/api';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
+import React from 'react';
+
+// Функция для форматирования математических формул (скопирована из AdaptiveTask)
+const formatMathText = (text: string): React.ReactElement[] => {
+  let cleaned = text
+    .replace(/\\\(/g, '')
+    .replace(/\\\)/g, '')
+    .replace(/\\\[/g, '')
+    .replace(/\\\]/g, '')
+    .replace(/\\frac\{([^}]+)\}\{([^}]+)\}/g, '($1)/($2)')
+    .replace(/\\sqrt\{([^}]+)\}/g, '√($1)')
+    .replace(/\\sqrt\[([^\]]+)\]\{([^}]+)\}/g, 'корень $1 степени из ($2)')
+    .replace(/\^\{([^}]+)\}/g, '^$1')
+    // Обрабатываем степени вида ^2, ^3 и т.д.
+    .replace(/\^(\d+)/g, (_match, num) => {
+      const superscripts: { [key: string]: string } = {
+        '0': '⁰', '1': '¹', '2': '²', '3': '³', '4': '⁴',
+        '5': '⁵', '6': '⁶', '7': '⁷', '8': '⁸', '9': '⁹'
+      };
+      return superscripts[num] || `^${num}`;
+    })
+    // Обрабатываем степени, написанные напрямую как обычные символы (если они уже есть в тексте)
+    // Это не нужно, так как они уже правильные
+    .replace(/\{|\}/g, '')
+    .replace(/(\d+|\w+)\s*\*\s*(\d+|\w+)/g, (match, left, right, offset, string) => {
+      const before = offset > 0 ? string[offset - 1] : ' ';
+      const after = offset + match.length < string.length ? string[offset + match.length] : ' ';
+      if (before === ':' || after === ':') {
+        return match;
+      }
+      return `${left} · ${right}`;
+    });
+
+  // Обрабатываем дроби вида: (-b ± √D) / 2a
+  cleaned = cleaned.replace(/(\([^)]+\))\s*\/\s*(\d+[a-zA-Z]?|[a-zA-Z]+\d*)/g, (_match, numerator, denominator) => {
+    return `(${numerator.slice(1, -1)})/${denominator}`;
+  });
+
+  // Обрабатываем дроби без скобок в числителе: -b ± √D / 2a
+  cleaned = cleaned.replace(/([a-zA-Z0-9±√\s()]+)\s*\/\s*(\d+[a-zA-Z]?|[a-zA-Z]+\d*)/g, (match, numerator, denominator, offset, string) => {
+    // Проверяем контекст - это должна быть отдельная формула
+    const before = offset > 0 ? string.substring(Math.max(0, offset - 10), offset) : '';
+    const after = offset + match.length < string.length ? string.substring(offset + match.length, Math.min(string.length, offset + match.length + 10)) : '';
+    
+    // Если перед этим есть знак =, : или начало строки, и после есть пробел, =, или конец - это дробь
+    if ((/[=:\s]|^/.test(before.slice(-1)) || before.trim() === '') && 
+        (/[\s=,\n]|$/.test(after.charAt(0)) || after.trim() === '')) {
+      // Если числитель не в скобках и содержит операции, добавляем скобки
+      if (!numerator.trim().startsWith('(') && /[+\-±√]/.test(numerator)) {
+        return `(${numerator.trim()})/${denominator}`;
+      }
+      return match;
+    }
+    return match;
+  });
+
+  const parts: (string | React.ReactElement)[] = [];
+  let lastIndex = 0;
+
+  const fractionPattern = /(\([^()]+\)|[a-zA-Z]?\d+[a-zA-Z]*|\d+)\s*\/\s*(\([^()]+\)|[a-zA-Z]?\d+[a-zA-Z]*|\d+)/g;
+  const matches: Array<{index: number, length: number, numerator: string, denominator: string}> = [];
+  let match: RegExpExecArray | null;
+
+  while ((match = fractionPattern.exec(cleaned)) !== null) {
+    let numerator = match[1].trim();
+    let denominator = match[2].trim();
+
+    const beforeChar = match.index > 0 ? cleaned[match.index - 1] : ' ';
+    const afterChar = match.index + match[0].length < cleaned.length
+      ? cleaned[match.index + match[0].length]
+      : ' ';
+
+    if (beforeChar === ':' || afterChar === ':') {
+      continue;
+    }
+
+    if (numerator.startsWith('(') && numerator.endsWith(')')) {
+      numerator = numerator.slice(1, -1).trim();
+    }
+    if (denominator.startsWith('(') && denominator.endsWith(')')) {
+      denominator = denominator.slice(1, -1).trim();
+    }
+
+    if (numerator && denominator) {
+      const overlaps = matches.some(m => {
+        const matchStart = match!.index;
+        const matchEnd = match!.index + match![0].length;
+        const mStart = m.index;
+        const mEnd = m.index + m.length;
+        return (matchStart >= mStart && matchStart < mEnd) ||
+               (mStart >= matchStart && mStart < matchEnd);
+      });
+
+      if (!overlaps) {
+        matches.push({
+          index: match.index,
+          length: match[0].length,
+          numerator: numerator,
+          denominator: denominator
+        });
+      }
+    }
+  }
+
+  // Убираем автоматическое выделение чисел - оставляем только дроби
+  // Числа не выделяем жирным, чтобы не портить читаемость
+  const allElements = [
+    ...matches.map(m => ({ ...m, type: 'fraction' as const }))
+  ].sort((a, b) => a.index - b.index);
+
+  if (allElements.length === 0) {
+    return [<span key="text">{cleaned}</span>];
+  }
+
+  allElements.forEach((element, idx) => {
+    if (element.index > lastIndex) {
+      parts.push(cleaned.substring(lastIndex, element.index));
+    }
+
+    if (element.type === 'fraction') {
+      const frac = element as typeof matches[0];
+      parts.push(
+        <span
+          key={`frac-${idx}`}
+          className="inline-flex flex-col items-center mx-1 my-0.5"
+          style={{
+            verticalAlign: 'middle',
+            lineHeight: '1.2',
+            fontSize: '1em',
+            display: 'inline-flex'
+          }}
+        >
+          <span
+            className="text-base leading-none border-b-2 border-gray-800 pb-0.5 px-1 font-semibold text-center"
+            style={{ minHeight: '1.2em', display: 'block', fontWeight: '600' }}
+          >
+            {frac.numerator}
+          </span>
+          <span
+            className="text-base leading-none mt-0.5 px-1 text-center font-semibold"
+            style={{ minHeight: '1.2em', display: 'block', fontWeight: '600' }}
+          >
+            {frac.denominator}
+          </span>
+        </span>
+      );
+      lastIndex = frac.index + frac.length;
+    }
+  });
+
+  if (lastIndex < cleaned.length) {
+    parts.push(cleaned.substring(lastIndex));
+  }
+
+  // Обрабатываем степени в финальном результате - заменяем обычные символы на верхние индексы
+  const processedParts = parts.map((part, index) => {
+    if (typeof part === 'string') {
+      // Заменяем обычные цифры после переменных на верхние индексы
+      // Например: c2 -> c², a2 -> a², но не трогаем числа отдельно
+      const processed = part.replace(/([a-zA-Z])(\d)/g, (_match, letter, digit) => {
+        const superscripts: { [key: string]: string } = {
+          '0': '⁰', '1': '¹', '2': '²', '3': '³', '4': '⁴',
+          '5': '⁵', '6': '⁶', '7': '⁷', '8': '⁸', '9': '⁹'
+        };
+        return letter + (superscripts[digit] || digit);
+      });
+      return <span key={`text-${index}`}>{processed}</span>;
+    }
+    return part;
+  });
+
+  return processedParts;
+};
 
 interface MaterialViewerProps {
   material: Material;
   onBack: () => void;
+  onStudyComplete?: (topic: string) => void;
 }
 
-export function MaterialViewer({ material, onBack }: MaterialViewerProps) {
+export function MaterialViewer({ material, onBack, onStudyComplete }: MaterialViewerProps) {
+  const [timeSpent, setTimeSpent] = useState(0);
+  const [scrollProgress, setScrollProgress] = useState(0);
+  const [isStudied, setIsStudied] = useState(false);
+  const [isMarking, setIsMarking] = useState(false);
+  const startTimeRef = useRef<number>(Date.now());
+  const contentRef = useRef<HTMLDivElement>(null);
+  
+  // Отслеживаем время изучения
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setTimeSpent(Math.floor((Date.now() - startTimeRef.current) / 1000));
+    }, 1000);
+    
+    return () => clearInterval(interval);
+  }, []);
+  
+  // Отслеживаем прогресс прокрутки
+  useEffect(() => {
+    const handleScroll = () => {
+      if (contentRef.current) {
+        const element = contentRef.current;
+        const scrollTop = element.scrollTop;
+        const scrollHeight = element.scrollHeight - element.clientHeight;
+        const progress = scrollHeight > 0 ? (scrollTop / scrollHeight) * 100 : 0;
+        setScrollProgress(Math.min(100, Math.max(0, progress)));
+      }
+    };
+    
+    const element = contentRef.current;
+    if (element) {
+      element.addEventListener('scroll', handleScroll);
+      return () => element.removeEventListener('scroll', handleScroll);
+    }
+  }, []);
+  
+  const handleMarkAsStudied = async () => {
+    try {
+      setIsMarking(true);
+      const userId = localStorage.getItem('user_id');
+      if (!userId) {
+        throw new Error('User ID not found');
+      }
+      
+      const response = await api.post('/study/material', {
+        user_id: userId,
+        material_id: material.id,
+        topic: material.topic,
+        subject: material.subject,
+        time_spent_seconds: timeSpent,
+        completion_percentage: scrollProgress / 100
+      });
+      
+      setIsStudied(true);
+      
+      // Вызываем callback для обновления прогресса
+      if (onStudyComplete) {
+        onStudyComplete(material.topic);
+      }
+      
+      // Показываем уведомление об успехе
+      alert(`Отлично! Вы изучили материал по теме "${material.topic}". Получено ${response.data.points_earned} очков!`);
+    } catch (err: any) {
+      console.error('Error marking material as studied:', err);
+      alert('Не удалось отметить материал как изученный. Попробуйте еще раз.');
+    } finally {
+      setIsMarking(false);
+    }
+  };
+  
+  const formatTime = (seconds: number) => {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins}:${secs.toString().padStart(2, '0')}`;
+  };
   const getTypeIcon = () => {
     switch (material.type) {
       case 'video': return <Video className="w-6 h-6" />;
@@ -61,64 +313,208 @@ export function MaterialViewer({ material, onBack }: MaterialViewerProps) {
       );
     }
 
-    // Article content with markdown-style rendering
+    // Article content with enhanced markdown rendering
+    // Обрабатываем контент для форматирования формул
+    const processContentForMath = (content: string): string => {
+      // Обрабатываем формулы в тексте, особенно дроби вида (-b ± √D) / 2a
+      // Заменяем их на специальный формат, который потом будет обработан
+      return content
+        .replace(/(\([^)]+\))\s*\/\s*(\d+[a-zA-Z]?|[a-zA-Z]+\d*)/g, (_match, num, den) => {
+          // Убираем внешние скобки из числителя для обработки
+          const numerator = num.startsWith('(') && num.endsWith(')') ? num.slice(1, -1) : num;
+          return `(${numerator})/${den}`;
+        })
+        .replace(/([a-zA-Z0-9±√\s()]+)\s*\/\s*(\d+[a-zA-Z]?|[a-zA-Z]+\d*)/g, (match, num, den, offset, string) => {
+          // Проверяем контекст
+          const before = offset > 0 ? string.substring(Math.max(0, offset - 10), offset) : '';
+          const after = offset + match.length < string.length ? string.substring(offset + match.length, Math.min(string.length, offset + match.length + 10)) : '';
+          
+          if ((/[=:\s]|^/.test(before.slice(-1)) || before.trim() === '') && 
+              (/[\s=,\n]|$/.test(after.charAt(0)) || after.trim() === '')) {
+            if (!num.trim().startsWith('(') && /[+\-±√]/.test(num)) {
+              return `(${num.trim()})/${den}`;
+            }
+          }
+          return match;
+        });
+    };
+
+    const processedContent = material.content ? processContentForMath(material.content) : '';
     return (
       <div className="prose prose-lg max-w-none">
-        {material.content?.split('\n').map((line, index) => {
-          // Headers
-          if (line.startsWith('# ')) {
-            return <h1 key={index} className="text-gray-900 mt-8 mb-4">{line.substring(2)}</h1>;
-          }
-          if (line.startsWith('## ')) {
-            return <h2 key={index} className="text-gray-900 mt-6 mb-3">{line.substring(3)}</h2>;
-          }
-          if (line.startsWith('### ')) {
-            return <h3 key={index} className="text-gray-800 mt-4 mb-2">{line.substring(4)}</h3>;
-          }
-          
-          // Bold text
-          if (line.includes('**')) {
-            const parts = line.split('**');
-            return (
-              <p key={index} className="text-gray-700 mb-3">
-                {parts.map((part, i) => 
-                  i % 2 === 1 ? <strong key={i} className="text-gray-900">{part}</strong> : part
-                )}
-              </p>
-            );
-          }
-
-          // List items
-          if (line.startsWith('- ')) {
-            return <li key={index} className="text-gray-700 ml-4">{line.substring(2)}</li>;
-          }
-          if (line.match(/^\d+\./)) {
-            return <li key={index} className="text-gray-700 ml-4">{line.substring(line.indexOf('.') + 2)}</li>;
-          }
-
-          // Special markers
-          if (line.startsWith('✓')) {
-            return (
-              <div key={index} className="flex items-start gap-2 p-3 bg-green-50 rounded-lg mb-2">
-                <span className="text-green-600">✓</span>
-                <span className="text-gray-700">{line.substring(2)}</span>
+        <ReactMarkdown
+          remarkPlugins={[remarkGfm]}
+          components={{
+            h1: ({node, ...props}) => (
+              <h1 className="text-3xl font-bold text-gray-900 mt-8 mb-4 pb-3 border-b-2 border-blue-200" {...props} />
+            ),
+            h2: ({node, ...props}) => (
+              <h2 className="text-2xl font-semibold text-gray-900 mt-8 mb-4 flex items-center gap-2">
+                <div className="w-1 h-8 bg-gradient-to-b from-blue-500 to-purple-600 rounded-full" />
+                <span {...props} />
+              </h2>
+            ),
+            h3: ({node, ...props}) => (
+              <h3 className="text-xl font-semibold text-gray-800 mt-6 mb-3 flex items-center gap-2">
+                <Zap className="w-5 h-5 text-yellow-500" />
+                <span {...props} />
+              </h3>
+            ),
+            p: ({node, children, ...props}: any) => {
+              // Для параграфов применяем форматирование только если есть формулы
+              const text = typeof children === 'string' ? children : 
+                          Array.isArray(children) ? children.map(c => typeof c === 'string' ? c : '').join('') : '';
+              
+              // Проверяем, есть ли в тексте дроби или формулы
+              const hasFormulas = /\/\s*\d+|\d+\s*\/|\([^)]+\)\s*\/|√|²|³/.test(text);
+              
+              if (hasFormulas) {
+                const formatted = formatMathText(text);
+                return (
+                  <p className="text-gray-900 mb-4 leading-relaxed text-base" {...props}>
+                    {formatted}
+                  </p>
+                );
+              }
+              
+              // Если формул нет, просто возвращаем обычный текст
+              return (
+                <p className="text-gray-900 mb-4 leading-relaxed text-base" {...props}>
+                  {children}
+                </p>
+              );
+            },
+            strong: ({node, children, ...props}: any) => {
+              // Применяем форматирование к жирному тексту, если там есть формулы
+              const text = typeof children === 'string' ? children : 
+                          Array.isArray(children) ? children.map(c => typeof c === 'string' ? c : '').join('') : '';
+              const hasFormulas = /\/\s*\d+|\d+\s*\/|\([^)]+\)\s*\/|√|²|³/.test(text);
+              
+              if (hasFormulas) {
+                const formatted = formatMathText(text);
+                return (
+                  <strong className="text-gray-900 font-semibold" {...props}>
+                    {formatted}
+                  </strong>
+                );
+              }
+              
+              return (
+                <strong className="text-gray-900 font-semibold" {...props}>
+                  {children}
+                </strong>
+              );
+            },
+            ul: ({node, ...props}) => (
+              <ul className="list-none space-y-2 mb-4" {...props} />
+            ),
+            ol: ({node, ...props}) => (
+              <ol className="list-decimal list-inside space-y-2 mb-4 ml-4" {...props} />
+            ),
+            li: ({node, children, ...props}: any) => {
+              // Правильно извлекаем текст из children, обрабатывая React элементы
+              const extractText = (children: any): string => {
+                if (typeof children === 'string') return children;
+                if (Array.isArray(children)) {
+                  return children.map(child => {
+                    if (typeof child === 'string') return child;
+                    if (typeof child === 'object' && child !== null) {
+                      // Если это React элемент, пытаемся извлечь текст из props.children
+                      if (child.props && child.props.children) {
+                        return extractText(child.props.children);
+                      }
+                      return '';
+                    }
+                    return String(child);
+                  }).join('');
+                }
+                if (typeof children === 'object' && children !== null) {
+                  if (children.props && children.props.children) {
+                    return extractText(children.props.children);
+                  }
+                }
+                return String(children);
+              };
+              
+              const text = extractText(children);
+              
+              // Проверяем специальные маркеры
+              if (text.startsWith('✓') || text.includes('✓')) {
+                return (
+                  <li className="flex items-start gap-3 p-3 bg-green-50 rounded-lg mb-2 border-l-4 border-green-500">
+                    <CheckCircle className="w-5 h-5 text-green-600 flex-shrink-0 mt-0.5" />
+                    <span className="text-gray-700 flex-1">{text.replace(/✓\s*/, '')}</span>
+                  </li>
+                );
+              }
+              if (text.startsWith('💡') || text.includes('💡')) {
+                return (
+                  <li className="flex items-start gap-3 p-3 bg-yellow-50 rounded-lg mb-2 border-l-4 border-yellow-500">
+                    <Lightbulb className="w-5 h-5 text-yellow-600 flex-shrink-0 mt-0.5" />
+                    <span className="text-gray-700 flex-1">{text.replace(/💡\s*/, '')}</span>
+                  </li>
+                );
+              }
+              if (text.startsWith('⚠') || text.includes('⚠') || text.startsWith('Важно')) {
+                return (
+                  <li className="flex items-start gap-3 p-3 bg-orange-50 rounded-lg mb-2 border-l-4 border-orange-500">
+                    <AlertCircle className="w-5 h-5 text-orange-600 flex-shrink-0 mt-0.5" />
+                    <span className="text-gray-700 flex-1 font-semibold">{text.replace(/⚠\s*/, '')}</span>
+                  </li>
+                );
+              }
+              return (
+                <li className="flex items-start gap-3 p-2 text-gray-700" {...props}>
+                  <span className="w-2 h-2 bg-blue-500 rounded-full flex-shrink-0 mt-2" />
+                  <span className="flex-1">{children}</span>
+                </li>
+              );
+            },
+            code: ({node, inline, children, ...props}: any) => {
+              if (inline) {
+                const text = typeof children === 'string' ? children : 
+                            Array.isArray(children) ? children.map(c => typeof c === 'string' ? c : '').join('') : '';
+                const formatted = formatMathText(text);
+                return (
+                  <code className="px-2 py-1 bg-blue-50 text-blue-700 rounded font-mono text-sm border border-blue-200" {...props}>
+                    {formatted}
+                  </code>
+                );
+              }
+              const text = typeof children === 'string' ? children : 
+                          Array.isArray(children) ? children.map(c => typeof c === 'string' ? c : '').join('') : '';
+              const formatted = formatMathText(text);
+              return (
+                <code className="block p-4 bg-white text-gray-900 rounded-lg font-mono text-sm overflow-x-auto mb-4 border border-gray-200" {...props}>
+                  {formatted}
+                </code>
+              );
+            },
+            pre: ({node, children, ...props}: any) => {
+              return (
+                <pre className="mb-4" {...props}>
+                  {children}
+                </pre>
+              );
+            },
+            blockquote: ({node, ...props}) => (
+              <blockquote className="border-l-4 border-purple-500 pl-4 py-2 bg-purple-50 rounded-r-lg my-4 italic text-gray-700" {...props} />
+            ),
+            table: ({node, ...props}) => (
+              <div className="overflow-x-auto my-4">
+                <table className="min-w-full border-collapse border border-gray-300 rounded-lg" {...props} />
               </div>
-            );
-          }
-
-          // Code blocks or special formatting
-          if (line.startsWith('{') || line.startsWith('}')) {
-            return <div key={index} className="font-mono text-sm bg-gray-100 p-2 rounded">{line}</div>;
-          }
-
-          // Empty lines
-          if (line.trim() === '') {
-            return <div key={index} className="h-2" />;
-          }
-
-          // Regular paragraphs
-          return <p key={index} className="text-gray-700 mb-3 leading-relaxed">{line}</p>;
-        })}
+            ),
+            th: ({node, ...props}) => (
+              <th className="border border-gray-300 px-4 py-2 bg-blue-50 text-left font-semibold text-gray-900" {...props} />
+            ),
+            td: ({node, ...props}) => (
+              <td className="border border-gray-300 px-4 py-2 text-gray-700" {...props} />
+            ),
+          }}
+        >
+          {processedContent}
+        </ReactMarkdown>
       </div>
     );
   };
@@ -180,8 +576,62 @@ export function MaterialViewer({ material, onBack }: MaterialViewerProps) {
         </div>
       </div>
 
+      {/* Study Progress Bar */}
+      <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
+        <div className="flex items-center justify-between mb-2">
+          <div className="flex items-center gap-4">
+            <div className="flex items-center gap-2 text-gray-600">
+              <Clock className="w-4 h-4" />
+              <span className="text-sm">Время изучения: {formatTime(timeSpent)}</span>
+            </div>
+            <div className="flex items-center gap-2 text-gray-600">
+              <Target className="w-4 h-4" />
+              <span className="text-sm">Прогресс: {Math.round(scrollProgress)}%</span>
+            </div>
+          </div>
+          {isStudied ? (
+            <div className="flex items-center gap-2 text-green-600">
+              <CheckCircle className="w-5 h-5" />
+              <span className="text-sm font-semibold">Изучено</span>
+            </div>
+          ) : (
+            <button
+              onClick={handleMarkAsStudied}
+              disabled={isMarking || scrollProgress < 50}
+              className="px-6 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+            >
+              {isMarking ? (
+                <>
+                  <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                  Сохранение...
+                </>
+              ) : (
+                <>
+                  <CheckCircle className="w-4 h-4" />
+                  Отметить как изученное
+                </>
+              )}
+            </button>
+          )}
+        </div>
+        <div className="h-2 bg-gray-200 rounded-full overflow-hidden">
+          <div
+            className="h-full bg-gradient-to-r from-blue-500 to-purple-600 transition-all duration-300"
+            style={{ width: `${scrollProgress}%` }}
+          />
+        </div>
+        {scrollProgress < 50 && !isStudied && (
+          <p className="text-xs text-gray-500 mt-2">
+            Прокрутите материал до конца, чтобы отметить его как изученный (минимум 50%)
+          </p>
+        )}
+      </div>
+
       {/* Content */}
-      <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-8">
+      <div 
+        ref={contentRef}
+        className="bg-white rounded-2xl shadow-sm border border-gray-200 p-8 max-h-[600px] overflow-y-auto"
+      >
         {renderContent()}
       </div>
 
@@ -206,10 +656,22 @@ export function MaterialViewer({ material, onBack }: MaterialViewerProps) {
         <div className="flex items-center justify-between">
           <div>
             <h3 className="text-gray-900 mb-2">Готов проверить знания?</h3>
-            <p className="text-gray-600">Пройди тест по этой теме и закрепи материал</p>
+            <p className="text-gray-600">
+              {isStudied 
+                ? "Отлично! Теперь закрепи материал, решив адаптивные задания по этой теме"
+                : "После изучения материала перейди к адаптивным заданиям для закрепления"}
+            </p>
           </div>
-          <button className="px-6 py-3 bg-green-600 text-white rounded-xl hover:bg-green-700 transition-colors">
-            Начать тест
+          <button 
+            onClick={() => {
+              // Переходим к адаптивным заданиям с выбранной темой
+              const event = new CustomEvent('navigateToTasks', { detail: { topic: material.topic } });
+              window.dispatchEvent(event);
+            }}
+            className="px-6 py-3 bg-green-600 text-white rounded-xl hover:bg-green-700 transition-colors flex items-center gap-2"
+          >
+            <Target className="w-5 h-5" />
+            Практиковаться
           </button>
         </div>
       </div>

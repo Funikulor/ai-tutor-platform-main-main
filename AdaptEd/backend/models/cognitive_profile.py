@@ -60,6 +60,18 @@ class TaskAttempt(BaseModel):
     time_spent_seconds: Optional[int] = None
     attempts_count: int = 1
     error_analysis: Optional[ErrorAnalysis] = None
+    topic: Optional[str] = None  # Тема задания
+    timestamp: datetime = Field(default_factory=datetime.now)
+
+
+class MaterialStudy(BaseModel):
+    """Изучение учебного материала"""
+    material_id: str
+    topic: str
+    subject: str
+    time_spent_seconds: int
+    completed: bool = False
+    completion_percentage: float = 0.0  # 0.0 - 1.0
     timestamp: datetime = Field(default_factory=datetime.now)
 
 
@@ -87,6 +99,9 @@ class CognitiveProfile(BaseModel):
     
     # История заданий
     task_history: List[TaskAttempt] = Field(default_factory=list)
+    
+    # История изучения материалов
+    material_study_history: List[MaterialStudy] = Field(default_factory=list)
     
     # Прогресс
     total_tasks_completed: int = 0

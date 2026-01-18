@@ -1,11 +1,83 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Plus, Edit, Trash2, Upload, BookOpen, Users, Settings, Database } from 'lucide-react';
+import api from '../services/api';
 
 export function AdminPanel() {
   const [activeTab, setActiveTab] = useState<'content' | 'users' | 'system'>('content');
+  const [systemStats, setSystemStats] = useState({
+    totalUsers: 0,
+    totalTasks: 0,
+    totalMaterials: 0,
+    aiQueries: 0,
+    storageUsed: 'N/A',
+    uptime: '99.8%'
+  });
+  const [users, setUsers] = useState<Array<{
+    id: string;
+    name: string;
+    email: string;
+    role: string;
+    status: string;
+  }>>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [contentStructure, setContentStructure] = useState<Array<{
+    id: number;
+    subject: string;
+    sections: Array<{
+      id: number;
+      name: string;
+      topics: Array<{
+        id: number;
+        name: string;
+        elements: number;
+        tasks: number;
+      }>;
+    }>;
+  }>>([]);
 
-  // Mock content structure
-  const contentStructure = [
+  useEffect(() => {
+    loadAdminData();
+  }, []);
+
+  const loadAdminData = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      
+      // Загружаем статистику, пользователей и структуру контента параллельно
+      const [statsResponse, usersResponse, contentResponse] = await Promise.all([
+        api.get('/admin/stats'),
+        api.get('/admin/users'),
+        api.get('/admin/content-structure')
+      ]);
+      
+      setSystemStats(statsResponse.data);
+      setUsers(usersResponse.data);
+      setContentStructure(contentResponse.data.structure || []);
+    } catch (err: any) {
+      console.error('Error loading admin data:', err);
+      setError(err.response?.data?.detail || 'Не удалось загрузить данные');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Fallback структура контента (если API не вернул данные)
+  const fallbackContentStructure: Array<{
+    id: number;
+    subject: string;
+    sections: Array<{
+      id: number;
+      name: string;
+      topics: Array<{
+        id: number;
+        name: string;
+        elements: number;
+        tasks: number;
+      }>;
+    }>;
+  }> = [
     {
       id: 1,
       subject: 'Математика',
@@ -14,52 +86,23 @@ export function AdminPanel() {
           id: 11,
           name: 'Алгебра',
           topics: [
-            { id: 111, name: 'Уравнения', elements: 12, tasks: 48 },
-            { id: 112, name: 'Функции', elements: 8, tasks: 35 },
-            { id: 113, name: 'Неравенства', elements: 6, tasks: 28 }
+            { id: 111, name: 'Уравнения', elements: 12, tasks: 0 },
+            { id: 112, name: 'Функции', elements: 8, tasks: 0 },
+            { id: 113, name: 'Неравенства', elements: 6, tasks: 0 }
           ]
         },
         {
           id: 12,
           name: 'Геометрия',
           topics: [
-            { id: 121, name: 'Треугольники', elements: 10, tasks: 42 },
-            { id: 122, name: 'Окружности', elements: 7, tasks: 30 }
-          ]
-        }
-      ]
-    },
-    {
-      id: 2,
-      subject: 'Физика',
-      sections: [
-        {
-          id: 21,
-          name: 'Механика',
-          topics: [
-            { id: 211, name: 'Кинематика', elements: 9, tasks: 38 },
-            { id: 212, name: 'Динамика', elements: 11, tasks: 45 }
+            { id: 121, name: 'Треугольники', elements: 10, tasks: 0 },
+            { id: 122, name: 'Окружности', elements: 7, tasks: 0 }
           ]
         }
       ]
     }
   ];
 
-  const users = [
-    { id: 1, name: 'Иванов Петр', role: 'teacher', email: 'ivanov@school.ru', status: 'active' },
-    { id: 2, name: 'Сидорова Мария', role: 'teacher', email: 'sidorova@school.ru', status: 'active' },
-    { id: 3, name: 'Александр И.', role: 'student', email: 'alex@student.ru', status: 'active' },
-    { id: 4, name: 'Елена П.', role: 'student', email: 'elena@student.ru', status: 'active' }
-  ];
-
-  const systemStats = {
-    totalUsers: 245,
-    totalTasks: 1850,
-    totalMaterials: 420,
-    aiQueries: 12450,
-    storageUsed: '2.3 GB',
-    uptime: '99.8%'
-  };
 
   return (
     <div className="space-y-6">
@@ -74,12 +117,29 @@ export function AdminPanel() {
         </div>
       </div>
 
-      {/* System Stats */}
-      <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-4">
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
-          <p className="text-gray-600 text-sm">Пользователи</p>
-          <p className="text-2xl text-gray-900 mt-1">{systemStats.totalUsers}</p>
+      {/* Loading State */}
+      {loading && (
+        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+          <div className="text-center py-8">
+            <p className="text-gray-500">Загрузка данных...</p>
+          </div>
         </div>
+      )}
+
+      {/* Error State */}
+      {error && (
+        <div className="bg-red-50 border border-red-200 rounded-xl p-6">
+          <p className="text-red-600">{error}</p>
+        </div>
+      )}
+
+      {/* System Stats */}
+      {!loading && !error && (
+        <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-4">
+          <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
+            <p className="text-gray-600 text-sm">Пользователи</p>
+            <p className="text-2xl text-gray-900 mt-1">{systemStats.totalUsers}</p>
+          </div>
         <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
           <p className="text-gray-600 text-sm">Задания</p>
           <p className="text-2xl text-gray-900 mt-1">{systemStats.totalTasks}</p>
@@ -101,6 +161,7 @@ export function AdminPanel() {
           <p className="text-2xl text-green-600 mt-1">{systemStats.uptime}</p>
         </div>
       </div>
+      )}
 
       {/* Tabs */}
       <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-1 flex">
@@ -159,7 +220,7 @@ export function AdminPanel() {
 
             {/* Content Structure */}
             <div className="space-y-4">
-              {contentStructure.map((subject) => (
+              {(contentStructure.length > 0 ? contentStructure : fallbackContentStructure).map((subject) => (
                 <div key={subject.id} className="border border-gray-200 rounded-lg">
                   <div className="p-4 bg-gradient-to-r from-blue-50 to-purple-50 border-b border-gray-200 flex items-center justify-between">
                     <div className="flex items-center gap-3">
@@ -277,19 +338,28 @@ export function AdminPanel() {
             </button>
           </div>
 
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead>
-                <tr className="border-b border-gray-200">
-                  <th className="text-left py-3 px-4 text-gray-700">Имя</th>
-                  <th className="text-left py-3 px-4 text-gray-700">Email</th>
-                  <th className="text-center py-3 px-4 text-gray-700">Роль</th>
-                  <th className="text-center py-3 px-4 text-gray-700">Статус</th>
-                  <th className="text-right py-3 px-4 text-gray-700">Действия</th>
-                </tr>
-              </thead>
-              <tbody>
-                {users.map((user) => (
+          {loading ? (
+            <div className="text-center py-8">
+              <p className="text-gray-500">Загрузка пользователей...</p>
+            </div>
+          ) : users.length === 0 ? (
+            <div className="text-center py-8">
+              <p className="text-gray-500">Нет пользователей</p>
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead>
+                  <tr className="border-b border-gray-200">
+                    <th className="text-left py-3 px-4 text-gray-700">Имя</th>
+                    <th className="text-left py-3 px-4 text-gray-700">Email</th>
+                    <th className="text-center py-3 px-4 text-gray-700">Роль</th>
+                    <th className="text-center py-3 px-4 text-gray-700">Статус</th>
+                    <th className="text-right py-3 px-4 text-gray-700">Действия</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {users.map((user) => (
                   <tr key={user.id} className="border-b border-gray-100 hover:bg-gray-50 transition-colors">
                     <td className="py-4 px-4">
                       <div className="flex items-center gap-3">
@@ -325,10 +395,11 @@ export function AdminPanel() {
                       </div>
                     </td>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
       )}
 

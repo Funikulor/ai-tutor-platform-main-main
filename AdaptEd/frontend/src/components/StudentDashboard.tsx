@@ -99,6 +99,28 @@ export function StudentDashboard() {
     // Обновляем данные прогресса после выполнения задания
     loadProgressData();
   };
+  
+  const handleStudyComplete = (topic: string) => {
+    // Обновляем прогресс после изучения материала
+    loadProgressData();
+  };
+  
+  // Обработка навигации к заданиям из MaterialViewer
+  useEffect(() => {
+    const handleNavigateToTasks = (event: CustomEvent) => {
+      const topic = event.detail?.topic;
+      if (topic) {
+        setCurrentView('task');
+        // Можно сохранить тему для генерации заданий
+        localStorage.setItem('selectedTopic', topic);
+      }
+    };
+    
+    window.addEventListener('navigateToTasks', handleNavigateToTasks as EventListener);
+    return () => {
+      window.removeEventListener('navigateToTasks', handleNavigateToTasks as EventListener);
+    };
+  }, []);
 
   return (
     <div className="space-y-6">
@@ -265,7 +287,10 @@ export function StudentDashboard() {
 
       {currentView === 'library' && (
         <div>
-          <LibraryTab selectedMaterialId={selectedMaterialId} />
+          <LibraryTab 
+            selectedMaterialId={selectedMaterialId} 
+            onStudyComplete={handleStudyComplete}
+          />
         </div>
       )}
 

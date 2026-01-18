@@ -1,4 +1,6 @@
+import { useState, useEffect } from 'react';
 import { Sparkles, BookOpen, Video, FileText, ExternalLink } from 'lucide-react';
+import api from '../services/api';
 
 interface ErrorAnalysis {
   type: string;
@@ -13,8 +15,50 @@ interface RecommendationPanelProps {
 }
 
 export function RecommendationPanel({ error, onMaterialClick }: RecommendationPanelProps) {
-  // RAG-generated recommendations based on error analysis
-  const getRecommendations = (error: ErrorAnalysis | null) => {
+  const [recommendations, setRecommendations] = useState<{
+    title: string;
+    description: string;
+    materials: Array<{
+      type: string;
+      title: string;
+      description: string;
+      relevance: number;
+      materialId: string;
+    }>;
+  } | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    loadRecommendations();
+  }, [error]);
+
+  const loadRecommendations = async () => {
+    try {
+      setLoading(true);
+      const userId = localStorage.getItem('user_id');
+      if (!userId) {
+        // Fallback к старым данным если нет user_id
+        setRecommendations(getFallbackRecommendations(error));
+        return;
+      }
+
+      const topic = error?.topic || null;
+      const response = await api.get(`/recommendations/${userId}`, {
+        params: topic ? { topic } : {}
+      });
+
+      setRecommendations(response.data);
+    } catch (err: any) {
+      console.error('Error loading recommendations:', err);
+      // Fallback к старым данным при ошибке
+      setRecommendations(getFallbackRecommendations(error));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Fallback функция для обратной совместимости
+  const getFallbackRecommendations = (error: ErrorAnalysis | null) => {
     if (!error) {
       return {
         title: 'Продолжайте в том же духе!',
@@ -25,7 +69,6 @@ export function RecommendationPanel({ error, onMaterialClick }: RecommendationPa
             title: 'Основы алгебры: полное руководство',
             description: 'Систематизация базовых знаний',
             relevance: 85,
-            url: '#',
             materialId: 'math-algebra-basics'
           },
           {
@@ -33,7 +76,6 @@ export function RecommendationPanel({ error, onMaterialClick }: RecommendationPa
             title: 'Решение задач повышенной сложности',
             description: 'Видеокурс от ведущих преподавателей',
             relevance: 78,
-            url: '#',
             materialId: 'math-advanced-problems'
           }
         ]
@@ -41,14 +83,13 @@ export function RecommendationPanel({ error, onMaterialClick }: RecommendationPa
     }
 
     // Simulate RAG retrieval and generation
-    const recommendations = {
+    const recommendations_map = {
       'Теорема Пифагора': [
         {
           type: 'article',
           title: 'Теорема Пифагора: теория и примеры',
           description: 'Подробное объяснение теоремы с практическими примерами и визуализацией',
           relevance: 95,
-          url: '#',
           materialId: 'math-pythagorean'
         },
         {
@@ -56,7 +97,6 @@ export function RecommendationPanel({ error, onMaterialClick }: RecommendationPa
           title: 'Применение теоремы Пифагора в задачах',
           description: 'Видеоурок с разбором типичных задач',
           relevance: 92,
-          url: '#',
           materialId: 'math-advanced-problems'
         },
         {
@@ -64,7 +104,6 @@ export function RecommendationPanel({ error, onMaterialClick }: RecommendationPa
           title: 'Сборник задач на теорему Пифагора',
           description: 'PDF с 50 задачами различной сложности',
           relevance: 88,
-          url: '#',
           materialId: 'math-fractions-pdf'
         }
       ],
@@ -74,7 +113,6 @@ export function RecommendationPanel({ error, onMaterialClick }: RecommendationPa
           title: 'Методы решения квадратных уравнений',
           description: 'Дискриминант, формула корней, теорема Виета',
           relevance: 93,
-          url: '#',
           materialId: 'math-quadratic-eq'
         },
         {
@@ -82,13 +120,12 @@ export function RecommendationPanel({ error, onMaterialClick }: RecommendationPa
           title: 'Квадратные уравнения: от простого к сложному',
           description: 'Пошаговый видеокурс',
           relevance: 90,
-          url: '#',
           materialId: 'math-advanced-problems'
         }
       ]
     };
 
-    const materials = recommendations[error.topic as keyof typeof recommendations] || [];
+    const materials = recommendations_map[error.topic as keyof typeof recommendations_map] || [];
 
     return {
       title: `Рекомендации по теме: ${error.topic}`,
@@ -97,7 +134,18 @@ export function RecommendationPanel({ error, onMaterialClick }: RecommendationPa
     };
   };
 
-  const recommendations = getRecommendations(error);
+  // Используем загруженные рекомендации или fallback
+  const currentRecommendations = recommendations || getFallbackRecommendations(error);
+
+  if (loading) {
+    return (
+      <div className="bg-gradient-to-br from-purple-50 to-blue-50 rounded-xl p-6 border-2 border-purple-200">
+        <div className="flex items-center justify-center py-8">
+          <div className="w-8 h-8 border-4 border-purple-600 border-t-transparent rounded-full animate-spin" />
+        </div>
+      </div>
+    );
+  }
 
   const getTypeIcon = (type: string) => {
     switch (type) {
@@ -136,8 +184,8 @@ export function RecommendationPanel({ error, onMaterialClick }: RecommendationPa
 
       {/* Main Recommendation Card */}
       <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-        <h4 className="text-gray-900 mb-2">{recommendations.title}</h4>
-        <p className="text-gray-600 text-sm mb-4">{recommendations.description}</p>
+        <h4 className="text-gray-900 mb-2">{currentRecommendations.title}</h4>
+        <p className="text-gray-600 text-sm mb-4">{currentRecommendations.description}</p>
 
         {error && (
           <div className="p-4 bg-yellow-50 border border-yellow-200 rounded-lg mb-4">
@@ -154,7 +202,7 @@ export function RecommendationPanel({ error, onMaterialClick }: RecommendationPa
         {/* Recommended Materials */}
         <div className="space-y-3">
           <h5 className="text-gray-700 text-sm">Рекомендованные материалы:</h5>
-          {recommendations.materials.map((material: any, index: number) => (
+          {currentRecommendations.materials.map((material: any, index: number) => (
             <div 
               key={index}
               onClick={() => onMaterialClick?.(material.materialId || material.url)}

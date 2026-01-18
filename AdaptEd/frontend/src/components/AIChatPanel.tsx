@@ -168,6 +168,20 @@ export function AIChatPanel({ isMinimized = false, onToggleMinimize, fullscreen 
     }
   };
 
+  // Слушаем события для отправки сообщений извне (например, из популярных тем)
+  useEffect(() => {
+    const handleChatSendMessage = (event: CustomEvent<{ message: string }>) => {
+      if (event.detail?.message) {
+        handleSendMessage(event.detail.message);
+      }
+    };
+
+    window.addEventListener('chat-send-message', handleChatSendMessage as EventListener);
+    return () => {
+      window.removeEventListener('chat-send-message', handleChatSendMessage as EventListener);
+    };
+  }, []); // Пустой массив, handleSendMessage использует актуальное состояние через замыкание
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     handleSendMessage(inputValue);

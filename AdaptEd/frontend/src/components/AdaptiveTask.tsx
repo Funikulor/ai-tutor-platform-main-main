@@ -59,10 +59,59 @@ const formatMathText = (text: string): React.ReactElement[] => {
   const parts: (string | React.ReactElement)[] = [];
   let lastIndex = 0;
   
-  // Улучшенный паттерн для дробей - используем универсальный паттерн, который находит все дроби
-  // Ищем: (любое выражение) / (любое выражение) или число / число или (выражение) / число
-  // Паттерн ищет все возможные комбинации: (a)/b, a/(b), (a)/(b), a/b
+  // Сначала обрабатываем многострочные дроби (когда числитель и знаменатель на разных строках)
+  // Паттерн: выражение\nчисло = дробь
+  cleaned = cleaned.replace(/([a-zA-Z0-9+\-·\s()]+)\n\s*(\d+)\s*=/g, (match, numerator, denominator) => {
+    return `(${numerator.trim()})/${denominator} =`;
+  });
+  
+  // Обрабатываем случаи вида "2x+3\n4" (многострочная дробь без знака =)
+  cleaned = cleaned.replace(/([a-zA-Z0-9+\-·\s()]+)\n\s*(\d+)(?=\s|$|[^=])/g, (match, numerator, denominator) => {
+    // Проверяем, что это действительно дробь, а не просто перенос строки
+    if (numerator.trim().length > 0 && /^[0-9]+$/.test(denominator)) {
+      return `(${numerator.trim()})/${denominator}`;
+    }
+    return match;
+  });
+  
+  // Обрабатываем случаи, когда числитель содержит операции без скобок
+  // Например: "2x+3/4" должно стать "(2x+3)/4"
+  // Но только если это не часть более сложного выражения
+  cleaned = cleaned.replace(/([a-zA-Z0-9]+\s*[+\-]\s*[a-zA-Z0-9]+)\s*\/\s*(\d+|[a-zA-Z]+\d*)/g, (match, numerator, denominator, offset, string) => {
+    // Проверяем контекст - это должна быть отдельная дробь
+    const before = offset > 0 ? string.substring(Math.max(0, offset - 20), offset) : '';
+    const after = offset + match.length < string.length ? string.substring(offset + match.length, Math.min(string.length, offset + match.length + 20)) : '';
+    
+    // Если перед этим есть знак =, : или начало строки, и после есть пробел, =, или конец - это дробь
+    const beforeMatch = /[=:\s]|^/.test(before.slice(-1));
+    const afterMatch = /[\s=,\n]|$/.test(after.charAt(0));
+    
+    if (beforeMatch && afterMatch) {
+      return `(${numerator})/${denominator}`;
+    }
+    return match;
+  });
+  
+  // Улучшенный паттерн для дробей - используем более точный паттерн
+  // Ищем: (выражение) / (выражение) или (выражение) / число или число / (выражение) или простое число / число
+  // Для сложных выражений без скобок используем более консервативный подход
   const fractionPattern = /(\([^()]+\)|[a-zA-Z]?\d+[a-zA-Z]*|\d+)\s*\/\s*(\([^()]+\)|[a-zA-Z]?\d+[a-zA-Z]*|\d+)/g;
+  
+  // Дополнительно обрабатываем случаи, когда числитель содержит операции без скобок
+  // Паттерн: выражение с + или - перед / числом
+  // Например: "2x+3/4" должно стать "(2x+3)/4"
+  cleaned = cleaned.replace(/([a-zA-Z0-9]+\s*[+\-]\s*[a-zA-Z0-9]+)\s*\/\s*(\d+|[a-zA-Z]+\d*)/g, (match, numerator, denominator) => {
+    // Проверяем, что это не часть более сложного выражения
+    const beforeMatch = cleaned.substring(0, cleaned.indexOf(match));
+    const afterMatch = cleaned.substring(cleaned.indexOf(match) + match.length);
+    
+    // Если перед этим есть знак = или начало строки, и после есть пробел или конец, то это дробь
+    if ((beforeMatch.endsWith('=') || beforeMatch.endsWith(':') || beforeMatch.trim() === '') && 
+        (afterMatch.startsWith(' ') || afterMatch.startsWith('=') || afterMatch.startsWith('\n') || afterMatch === '')) {
+      return `(${numerator})/${denominator}`;
+    }
+    return match;
+  });
   
   const matches: Array<{index: number, length: number, numerator: string, denominator: string}> = [];
   let match;
@@ -82,6 +131,18 @@ const formatMathText = (text: string): React.ReactElement[] => {
       continue;
     }
     
+    // Если числитель содержит операции (+, -, ·, *) и не в скобках, добавляем скобки для визуализации
+    if (!numerator.startsWith('(') && /[+\-·*]/.test(numerator)) {
+      // Проверяем, не является ли это часть более сложного выражения
+      // Если перед числителем есть символы, которые могут быть частью выражения, не обрабатываем
+      const beforeMatch = cleaned.substring(Math.max(0, match.index - 10), match.index);
+      if (!/[+\-·*=<>]/.test(beforeMatch.slice(-1))) {
+        // Это отдельная дробь, можно обработать
+      } else {
+        continue; // Пропускаем, это часть более сложного выражения
+      }
+    }
+    
     // Убираем скобки, если они есть (но сохраняем содержимое)
     if (numerator.startsWith('(') && numerator.endsWith(')')) {
       numerator = numerator.slice(1, -1).trim();
@@ -89,6 +150,10 @@ const formatMathText = (text: string): React.ReactElement[] => {
     if (denominator.startsWith('(') && denominator.endsWith(')')) {
       denominator = denominator.slice(1, -1).trim();
     }
+    
+    // Очищаем от лишних пробелов и символов
+    numerator = numerator.replace(/\s+/g, ' ').trim();
+    denominator = denominator.replace(/\s+/g, ' ').trim();
     
     if (numerator && denominator) {
       // Проверяем, не пересекается ли с уже найденными дробями
@@ -234,17 +299,46 @@ const formatExplanation = (text: string): React.ReactElement[] => {
     if (!trimmedLine) return;
     
     // Обрабатываем шаги с эмодзи или номерами
-    const stepMatch = trimmedLine.match(/^(🔹|📝|✅|✓|•|Шаг\s*\d+|Step\s*\d+)[:.\s]*(.+)$/i);
+    // Улучшенный паттерн для распознавания шагов с эмодзи
+    // Поддерживаем различные форматы: 🔹 Шаг 1, 💡 Шаг 1, Шаг 1:, и т.д.
+    const stepMatch = trimmedLine.match(/^([🔹📝✅✓•⚡💡]|Шаг\s*\d+|Step\s*\d+)[:.\s]*(.+)$/i);
     if (stepMatch) {
-      const emoji = stepMatch[1].match(/[🔹📝✅✓•]/)?.[0] || '🔹';
+      // Извлекаем эмодзи или используем дефолтный
+      let emoji = stepMatch[1].match(/[🔹📝✅✓•⚡💡]/)?.[0];
+      if (!emoji) {
+        // Если нет эмодзи, но есть "Шаг N", используем дефолтный
+        emoji = '🔹';
+      }
       const stepText = stepMatch[2].trim();
       
+      // Проверяем, не обрывается ли текст (если строка заканчивается на незавершенное слово)
+      if (stepText && stepText.length > 0) {
+        parts.push(
+          <div key={`step-${index}`} className="mb-3 flex items-start gap-3">
+            <span className="text-xl flex-shrink-0 mt-0.5" style={{ fontFamily: 'system-ui, -apple-system, sans-serif' }}>
+              {emoji}
+            </span>
+            <span className="flex-1 text-gray-800 leading-relaxed">
+              {formatMathText(stepText)}
+            </span>
+          </div>
+        );
+      }
+      return;
+    }
+    
+    // Обрабатываем заголовки (Введение, Шаг 1, и т.д.)
+    const headerMatch = trimmedLine.match(/^(Введение|Вступление|Заключение|Ответ)[:.]?\s*(.*)$/i);
+    if (headerMatch) {
+      const headerText = headerMatch[2] || headerMatch[1];
       parts.push(
-        <div key={`step-${index}`} className="mb-3 flex items-start gap-3">
-          <span className="text-xl flex-shrink-0 mt-0.5">{emoji}</span>
-          <span className="flex-1 text-gray-800 leading-relaxed">
-            {formatMathText(stepText)}
-          </span>
+        <div key={`header-${index}`} className="mb-3">
+          <h4 className="text-lg font-semibold text-gray-900 mb-2">{headerMatch[1]}</h4>
+          {headerText && (
+            <p className="text-gray-800 leading-relaxed">
+              {formatMathText(headerText)}
+            </p>
+          )}
         </div>
       );
       return;
@@ -286,9 +380,17 @@ export function AdaptiveTask({ onComplete }: { onComplete: (result: any) => void
         throw new Error('User ID not found');
       }
 
+      // Проверяем, есть ли выбранная тема из библиотеки
+      const selectedTopic = localStorage.getItem('selectedTopic');
+      if (selectedTopic) {
+        // Очищаем после использования
+        localStorage.removeItem('selectedTopic');
+      }
+
       const response = await api.post('/agents/generate-adaptive-task', {
         user_id: userId,
-        use_thematic: useThematic
+        use_thematic: useThematic,
+        topic: selectedTopic || undefined  // Передаем тему, если она была выбрана
       });
 
       const taskData = response.data.task;

@@ -24,7 +24,8 @@ class AgentOrchestrator:
         self.teacher_analytics = TeacherAnalyticsAgent()
     
     def process_task_submission(self, user_id: str, task_id: int, question: str, 
-                                user_answer: str, correct_answer: str) -> Dict[str, Any]:
+                                user_answer: str, correct_answer: str, topic: Optional[str] = None, 
+                                time_spent_seconds: Optional[int] = None) -> Dict[str, Any]:
         """
         Обрабатывает отправку задания учеником
         
@@ -54,7 +55,9 @@ class AgentOrchestrator:
             question=question,
             user_answer=user_answer,
             correct_answer=correct_answer,
-            is_correct=is_correct
+            is_correct=is_correct,
+            topic=topic,
+            time_spent_seconds=time_spent_seconds
         )
         
         # Анализируем ошибку

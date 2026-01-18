@@ -1,5 +1,6 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { CheckCircle, AlertCircle, Circle, ChevronRight, ChevronDown } from 'lucide-react';
+import api from '../services/api';
 
 interface KnowledgeNode {
   id: string;
@@ -12,134 +13,61 @@ interface KnowledgeNode {
   lastAttempt?: string;
 }
 
-export function KnowledgeGraph() {
-  const [expandedNodes, setExpandedNodes] = useState<Set<string>>(new Set(['math', 'algebra']));
+interface ProblemArea {
+  name: string;
+  masteryLevel: number;
+  errorCount: number;
+  status: string;
+}
 
-  const knowledgeData: KnowledgeNode = {
-    id: 'math',
-    name: 'Математика',
-    level: 'subject',
-    masteryLevel: 75,
-    status: 'learning',
-    children: [
-      {
-        id: 'algebra',
-        name: 'Алгебра',
-        level: 'section',
-        masteryLevel: 82,
-        status: 'learning',
-        children: [
-          {
-            id: 'equations',
-            name: 'Уравнения',
-            level: 'topic',
-            masteryLevel: 90,
-            status: 'mastered',
-            children: [
-              {
-                id: 'linear-eq',
-                name: 'Линейные уравнения',
-                level: 'element',
-                masteryLevel: 95,
-                status: 'mastered',
-                errorCount: 2,
-                lastAttempt: '2025-11-29'
-              },
-              {
-                id: 'quadratic-eq',
-                name: 'Квадратные уравнения',
-                level: 'element',
-                masteryLevel: 62,
-                status: 'learning',
-                errorCount: 8,
-                lastAttempt: '2025-11-28'
-              }
-            ]
-          },
-          {
-            id: 'functions',
-            name: 'Функции',
-            level: 'topic',
-            masteryLevel: 78,
-            status: 'learning',
-            children: [
-              {
-                id: 'linear-func',
-                name: 'Линейная функция',
-                level: 'element',
-                masteryLevel: 88,
-                status: 'mastered',
-                errorCount: 3,
-                lastAttempt: '2025-11-27'
-              },
-              {
-                id: 'quadratic-func',
-                name: 'Квадратичная функция',
-                level: 'element',
-                masteryLevel: 68,
-                status: 'learning',
-                errorCount: 6,
-                lastAttempt: '2025-11-26'
-              }
-            ]
-          }
-        ]
-      },
-      {
-        id: 'geometry',
-        name: 'Геометрия',
-        level: 'section',
-        masteryLevel: 68,
-        status: 'learning',
-        children: [
-          {
-            id: 'triangles',
-            name: 'Треугольники',
-            level: 'topic',
-            masteryLevel: 70,
-            status: 'learning',
-            children: [
-              {
-                id: 'pythagoras',
-                name: 'Теорема Пифагора',
-                level: 'element',
-                masteryLevel: 45,
-                status: 'needs-work',
-                errorCount: 12,
-                lastAttempt: '2025-11-30'
-              },
-              {
-                id: 'triangle-area',
-                name: 'Площадь треугольника',
-                level: 'element',
-                masteryLevel: 85,
-                status: 'mastered',
-                errorCount: 2,
-                lastAttempt: '2025-11-25'
-              }
-            ]
-          },
-          {
-            id: 'trigonometry',
-            name: 'Тригонометрия',
-            level: 'topic',
-            masteryLevel: 38,
-            status: 'needs-work',
-            children: [
-              {
-                id: 'sin-cos',
-                name: 'Синус и косинус',
-                level: 'element',
-                masteryLevel: 38,
-                status: 'needs-work',
-                errorCount: 15,
-                lastAttempt: '2025-11-24'
-              }
-            ]
-          }
-        ]
+export function KnowledgeGraph() {
+  const [expandedNodes, setExpandedNodes] = useState<Set<string>>(new Set(['math']));
+  const [knowledgeData, setKnowledgeData] = useState<KnowledgeNode | null>(null);
+  const [problemAreas, setProblemAreas] = useState<ProblemArea[]>([]);
+  const [overallProgress, setOverallProgress] = useState(0);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    loadKnowledgeGraph();
+  }, []);
+
+  const loadKnowledgeGraph = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      const userId = localStorage.getItem('user_id');
+      if (!userId) {
+        throw new Error('User ID not found');
       }
-    ]
+
+      const response = await api.get(`/knowledge-graph/${userId}`);
+      const data = response.data;
+
+      if (data.knowledgeGraph) {
+        setKnowledgeData(data.knowledgeGraph);
+        setOverallProgress(data.overallProgress || 0);
+      }
+      if (data.problemAreas) {
+        setProblemAreas(data.problemAreas);
+      }
+    } catch (err: any) {
+      console.error('Error loading knowledge graph:', err);
+      setError(err.response?.data?.detail || 'Не удалось загрузить граф знаний');
+      // Используем пустые данные при ошибке
+      const emptyData: KnowledgeNode = {
+        id: 'math',
+        name: 'Математика',
+        level: 'subject',
+        masteryLevel: 0,
+        status: 'not-started',
+        children: []
+      };
+      setKnowledgeData(emptyData);
+      setOverallProgress(0);
+    } finally {
+      setLoading(false);
+    }
   };
 
   const toggleNode = (nodeId: string) => {
@@ -285,64 +213,107 @@ export function KnowledgeGraph() {
         <div className="p-4 bg-gradient-to-r from-blue-50 to-purple-50 rounded-lg border border-blue-200">
           <div className="flex items-center justify-between mb-2">
             <span className="text-gray-700">Общий прогресс</span>
-            <span className="text-gray-900">{knowledgeData.masteryLevel}%</span>
+            <span className="text-gray-900">{overallProgress}%</span>
           </div>
           <div className="h-3 bg-white rounded-full overflow-hidden">
             <div
               className="h-full bg-gradient-to-r from-blue-500 to-purple-600 transition-all duration-500"
-              style={{ width: `${knowledgeData.masteryLevel}%` }}
+              style={{ width: `${overallProgress}%` }}
             />
           </div>
         </div>
       </div>
 
-      {/* Knowledge Tree */}
-      <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-        <h3 className="text-gray-900 mb-4">Структура знаний</h3>
-        <div className="space-y-2">
-          {renderNode(knowledgeData)}
+      {/* Loading State */}
+      {loading && (
+        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+          <div className="text-center py-8">
+            <p className="text-gray-500">Загрузка графа знаний...</p>
+          </div>
         </div>
-      </div>
+      )}
+
+      {/* Error State */}
+      {error && !loading && (
+        <div className="bg-red-50 border border-red-200 rounded-xl p-6">
+          <p className="text-red-600">{error}</p>
+        </div>
+      )}
+
+      {/* Knowledge Tree */}
+      {!loading && !error && knowledgeData && (
+        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+          <h3 className="text-gray-900 mb-4">Структура знаний</h3>
+          <div className="space-y-2">
+            {renderNode(knowledgeData)}
+          </div>
+        </div>
+      )}
 
       {/* Problem Areas */}
-      <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-        <h3 className="text-gray-900 mb-4">Области, требующие внимания</h3>
-        <div className="space-y-3">
-          <div className="p-4 bg-red-50 rounded-lg border border-red-200">
-            <div className="flex items-center justify-between">
-              <div>
-                <h4 className="text-red-900">Теорема Пифагора</h4>
-                <p className="text-sm text-red-700">12 ошибок • Уровень освоения: 45%</p>
-              </div>
-              <button className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors">
-                Практиковать
-              </button>
-            </div>
-          </div>
-          <div className="p-4 bg-yellow-50 rounded-lg border border-yellow-200">
-            <div className="flex items-center justify-between">
-              <div>
-                <h4 className="text-yellow-900">Тригонометрия</h4>
-                <p className="text-sm text-yellow-700">15 ошибок • Уровень освоения: 38%</p>
-              </div>
-              <button className="px-4 py-2 bg-yellow-600 text-white rounded-lg hover:bg-yellow-700 transition-colors">
-                Практиковать
-              </button>
-            </div>
-          </div>
-          <div className="p-4 bg-orange-50 rounded-lg border border-orange-200">
-            <div className="flex items-center justify-between">
-              <div>
-                <h4 className="text-orange-900">Квадратные уравнения</h4>
-                <p className="text-sm text-orange-700">8 ошибок • Уровень освоения: 62%</p>
-              </div>
-              <button className="px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition-colors">
-                Практиковать
-              </button>
-            </div>
+      {!loading && !error && problemAreas.length > 0 && (
+        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+          <h3 className="text-gray-900 mb-4">Области, требующие внимания</h3>
+          <div className="space-y-3">
+            {problemAreas.map((area, index) => {
+              const getColorClass = (status: string) => {
+                if (status === 'needs-work' || area.masteryLevel < 50) {
+                  return {
+                    bg: 'bg-red-50',
+                    border: 'border-red-200',
+                    text: 'text-red-900',
+                    textSm: 'text-red-700',
+                    button: 'bg-red-600 hover:bg-red-700'
+                  };
+                } else if (area.masteryLevel < 70) {
+                  return {
+                    bg: 'bg-yellow-50',
+                    border: 'border-yellow-200',
+                    text: 'text-yellow-900',
+                    textSm: 'text-yellow-700',
+                    button: 'bg-yellow-600 hover:bg-yellow-700'
+                  };
+                } else {
+                  return {
+                    bg: 'bg-orange-50',
+                    border: 'border-orange-200',
+                    text: 'text-orange-900',
+                    textSm: 'text-orange-700',
+                    button: 'bg-orange-600 hover:bg-orange-700'
+                  };
+                }
+              };
+              
+              const colors = getColorClass(area.status);
+              
+              return (
+                <div key={index} className={`p-4 ${colors.bg} rounded-lg border ${colors.border}`}>
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h4 className={colors.text}>{area.name}</h4>
+                      <p className={`text-sm ${colors.textSm}`}>
+                        {area.errorCount} {area.errorCount === 1 ? 'ошибка' : area.errorCount < 5 ? 'ошибки' : 'ошибок'} • Уровень освоения: {area.masteryLevel}%
+                      </p>
+                    </div>
+                    <button className={`px-4 py-2 ${colors.button} text-white rounded-lg transition-colors`}>
+                      Практиковать
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
           </div>
         </div>
-      </div>
+      )}
+
+      {/* Empty State */}
+      {!loading && !error && (!knowledgeData || (knowledgeData.children && knowledgeData.children.length === 0)) && (
+        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+          <div className="text-center py-8">
+            <p className="text-gray-500">Нет данных о знаниях. Начните выполнять задания, чтобы увидеть свой прогресс!</p>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
