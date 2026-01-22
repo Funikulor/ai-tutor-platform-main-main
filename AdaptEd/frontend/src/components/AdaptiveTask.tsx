@@ -281,7 +281,25 @@ const formatExplanation = (text: string): React.ReactElement[] => {
     .replace(/#/g, '') // Убираем #
     .replace(/`/g, '') // Убираем обратные кавычки
     .replace(/\n{3,}/g, '\n\n') // Убираем лишние пустые строки
+    // Убираем проблемные символы, которые могут не отображаться
+    .replace(/\uFFFD/g, '') // Убираем символ замены (replacement character)
+    .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F-\u009F]/g, '') // Убираем управляющие символы
     .trim();
+  
+  // Заменяем технические переменные на описательные фразы
+  cleaned = cleaned
+    .replace(/\bt_ball\b/gi, 'время полета мяча')
+    .replace(/\bt_keeper\b/gi, 'время движения вратаря')
+    .replace(/\bt_(\w+)\b/gi, 'время $1')
+    .replace(/\bv(\d+)\b/gi, 'скорость $1')
+    .replace(/\bs(\d+)\b/gi, 'расстояние $1')
+    .replace(/\ba(\d+)\b/gi, 'ускорение $1');
+  
+  // Если весь текст в одной строке, пытаемся разбить по шагам
+  if (!cleaned.includes('\n') && cleaned.includes('Шаг')) {
+    // Разбиваем по "Шаг N:" или "🔹 Шаг N:"
+    cleaned = cleaned.replace(/(🔹\s*)?Шаг\s*(\d+)[:.]\s*/gi, '\n🔹 Шаг $2: ');
+  }
   
   // Разбиваем на строки
   const lines = cleaned.split('\n').filter(line => line.trim());
@@ -293,7 +311,7 @@ const formatExplanation = (text: string): React.ReactElement[] => {
   const parts: React.ReactElement[] = [];
   
   lines.forEach((line, index) => {
-    const trimmedLine = line.trim();
+    let trimmedLine = line.trim();
     
     // Пропускаем пустые строки
     if (!trimmedLine) return;
@@ -309,7 +327,15 @@ const formatExplanation = (text: string): React.ReactElement[] => {
         // Если нет эмодзи, но есть "Шаг N", используем дефолтный
         emoji = '🔹';
       }
-      const stepText = stepMatch[2].trim();
+      let stepText = stepMatch[2].trim();
+      
+      // Убираем технические переменные из текста шага
+      stepText = stepText
+        .replace(/\bt_ball\b/gi, 'время полета мяча')
+        .replace(/\bt_keeper\b/gi, 'время движения вратаря')
+        .replace(/\bt_(\w+)\b/gi, 'время $1')
+        .replace(/\bv(\d+)\b/gi, 'скорость $1')
+        .replace(/\bs(\d+)\b/gi, 'расстояние $1');
       
       // Проверяем, не обрывается ли текст (если строка заканчивается на незавершенное слово)
       if (stepText && stepText.length > 0) {
@@ -346,6 +372,14 @@ const formatExplanation = (text: string): React.ReactElement[] => {
     
     // Обрабатываем обычный текст
     if (trimmedLine.length > 0) {
+      // Убираем технические переменные из обычного текста
+      trimmedLine = trimmedLine
+        .replace(/\bt_ball\b/gi, 'время полета мяча')
+        .replace(/\bt_keeper\b/gi, 'время движения вратаря')
+        .replace(/\bt_(\w+)\b/gi, 'время $1')
+        .replace(/\bv(\d+)\b/gi, 'скорость $1')
+        .replace(/\bs(\d+)\b/gi, 'расстояние $1');
+      
       parts.push(
         <p key={`line-${index}`} className="mb-2 text-gray-800 leading-relaxed">
           {formatMathText(trimmedLine)}

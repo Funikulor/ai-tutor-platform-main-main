@@ -53,6 +53,7 @@ export function AIChatPanel({ isMinimized = false, onToggleMinimize, fullscreen 
   const [isTyping, setIsTyping] = useState(false);
   const [currentEmotion, setCurrentEmotion] = useState<'happy' | 'thinking' | 'excited' | 'encouraging' | 'surprised'>('happy');
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const messagesContainerRef = useRef<HTMLDivElement>(null);
 
   // Сохраняем сообщения в localStorage при каждом изменении
   useEffect(() => {
@@ -83,7 +84,10 @@ export function AIChatPanel({ isMinimized = false, onToggleMinimize, fullscreen 
   ];
 
   const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    // Прокручиваем только контейнер сообщений, а не всю страницу
+    if (messagesContainerRef.current) {
+      messagesContainerRef.current.scrollTop = messagesContainerRef.current.scrollHeight;
+    }
   };
 
   useEffect(() => {
@@ -231,7 +235,10 @@ export function AIChatPanel({ isMinimized = false, onToggleMinimize, fullscreen 
       </div>
 
       {/* Messages Area */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-gradient-to-b from-purple-50/30 to-blue-50/30 overflow-x-hidden">
+      <div 
+        ref={messagesContainerRef}
+        className="flex-1 overflow-y-auto p-4 space-y-4 bg-gradient-to-b from-purple-50/30 to-blue-50/30 overflow-x-hidden"
+      >
         {messages.length === 1 && (
           <div className="mb-4">
             <p className="text-center text-gray-600 text-sm mb-3">Начни с вопроса или выбери тему:</p>

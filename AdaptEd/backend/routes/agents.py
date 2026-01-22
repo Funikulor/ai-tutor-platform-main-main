@@ -214,6 +214,10 @@ async def generate_adaptive_task(request: Dict[str, Any]):
 - Пиши простым, понятным языком, как будто объясняешь другу
 - Сделай объяснение интересным и увлекательным для ученика
 - Используй эмодзи для визуального разделения шагов (например: 🔹, 📝, ✅)
+- КРИТИЧЕСКИ ВАЖНО: НЕ используй технические переменные типа t_ball, t_keeper, v1, v2 и т.д. в тексте объяснения
+- Вместо переменных используй описательные фразы: "время полета мяча", "скорость вратаря", "расстояние до ворот"
+- Каждый шаг должен быть на отдельной строке, начинай с эмодзи и описания шага
+- Используй переносы строк между шагами для лучшей читаемости
 
 Пример правильного ответа:
 {{
@@ -357,7 +361,12 @@ async def generate_adaptive_task(request: Dict[str, Any]):
 - Используй эмодзи для визуального разделения шагов (например: 🔹, 📝, ✅, 💡)
 - Объяснение должно быть понятным для ученика 9 класса
 - Начни с краткого введения, затем опиши каждый шаг по порядку
-- КРИТИЧЕСКИ ВАЖНО: Объяснение должно быть ПОЛНЫМ и ЗАВЕРШЕННЫМ - опиши все шаги до финального ответа, не обрывай на середине"""
+- КРИТИЧЕСКИ ВАЖНО: Объяснение должно быть ПОЛНЫМ и ЗАВЕРШЕННЫМ - опиши все шаги до финального ответа, не обрывай на середине
+- КРИТИЧЕСКИ ВАЖНО: НЕ используй технические переменные типа t_ball, t_keeper, v1, v2, s1, s2 и т.д. в тексте объяснения
+- Вместо переменных используй описательные фразы: "время полета мяча", "скорость вратаря", "расстояние до ворот", "время движения"
+- Каждый шаг должен быть на отдельной строке, начинай с эмодзи 🔹 и описания шага
+- Используй переносы строк между шагами для лучшей читаемости
+- Формат: каждый шаг на новой строке, начинай с 🔹 Шаг N: описание"""
                 
                 explanation_response = assistant._generate(explanation_prompt, max_new_tokens=1000)
                 # Очищаем ответ от лишнего
@@ -375,6 +384,18 @@ async def generate_adaptive_task(request: Dict[str, Any]):
                 explanation_clean = explanation_clean.replace('**', '').replace('###', '').replace('---', '').replace('#', '')
                 # Убираем лишние пустые строки
                 explanation_clean = re.sub(r'\n{3,}', '\n\n', explanation_clean)
+                # Убираем проблемные символы
+                explanation_clean = explanation_clean.replace('\uFFFD', '')  # Убираем символ замены
+                # Заменяем технические переменные на описательные фразы
+                explanation_clean = re.sub(r'\bt_ball\b', 'время полета мяча', explanation_clean, flags=re.IGNORECASE)
+                explanation_clean = re.sub(r'\bt_keeper\b', 'время движения вратаря', explanation_clean, flags=re.IGNORECASE)
+                explanation_clean = re.sub(r'\bt_(\w+)\b', r'время \1', explanation_clean, flags=re.IGNORECASE)
+                explanation_clean = re.sub(r'\bv(\d+)\b', r'скорость \1', explanation_clean, flags=re.IGNORECASE)
+                explanation_clean = re.sub(r'\bs(\d+)\b', r'расстояние \1', explanation_clean, flags=re.IGNORECASE)
+                # Если весь текст в одной строке, пытаемся разбить по шагам
+                if '\n' not in explanation_clean and 'Шаг' in explanation_clean:
+                    # Разбиваем по "Шаг N:" или "🔹 Шаг N:"
+                    explanation_clean = re.sub(r'(🔹\s*)?Шаг\s*(\d+)[:.]\s*', r'\n🔹 Шаг \2: ', explanation_clean, flags=re.IGNORECASE)
                 task_data["explanation"] = explanation_clean.strip() if explanation_clean.strip() else "Подробное объяснение решения будет добавлено позже."
             except Exception as e:
                 print(f"[AdaptiveTask] Error generating explanation: {e}")
