@@ -6,6 +6,7 @@ import api from '../services/api';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import React from 'react';
+import { toast } from 'sonner';
 
 // Функция для форматирования математических формул (скопирована из AdaptiveTask)
 const formatMathText = (text: string): React.ReactElement[] => {
@@ -246,10 +247,14 @@ export function MaterialViewer({ material, onBack, onStudyComplete }: MaterialVi
       }
       
       // Показываем уведомление об успехе
-      alert(`Отлично! Вы изучили материал по теме "${material.topic}". Получено ${response.data.points_earned} очков!`);
+      toast.success(`Отлично! Вы изучили материал по теме "${material.topic}". Получено ${response.data.points_earned || 0} очков!`, {
+        duration: 4000,
+      });
     } catch (err: any) {
       console.error('Error marking material as studied:', err);
-      alert('Не удалось отметить материал как изученный. Попробуйте еще раз.');
+      toast.error('Не удалось отметить материал как изученный. Попробуйте еще раз.', {
+        duration: 4000,
+      });
     } finally {
       setIsMarking(false);
     }
@@ -260,6 +265,67 @@ export function MaterialViewer({ material, onBack, onStudyComplete }: MaterialVi
     const secs = seconds % 60;
     return `${mins}:${secs.toString().padStart(2, '0')}`;
   };
+
+  const handleShare = async () => {
+    const shareData = {
+      title: material.title,
+      text: material.description,
+      url: window.location.href,
+    };
+
+    try {
+      if (navigator.share && navigator.canShare && navigator.canShare(shareData)) {
+        await navigator.share(shareData);
+        toast.success('Материал успешно поделен!');
+      } else {
+        // Fallback: копируем ссылку в буфер обмена
+        await navigator.clipboard.writeText(window.location.href);
+        toast.success('Ссылка скопирована в буфер обмена!');
+      }
+    } catch (err: any) {
+      // Пользователь отменил шаринг или произошла ошибка
+      if (err.name !== 'AbortError') {
+        // Пробуем fallback на копирование
+        try {
+          await navigator.clipboard.writeText(window.location.href);
+          toast.success('Ссылка скопирована в буфер обмена!');
+        } catch (clipboardErr) {
+          toast.error('Не удалось поделиться материалом. Попробуйте скопировать ссылку вручную.');
+        }
+      }
+    }
+  };
+
+  const handleDownloadPDF = () => {
+    // Проверяем наличие PDF URL
+    if (!material.pdfUrl) {
+      toast.error('PDF файл недоступен для скачивания. Ссылка не найдена.');
+      return;
+    }
+
+    try {
+      // Открываем ссылку в новой вкладке для скачивания
+      const link = document.createElement('a');
+      link.href = material.pdfUrl;
+      link.download = `${material.title.replace(/[^a-zа-яё0-9]/gi, '_')}.pdf`;
+      link.target = '_blank';
+      link.rel = 'noopener noreferrer'; // Безопасность
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      toast.success('Начато скачивание PDF файла!');
+    } catch (err) {
+      console.error('Error downloading PDF:', err);
+      // Fallback: открываем в новой вкладке
+      try {
+        window.open(material.pdfUrl, '_blank', 'noopener,noreferrer');
+        toast.info('PDF файл открыт в новой вкладке.');
+      } catch (openErr) {
+        toast.error('Не удалось скачать PDF файл. Попробуйте открыть ссылку вручную.');
+      }
+    }
+  };
+
   const getTypeIcon = () => {
     switch (material.type) {
       case 'video': return <Video className="w-6 h-6" />;
@@ -284,7 +350,9 @@ export function MaterialViewer({ material, onBack, onStudyComplete }: MaterialVi
             <div className="text-center text-white">
               <Video className="w-16 h-16 mx-auto mb-4 opacity-50" />
               <p className="text-gray-400">Видео будет загружено здесь</p>
-              <p className="text-sm text-gray-500 mt-2">{material.videoUrl}</p>
+              {material.videoUrl && (
+                <p className="text-sm text-gray-500 mt-2">{material.videoUrl}</p>
+              )}
             </div>
           </div>
           <div className="prose max-w-none">
@@ -303,7 +371,10 @@ export function MaterialViewer({ material, onBack, onStudyComplete }: MaterialVi
               <FileText className="w-24 h-24 mx-auto mb-6 text-orange-500" />
               <h3 className="text-gray-900 text-xl mb-4">{material.title}</h3>
               <p className="text-gray-600 mb-6">{material.description}</p>
-              <button className="px-6 py-3 bg-orange-600 text-white rounded-xl hover:bg-orange-700 transition-colors flex items-center gap-2 mx-auto">
+              <button 
+                onClick={handleDownloadPDF}
+                className="px-6 py-3 bg-orange-600 text-white rounded-xl hover:bg-orange-700 transition-colors flex items-center gap-2 mx-auto"
+              >
                 <Download className="w-5 h-5" />
                 Скачать PDF
               </button>
@@ -564,11 +635,19 @@ export function MaterialViewer({ material, onBack, onStudyComplete }: MaterialVi
           </div>
 
           <div className="flex gap-2">
-            <button className="w-10 h-10 bg-white/20 hover:bg-white/30 rounded-lg flex items-center justify-center transition-colors">
+            <button 
+              onClick={handleShare}
+              className="w-10 h-10 bg-white/20 hover:bg-white/30 rounded-lg flex items-center justify-center transition-colors"
+              title="Поделиться материалом"
+            >
               <Share2 className="w-5 h-5" />
             </button>
             {material.type === 'pdf' && (
-              <button className="w-10 h-10 bg-white/20 hover:bg-white/30 rounded-lg flex items-center justify-center transition-colors">
+              <button 
+                onClick={handleDownloadPDF}
+                className="w-10 h-10 bg-white/20 hover:bg-white/30 rounded-lg flex items-center justify-center transition-colors"
+                title="Скачать PDF"
+              >
                 <Download className="w-5 h-5" />
               </button>
             )}
