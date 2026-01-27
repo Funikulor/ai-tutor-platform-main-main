@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import { Users, TrendingDown, AlertCircle, Download, Filter, BarChart3, FileText, X, BookOpen, Target, TrendingUp } from 'lucide-react';
 import { TestCreator } from './TestCreator';
+import { TeacherTestsTab } from './TeacherTestsTab';
 import api from '../services/api';
 
 interface StudentData {
@@ -15,7 +16,7 @@ interface StudentData {
 
 export function TeacherDashboard() {
   const [selectedClass, setSelectedClass] = useState<string | null>(null);
-  const [currentView, setCurrentView] = useState<'analytics' | 'tests'>('analytics');
+  const [currentView, setCurrentView] = useState<'analytics' | 'tests' | 'my-tests'>('analytics');
   const [classData, setClassData] = useState<StudentData[]>([]);
   const [commonErrors, setCommonErrors] = useState<Array<{
     topic: string;
@@ -246,10 +247,24 @@ export function TeacherDashboard() {
           <FileText className="w-5 h-5 inline mr-2" />
           Создание тестов
         </button>
+        <button
+          onClick={() => setCurrentView('my-tests')}
+          className={`flex-1 py-3 px-4 rounded-lg transition-all ${
+            currentView === 'my-tests'
+              ? 'bg-purple-50 text-purple-600'
+              : 'text-gray-600 hover:bg-gray-50'
+          }`}
+        >
+          <FileText className="w-5 h-5 inline mr-2" />
+          Мои тесты
+        </button>
       </div>
 
       {/* Tests View */}
       {currentView === 'tests' && <TestCreator />}
+
+      {/* My Tests View */}
+      {currentView === 'my-tests' && <TeacherTestsTab />}
 
       {/* Analytics View */}
       {currentView === 'analytics' && (
@@ -644,7 +659,7 @@ export function TeacherDashboard() {
                       <h3 className="text-lg font-semibold text-gray-900 mb-4">Мастерство по темам</h3>
                       <div className="space-y-3">
                         {Object.entries(studentDetails.topic_mastery)
-                          .sort((a, b) => b[1] - a[1])
+                          .sort((a, b) => (b[1] as number) - (a[1] as number))
                           .map(([topic, mastery]: [string, any]) => (
                             <div key={topic}>
                               <div className="flex items-center justify-between mb-1">

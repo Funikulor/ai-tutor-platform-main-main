@@ -18,6 +18,7 @@ class Homework(Base):  # type: ignore
 	status = Column(String(50), default="new")  # new | in_progress | submitted | checked
 	assigned_to = Column(String(64), nullable=False)  # user_id ученика
 	created_by = Column(String(64), nullable=True)  # teacher_id
+	test_id = Column(Integer, nullable=True)  # ID теста, если ДЗ создано из теста
 	created_at = Column(DateTime, default=datetime.utcnow)
 	updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 

@@ -15,6 +15,13 @@ export interface ManualTestCreate {
   questions: ManualQuestion[];
 }
 
+export interface ManualTestUpdate {
+  title?: string;
+  topic?: string;
+  difficulty?: string;
+  questions?: ManualQuestion[];
+}
+
 export interface GeneratedTestRequest {
   topic: string;
   difficulty?: string;
@@ -111,8 +118,22 @@ export async function getTest(id: number) {
   return resp.data;
 }
 
+export async function updateTest(id: number, payload: ManualTestUpdate) {
+  const resp = await api.put<{ test: TestDetail }>(`/tests/${id}`, payload);
+  return resp.data.test;
+}
+
 export async function deleteTest(id: number) {
   const resp = await api.delete<{ ok: boolean }>(`/tests/${id}`);
+  return resp.data;
+}
+
+export async function assignTestAsHomework(testId: number, studentIds: string[], dueDate?: string) {
+  const resp = await api.post<{ success: boolean; homeworks: any[] }>('/tests/assign', {
+    test_id: testId,
+    student_ids: studentIds,
+    due_date: dueDate,
+  });
   return resp.data;
 }
 

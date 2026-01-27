@@ -654,3 +654,66 @@ async def submit_test(test_id: int, payload: TestSubmitRequest, db: Session = De
 	}
 
 
+class TestAssignRequest(BaseModel):
+	test_id: int
+	student_ids: List[str]
+	due_date: Optional[str] = None
+
+
+@router.post("/tests/assign", response_model=Dict[str, Any])
+async def assign_test_as_homework(payload: TestAssignRequest, db: Session = Depends(get_db)):
+	"""
+	Назначить тест ученикам как домашнее задание
+	"""
+	if not has_db() or db is None:
+		raise HTTPException(status_code=503, detail="Database is not configured")
+	
+	test = db.get(Test, payload.test_id)
+	if not test:
+		raise HTTPException(status_code=404, detail="Test not found")
+	
+	from models.homework import Homework
+	from datetime import datetime as dt
+	
+	created_homeworks = []
+	due_date_obj = None
+	if payload.due_date:
+		try:
+			due_date_obj = dt.fromisoformat(payload.due_date.replace('Z', '+00:00'))
+		except Exception:
+			try:
+				due_date_obj = dt.strptime(payload.due_date, '%Y-%m-%d')
+			except Exception:
+				pass
+	
+	for student_id in payload.student_ids:
+		homework = Homework(
+			title=f"Тест: {test.title}",
+			description=f"Выполните тест по теме: {test.topic or 'без темы'}",
+			subject=test.topic or "Общее",
+			due_date=due_date_obj,
+			status="new",
+			assigned_to=student_id,
+			created_by=test.creator_id,
+			test_id=test.id,
+			created_at=dt.utcnow(),
+		)
+		db.add(homework)
+		created_homeworks.append({
+			"id": homework.id,
+			"title": homework.title,
+			"assigned_to": student_id,
+			"due_date": homework.due_date.isoformat() if homework.due_date else None,
+		})
+	
+	db.commit()
+	
+	return {
+		"success": True,
+		"test_id": test.id,
+		"test_title": test.title,
+		"homeworks": created_homeworks,
+		"assigned_count": len(created_homeworks),
+	}
+
+

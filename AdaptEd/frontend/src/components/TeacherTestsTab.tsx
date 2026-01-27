@@ -1,15 +1,19 @@
 import { useEffect, useState } from 'react';
-import { PlusCircle, Loader2, Wand2, ListPlus } from 'lucide-react';
+import { PlusCircle, Loader2, Wand2, ListPlus, Edit, Save, X, Send } from 'lucide-react';
 import {
   createManualTest,
   generateTest,
   listTests,
   getTest,
+  updateTest,
   deleteTest,
+  assignTestAsHomework,
   ManualQuestion,
   TestDetail,
   TestSummary,
 } from '../services/tests';
+import api from '../services/api';
+import React from 'react';
 
 const DIFFICULTIES = [
   { value: 'easy', label: 'Легкий' },
@@ -34,6 +38,13 @@ export function TeacherTestsTab() {
   const [selectedTest, setSelectedTest] = useState<TestDetail | null>(null);
   const [errorManual, setErrorManual] = useState<string | null>(null);
   const [errorGen, setErrorGen] = useState<string | null>(null);
+  const [isEditing, setIsEditing] = useState(false);
+  const [editingTest, setEditingTest] = useState<TestDetail | null>(null);
+  const [students, setStudents] = useState<Array<{user_id: string; full_name: string}>>([]);
+  const [showAssignModal, setShowAssignModal] = useState(false);
+  const [selectedStudents, setSelectedStudents] = useState<string[]>([]);
+  const [dueDate, setDueDate] = useState('');
+  const [assigning, setAssigning] = useState(false);
 
   const formatError = (e: any) => {
     const detail = e?.response?.data?.detail ?? e?.message ?? e;
@@ -92,6 +103,8 @@ export function TeacherTestsTab() {
     try {
       await deleteTest(id);
       setSelectedTest(null);
+      setIsEditing(false);
+      setEditingTest(null);
       await loadTests();
     } catch (e: any) {
       const msg = formatError(e) || 'Не удалось удалить тест';
@@ -100,8 +113,109 @@ export function TeacherTestsTab() {
     }
   };
 
+  const handleEditTest = () => {
+    if (!selectedTest) return;
+    setIsEditing(true);
+    setEditingTest({ ...selectedTest });
+  };
+
+  const handleCancelEdit = () => {
+    setIsEditing(false);
+    setEditingTest(null);
+  };
+
+  const handleSaveEdit = async () => {
+    if (!editingTest || !editingTest.id) return;
+    try {
+      const updated = await updateTest(editingTest.id, {
+        title: editingTest.title,
+        topic: editingTest.topic,
+        difficulty: editingTest.difficulty,
+        questions: editingTest.questions.map(q => ({
+          question: q.question,
+          options: q.options,
+          correct_index: q.correct_index,
+          explanation: q.explanation,
+        })),
+      });
+      setSelectedTest(updated);
+      setIsEditing(false);
+      setEditingTest(null);
+      await loadTests();
+      alert('Тест успешно обновлен!');
+    } catch (e: any) {
+      const msg = formatError(e) || 'Не удалось обновить тест';
+      alert(msg);
+    }
+  };
+
+  const handleAssignTest = async () => {
+    if (!selectedTest || !selectedTest.id) return;
+    if (selectedStudents.length === 0) {
+      alert('Выберите хотя бы одного ученика');
+      return;
+    }
+    setAssigning(true);
+    try {
+      await assignTestAsHomework(selectedTest.id, selectedStudents, dueDate || undefined);
+      alert(`Тест успешно назначен ${selectedStudents.length} ученику(ам)!`);
+      setShowAssignModal(false);
+      setSelectedStudents([]);
+      setDueDate('');
+    } catch (e: any) {
+      const msg = formatError(e) || 'Не удалось назначить тест';
+      alert(msg);
+    } finally {
+      setAssigning(false);
+    }
+  };
+
+  // LaTeX cleanup function for better formula readability
+  const cleanLatex = (text: string): string => {
+    if (!text) return '';
+    return text
+      .replace(/\\\(/g, '')
+      .replace(/\\\)/g, '')
+      .replace(/\\\[/g, '')
+      .replace(/\\\]/g, '')
+      .replace(/\\frac\{([^}]+)\}\{([^}]+)\}/g, '($1)/($2)')
+      .replace(/\\sqrt\{([^}]+)\}/g, '√($1)')
+      .replace(/\\sqrt\[([^\]]+)\]\{([^}]+)\}/g, 'корень $1 степени из ($2)')
+      .replace(/\^\{([^}]+)\}/g, '^$1')
+      .replace(/\^(\d+)/g, (_match, num) => {
+        const superscripts: { [key: string]: string } = {
+          '0': '⁰', '1': '¹', '2': '²', '3': '³', '4': '⁴',
+          '5': '⁵', '6': '⁶', '7': '⁷', '8': '⁸', '9': '⁹'
+        };
+        return superscripts[num] || `^${num}`;
+      })
+      .replace(/\{|\}/g, '')
+      .replace(/(\d+|\w+)\s*\*\s*(\d+|\w+)/g, (match, left, right, offset, string) => {
+        const before = offset > 0 ? string[offset - 1] : ' ';
+        const after = offset + match.length < string.length ? string[offset + match.length] : ' ';
+        if (before === ':' || after === ':') {
+          return match;
+        }
+        return `${left} · ${right}`;
+      });
+  };
+
   useEffect(() => {
     loadTests();
+    // Load students for assignment
+    const loadStudents = async () => {
+      try {
+        const response = await api.get('/all');
+        const allUsers = response.data || [];
+        const studentsList = allUsers
+          .filter((u: any) => u.role === 'student')
+          .map((u: any) => ({ user_id: u.user_id, full_name: u.full_name || u.email || u.user_id }));
+        setStudents(studentsList);
+      } catch (error) {
+        console.error('Ошибка загрузки учеников:', error);
+      }
+    };
+    loadStudents();
   }, []);
 
   const addQuestion = () => {
@@ -418,31 +532,230 @@ export function TeacherTestsTab() {
       {selectedTest && (
         <div className="bg-white border border-gray-200 rounded-xl p-4 space-y-3">
           <div className="flex items-center justify-between">
-            <div className="text-gray-900 font-semibold">Тест: {selectedTest.title}</div>
-            <button
-              onClick={() => selectedTest?.id && handleDeleteTest(selectedTest.id)}
-              className="text-sm text-red-600 hover:text-red-700"
-            >
-              Удалить
-            </button>
+            <div className="text-gray-900 font-semibold">
+              {isEditing ? (
+                <input
+                  type="text"
+                  value={editingTest?.title || selectedTest.title}
+                  onChange={(e) => setEditingTest(editingTest ? { ...editingTest, title: e.target.value } : null)}
+                  className="px-2 py-1 border border-gray-300 rounded text-sm"
+                />
+              ) : (
+                `Тест: ${selectedTest.title}`
+              )}
+            </div>
+            <div className="flex items-center gap-2">
+              {!isEditing ? (
+                <>
+                  <button
+                    onClick={handleEditTest}
+                    className="text-sm text-blue-600 hover:text-blue-700 flex items-center gap-1"
+                  >
+                    <Edit className="w-4 h-4" />
+                    Редактировать
+                  </button>
+                  <button
+                    onClick={() => setShowAssignModal(true)}
+                    className="text-sm text-green-600 hover:text-green-700 flex items-center gap-1"
+                  >
+                    <Send className="w-4 h-4" />
+                    Назначить как ДЗ
+                  </button>
+                  <button
+                    onClick={() => selectedTest?.id && handleDeleteTest(selectedTest.id)}
+                    className="text-sm text-red-600 hover:text-red-700"
+                  >
+                    Удалить
+                  </button>
+                </>
+              ) : (
+                <>
+                  <button
+                    onClick={handleSaveEdit}
+                    className="text-sm text-green-600 hover:text-green-700 flex items-center gap-1"
+                  >
+                    <Save className="w-4 h-4" />
+                    Сохранить
+                  </button>
+                  <button
+                    onClick={handleCancelEdit}
+                    className="text-sm text-gray-600 hover:text-gray-700 flex items-center gap-1"
+                  >
+                    <X className="w-4 h-4" />
+                    Отмена
+                  </button>
+                </>
+              )}
+            </div>
           </div>
           <div className="text-xs text-gray-500">
-            Тема: {selectedTest.topic || '—'} • Сложность: {selectedTest.difficulty || '—'} • Источник: {selectedTest.source || '—'}
+            {isEditing ? (
+              <div className="flex gap-4">
+                <input
+                  type="text"
+                  placeholder="Тема"
+                  value={editingTest?.topic || ''}
+                  onChange={(e) => setEditingTest(editingTest ? { ...editingTest, topic: e.target.value } : null)}
+                  className="px-2 py-1 border border-gray-300 rounded text-xs"
+                />
+                <select
+                  value={editingTest?.difficulty || 'medium'}
+                  onChange={(e) => setEditingTest(editingTest ? { ...editingTest, difficulty: e.target.value } : null)}
+                  className="px-2 py-1 border border-gray-300 rounded text-xs"
+                >
+                  {DIFFICULTIES.map((d) => (
+                    <option key={d.value} value={d.value}>
+                      {d.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            ) : (
+              `Тема: ${selectedTest.topic || '—'} • Сложность: ${selectedTest.difficulty || '—'} • Источник: ${selectedTest.source || '—'}`
+            )}
           </div>
           <div className="space-y-2">
-            {selectedTest.questions?.map((q, idx) => (
+            {(isEditing ? editingTest?.questions : selectedTest.questions)?.map((q, idx) => (
               <div key={q.id || idx} className="p-3 bg-gray-50 border border-gray-200 rounded-lg">
-                <div className="text-sm text-gray-900 mb-1">{idx + 1}. {q.question}</div>
-                <ul className="text-sm text-gray-700 list-disc pl-5 space-y-1">
-                  {q.options.map((opt, oi) => (
-                    <li key={oi} className={oi === q.correct_index ? 'text-green-700' : ''}>
-                      {opt} {oi === q.correct_index ? '(правильный)' : ''}
-                    </li>
-                  ))}
-                </ul>
-                {q.explanation && <div className="text-xs text-gray-600 mt-1">Объяснение: {q.explanation}</div>}
+                {isEditing ? (
+                  <div className="space-y-2">
+                    <input
+                      type="text"
+                      value={q.question}
+                      onChange={(e) => {
+                        if (!editingTest) return;
+                        const newQuestions = [...editingTest.questions];
+                        newQuestions[idx] = { ...q, question: e.target.value };
+                        setEditingTest({ ...editingTest, questions: newQuestions });
+                      }}
+                      className="w-full px-2 py-1 border border-gray-300 rounded text-sm"
+                      placeholder="Вопрос"
+                    />
+                    <div className="space-y-1">
+                      {q.options.map((opt, oi) => (
+                        <div key={oi} className="flex items-center gap-2">
+                          <input
+                            type="radio"
+                            checked={q.correct_index === oi}
+                            onChange={() => {
+                              if (!editingTest) return;
+                              const newQuestions = [...editingTest.questions];
+                              newQuestions[idx] = { ...q, correct_index: oi };
+                              setEditingTest({ ...editingTest, questions: newQuestions });
+                            }}
+                          />
+                          <input
+                            type="text"
+                            value={opt}
+                            onChange={(e) => {
+                              if (!editingTest) return;
+                              const newQuestions = [...editingTest.questions];
+                              const newOptions = [...q.options];
+                              newOptions[oi] = e.target.value;
+                              newQuestions[idx] = { ...q, options: newOptions };
+                              setEditingTest({ ...editingTest, questions: newQuestions });
+                            }}
+                            className="flex-1 px-2 py-1 border border-gray-300 rounded text-sm"
+                            placeholder={`Вариант ${oi + 1}`}
+                          />
+                        </div>
+                      ))}
+                    </div>
+                    <textarea
+                      value={q.explanation || ''}
+                      onChange={(e) => {
+                        if (!editingTest) return;
+                        const newQuestions = [...editingTest.questions];
+                        newQuestions[idx] = { ...q, explanation: e.target.value };
+                        setEditingTest({ ...editingTest, questions: newQuestions });
+                      }}
+                      className="w-full px-2 py-1 border border-gray-300 rounded text-xs"
+                      placeholder="Объяснение (опционально)"
+                      rows={2}
+                    />
+                  </div>
+                ) : (
+                  <>
+                    <div className="text-sm text-gray-900 mb-1">{idx + 1}. {cleanLatex(q.question)}</div>
+                    <ul className="text-sm text-gray-700 list-disc pl-5 space-y-1">
+                      {q.options.map((opt, oi) => (
+                        <li key={oi} className={oi === q.correct_index ? 'text-green-700 font-semibold' : ''}>
+                          {cleanLatex(opt)} {oi === q.correct_index ? '(правильный)' : ''}
+                        </li>
+                      ))}
+                    </ul>
+                    {q.explanation && <div className="text-xs text-gray-600 mt-1">Объяснение: {cleanLatex(q.explanation)}</div>}
+                  </>
+                )}
               </div>
             ))}
+          </div>
+        </div>
+      )}
+
+      {/* Assignment Modal */}
+      {showAssignModal && selectedTest && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-xl max-w-2xl w-full p-6">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold text-gray-900">Назначить тест как домашнее задание</h3>
+              <button
+                onClick={() => setShowAssignModal(false)}
+                className="text-gray-400 hover:text-gray-600"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="mb-4">
+              <p className="text-sm text-gray-600 mb-2">Тест: <strong>{selectedTest.title}</strong></p>
+            </div>
+            <div className="mb-4">
+              <label className="block text-sm font-medium text-gray-700 mb-2">Выберите учеников:</label>
+              <div className="max-h-60 overflow-y-auto border border-gray-200 rounded-lg p-2">
+                {students.map((student) => (
+                  <label key={student.user_id} className="flex items-center gap-2 p-2 hover:bg-gray-50 rounded">
+                    <input
+                      type="checkbox"
+                      checked={selectedStudents.includes(student.user_id)}
+                      onChange={(e) => {
+                        if (e.target.checked) {
+                          setSelectedStudents([...selectedStudents, student.user_id]);
+                        } else {
+                          setSelectedStudents(selectedStudents.filter(id => id !== student.user_id));
+                        }
+                      }}
+                      className="w-4 h-4"
+                    />
+                    <span className="text-sm text-gray-700">{student.full_name}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+            <div className="mb-4">
+              <label className="block text-sm font-medium text-gray-700 mb-2">Дедлайн (необязательно):</label>
+              <input
+                type="date"
+                value={dueDate}
+                onChange={(e) => setDueDate(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+              />
+            </div>
+            <div className="flex justify-end gap-2">
+              <button
+                onClick={() => setShowAssignModal(false)}
+                className="px-4 py-2 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200"
+              >
+                Отмена
+              </button>
+              <button
+                onClick={handleAssignTest}
+                disabled={assigning || selectedStudents.length === 0}
+                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 flex items-center gap-2"
+              >
+                {assigning ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+                Назначить
+              </button>
+            </div>
           </div>
         </div>
       )}
