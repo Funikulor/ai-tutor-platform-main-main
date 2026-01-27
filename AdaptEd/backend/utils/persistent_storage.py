@@ -34,6 +34,9 @@ class PersistentStorage:
         return {
             "users": {},
             "cognitive_profiles": {},
+            "student_analytics": {},
+            "personality_profiles": {},
+            "ethics_message_shown": {},
             "task_history": {},
             "assigned_tasks": {}
         }

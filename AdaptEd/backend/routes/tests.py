@@ -197,42 +197,135 @@ async def generate_test(request: Request, db: Session = Depends(get_db)):
 	
 	print(f"[Tests] generate start topic='{topic}' diff='{difficulty}' count={question_count} creator={creator_id} user_id={user_id} adaptive={bool(user_id)}")
 	
+	# Формируем примеры вопросов в зависимости от предмета
+	example_questions = ""
+	if "математик" in subject.lower() or "алгебр" in subject.lower() or "геометр" in subject.lower():
+		example_questions = '''
+ПРИМЕР РЕАЛЬНОГО ВОПРОСА ПО МАТЕМАТИКЕ:
+{{
+  "type": "single",
+  "question": "Чему равна производная функции f(x) = 3x² + 5x - 2?",
+  "options": ["6x + 5", "3x + 5", "6x² + 5", "3x² + 5x"],
+  "correct_index": 0,
+  "explanation": "Производная функции f(x) = 3x² + 5x - 2 находится по правилу дифференцирования: производная от x² равна 2x, поэтому производная от 3x² равна 6x. Производная от 5x равна 5. Производная от константы -2 равна 0. Итого: f'(x) = 6x + 5"
+}}
+'''
+	elif "физик" in subject.lower():
+		example_questions = '''
+ПРИМЕР РЕАЛЬНОГО ВОПРОСА ПО ФИЗИКЕ:
+{{
+  "type": "single",
+  "question": "С какой силой действует Земля на тело массой 2 кг? (g = 10 м/с²)",
+  "options": ["20 Н", "10 Н", "5 Н", "2 Н"],
+  "correct_index": 0,
+  "explanation": "Сила тяжести вычисляется по формуле F = mg, где m - масса тела, g - ускорение свободного падения. F = 2 кг × 10 м/с² = 20 Н"
+}}
+'''
+	elif "хими" in subject.lower():
+		example_questions = '''
+ПРИМЕР РЕАЛЬНОГО ВОПРОСА ПО ХИМИИ:
+{{
+  "type": "single",
+  "question": "Какая валентность у атома кислорода в молекуле воды H₂O?",
+  "options": ["II", "I", "III", "IV"],
+  "correct_index": 0,
+  "explanation": "В молекуле воды H₂O атом кислорода связан с двумя атомами водорода, каждый из которых имеет валентность I. Следовательно, валентность кислорода равна II"
+}}
+'''
+	else:
+		example_questions = '''
+ПРИМЕР РЕАЛЬНОГО ВОПРОСА:
+{{
+  "type": "single",
+  "question": "Конкретный вопрос, проверяющий знание темы '{topic}'",
+  "options": ["Правильный конкретный ответ", "Неправильный ответ с типичной ошибкой", "Неправильный ответ", "Неправильный ответ"],
+  "correct_index": 0,
+  "explanation": "Подробное объяснение с конкретными фактами и обоснованием правильного ответа"
+}}
+'''
+	
 	# Формируем промпт с учетом адаптивности
-	prompt = f"""Создай тест по теме "{topic}" для {grade} класса по предмету {subject}.
-Сложность: {difficulty}.
-Количество вопросов: {question_count}.
+	prompt = f"""Ты - опытный учитель {subject.lower()} для {grade} класса. Твоя задача - создать РЕАЛЬНЫЙ тест с КОНКРЕТНЫМИ вопросами по теме "{topic}".
+
+ЗАПРЕЩЕНО:
+❌ Использовать фразы "Пример вопроса", "Пример по теме"
+❌ Создавать варианты ответов типа "Вариант 1", "Вариант 2", "Вариант 3", "Вариант 4"
+❌ Писать объяснения типа "Правильный ответ - первый вариант"
+❌ Создавать общие, абстрактные вопросы без конкретики
+
+ОБЯЗАТЕЛЬНО:
+✅ Каждый вопрос должен быть КОНКРЕТНЫМ и проверять РЕАЛЬНЫЕ знания по теме "{topic}"
+✅ Варианты ответов должны содержать РЕАЛЬНЫЕ ответы, формулы, числа, факты
+✅ Объяснения должны быть ПОДРОБНЫМИ с формулами, примерами, обоснованием
+✅ Вопросы должны быть РАЗНООБРАЗНЫМИ по типам и сложности
+
+ПАРАМЕТРЫ:
+- Предмет: {subject}
+- Класс: {grade}
+- Тема: {topic}
+- Сложность: {difficulty}
+- Количество вопросов: {question_count}
 {student_context}
 
-ВАЖНО: Создай разнообразные типы вопросов:
-- Один вариант ответа (single choice) - вопросы с 4 вариантами, один правильный
-- Несколько вариантов (multiple choice) - вопросы где может быть несколько правильных ответов
-- Текстовый ответ (text) - вопросы требующие развернутого ответа
-- Числовой ответ (numeric) - вопросы с числовым ответом
+{example_questions}
 
-Распредели типы вопросов разнообразно. Для каждого вопроса укажи тип.
+ТИПЫ ВОПРОСОВ:
+1. "single" - один правильный ответ из 4 вариантов (большинство вопросов)
+2. "multiple" - несколько правильных ответов
+3. "numeric" - числовой ответ (для задач)
+4. "text" - текстовый ответ (для развернутых вопросов)
 
-Формат ответа строго JSON:
+ФОРМАТ ОТВЕТА (строго JSON, без дополнительного текста до и после):
 {{
-  "title": "...",
-  "topic": "...",
-  "difficulty": "...",
+  "title": "Тест по теме: {topic}",
+  "topic": "{topic}",
+  "difficulty": "{difficulty}",
   "questions": [
     {{
-      "type": "single" | "multiple" | "text" | "numeric",
-      "question": "...",
-      "options": ["вариант1", "вариант2", "вариант3", "вариант4"] (только для single/multiple),
-      "correct_index": 0 (для single - индекс правильного, для multiple - массив индексов [0, 2]),
-      "correct_answer": "текст или число" (для text/numeric),
-      "explanation": "краткое объяснение"{' (обязательно)' if include_explanations else ' (необязательно)'}
+      "type": "single",
+      "question": "КОНКРЕТНЫЙ вопрос по теме {topic} с конкретными данными, формулами или фактами",
+      "options": ["Правильный конкретный ответ", "Неправильный ответ (типичная ошибка)", "Неправильный ответ", "Неправильный ответ"],
+      "correct_index": 0,
+      "explanation": "ПОДРОБНОЕ объяснение с формулами, примерами, пошаговым решением или обоснованием"
     }}
   ]
 }}
 
-Создай реальные, качественные вопросы по теме, а не примеры!"""
+ВАЖНО: Создай ровно {question_count} РЕАЛЬНЫХ вопросов по теме "{topic}". Каждый вопрос должен быть уникальным и проверять конкретные знания. НЕ создавай примеры или заглушки!"""
 	
 	try:
-		raw = assist._generate(prompt, max_new_tokens=2000)
-		print(f"[Tests] raw response len={len(raw)}")
+		# Формируем system message для более четких инструкций
+		system_message = f"""Ты - опытный учитель {subject.lower()} для {grade} класса. Твоя задача - создавать РЕАЛЬНЫЕ вопросы для тестов.
+
+КРИТИЧЕСКИ ВАЖНО:
+- НИКОГДА не начинай вопрос со слов "Пример вопроса" или "Пример по теме"
+- НИКОГДА не используй фразы типа "Пример вопроса по теме..."
+- Каждый вопрос должен быть КОНКРЕТНЫМ с формулами, числами или фактами
+- Варианты ответов должны быть РЕАЛЬНЫМИ ответами, а не "Вариант 1", "Вариант 2"
+- Объяснения должны быть ПОДРОБНЫМИ с обоснованием
+
+Примеры ПЛОХИХ вопросов (НЕ ДЕЛАЙ ТАК):
+❌ "Пример вопроса по теме Интегралы?"
+❌ Варианты: "Вариант 1", "Вариант 2", "Вариант 3", "Вариант 4"
+
+Примеры ХОРОШИХ вопросов (ДЕЛАЙ ТАК):
+✅ "Чему равен интеграл ∫(2x + 3)dx?"
+✅ Варианты: "x² + 3x + C", "x² + 3x", "2x² + 3x + C", "x + 3"
+"""
+		
+		# Используем messages для передачи system message в Ollama
+		messages = [
+			{"role": "system", "content": system_message},
+			{"role": "user", "content": prompt}
+		]
+		
+		print(f"[Tests] Отправляем промпт в AI (длина: {len(prompt)} символов)")
+		print(f"[Tests] System message (первые 300 символов): {system_message[:300]}...")
+		raw = assist._generate(prompt, max_new_tokens=4000, messages=messages)
+		print(f"[Tests] Получен ответ от AI, длина: {len(raw)} символов")
+		print(f"[Tests] Ответ AI (первые 1000 символов):\n{raw[:1000]}")
+		if len(raw) > 1000:
+			print(f"[Tests] ... (еще {len(raw) - 1000} символов)")
 	except Exception as e:
 		print(f"[Tests] Ошибка генерации через AI: {e}")
 		raise HTTPException(status_code=500, detail=f"Ошибка генерации через AI: {str(e)}. Убедитесь, что Ollama запущена или проверьте настройки провайдера.")
@@ -246,19 +339,117 @@ async def generate_test(request: Request, db: Session = Depends(get_db)):
 		print(f"[Tests] JSON not found in raw response. First 500 chars: {raw[:500]}")
 		raise HTTPException(status_code=500, detail="Не удалось найти JSON в ответе AI. Попробуйте еще раз или проверьте настройки AI.")
 	try:
-		data = json.loads(json_match.group())
+		json_str = json_match.group()
+		print(f"[Tests] Извлечен JSON, длина: {len(json_str)} символов")
+		data = json.loads(json_str)
+		print(f"[Tests] JSON успешно распарсен, найдено ключей: {list(data.keys())}")
 	except json.JSONDecodeError as e:
 		print(f"[Tests] JSON parse error: {e}")
-		print(f"[Tests] JSON snippet: {json_match.group()[:200]}")
+		print(f"[Tests] JSON snippet (первые 500 символов): {json_match.group()[:500]}")
+		print(f"[Tests] JSON snippet (последние 500 символов): {json_match.group()[-500:]}")
 		raise HTTPException(status_code=500, detail=f"Ошибка парсинга JSON от AI: {str(e)}. Попробуйте еще раз.")
 	except Exception as e:
 		print(f"[Tests] Unexpected error parsing JSON: {e}")
 		raise HTTPException(status_code=500, detail=f"Неожиданная ошибка при обработке ответа AI: {str(e)}")
 
 	questions = data.get("questions") or []
+	print(f"[Tests] Найдено вопросов в JSON: {len(questions)}")
 	if not questions:
-		print("[Tests] No questions in generated test")
+		print("[Tests] ERROR: No questions in generated test")
+		print(f"[Tests] Данные из JSON: {json.dumps(data, ensure_ascii=False, indent=2)[:500]}")
 		raise HTTPException(status_code=500, detail="No questions in generated test")
+	
+	# Валидация: проверяем, что вопросы не являются примерами/заглушками
+	example_keywords = ["пример вопроса", "пример по теме", "example question", "sample question"]
+	placeholder_keywords = ["правильный ответ - первый", "правильный ответ - второй", "правильный ответ - третий", 
+	                       "правильный ответ - первый вариант", "правильный ответ - второй вариант"]
+	placeholder_options = ["вариант 1", "вариант 2", "вариант 3", "вариант 4", 
+	                      "option 1", "option 2", "option 3", "option 4",
+	                      "вариант1", "вариант2", "вариант3", "вариант4"]
+	
+	invalid_questions = []
+	valid_questions = []
+	
+	for i, q in enumerate(questions):
+		question_text = (q.get("question") or "").strip()
+		explanation = (q.get("explanation") or "").strip()
+		
+		# Пропускаем пустые вопросы
+		if not question_text:
+			invalid_questions.append(f"Вопрос {i+1}: пустой текст вопроса")
+			continue
+		
+		# Проверяем, не является ли вопрос примером
+		question_lower = question_text.lower()
+		if any(keyword in question_lower for keyword in example_keywords):
+			invalid_questions.append(f"Вопрос {i+1}: содержит фразу 'пример вопроса' или 'пример по теме'")
+			continue
+		
+		# Проверяем, не начинается ли вопрос со слова "Пример"
+		if question_lower.startswith("пример"):
+			invalid_questions.append(f"Вопрос {i+1}: начинается со слова 'Пример' - это заглушка")
+			continue
+		
+		# Проверяем варианты ответов для single/multiple
+		if q.get("type") in ["single", "multiple"]:
+			options = q.get("options") or []
+			if len(options) < 2:
+				invalid_questions.append(f"Вопрос {i+1}: недостаточно вариантов ответа (нужно минимум 2, получено {len(options)})")
+				continue
+			
+			# Проверяем, что варианты не являются просто "Вариант 1", "Вариант 2" и т.д.
+			option_texts = [str(opt).strip().lower() for opt in options if opt]
+			
+			# Если все варианты - это просто "Вариант N", это заглушка
+			all_are_placeholders = all(opt in placeholder_options for opt in option_texts)
+			if all_are_placeholders:
+				invalid_questions.append(f"Вопрос {i+1}: все варианты ответов являются заглушками ('Вариант 1', 'Вариант 2' и т.д.)")
+				print(f"[Tests] Вопрос {i+1} варианты: {option_texts}")
+				continue
+			
+			# Проверяем, что варианты достаточно разные (не все одинаковые)
+			if len(set(option_texts)) < 2:
+				invalid_questions.append(f"Вопрос {i+1}: варианты ответов слишком похожи или одинаковые")
+				continue
+			
+			# Проверяем, что варианты не слишком короткие (меньше 3 символов - подозрительно)
+			short_options = [opt for opt in option_texts if len(opt) < 3]
+			if len(short_options) >= len(option_texts) * 0.5:  # Больше половины слишком короткие
+				invalid_questions.append(f"Вопрос {i+1}: слишком много коротких вариантов ответа (возможно заглушки)")
+				continue
+		
+		# Проверяем объяснение на заглушки
+		if include_explanations:
+			if not explanation or len(explanation.strip()) < 10:
+				invalid_questions.append(f"Вопрос {i+1}: отсутствует или слишком короткое объяснение (минимум 10 символов)")
+				continue
+			
+			explanation_lower = explanation.lower()
+			if any(keyword in explanation_lower for keyword in placeholder_keywords):
+				invalid_questions.append(f"Вопрос {i+1}: объяснение содержит фразу-заглушку типа 'Правильный ответ - первый вариант'")
+				print(f"[Tests] Вопрос {i+1} объяснение: {explanation[:100]}")
+				continue
+		
+		# Вопрос прошел валидацию
+		valid_questions.append(q)
+		print(f"[Tests] Вопрос {i+1} прошел валидацию: {question_text[:50]}...")
+	
+	# Если слишком много невалидных вопросов, выдаем ошибку
+	invalid_ratio = len(invalid_questions) / len(questions) if questions else 1.0
+	if invalid_ratio > 0.3:  # Больше 30% вопросов - заглушки
+		error_msg = f"AI сгенерировал слишком много вопросов-заглушек ({len(invalid_questions)} из {len(questions)}). Это означает, что AI не понял инструкцию или модель работает некорректно. Попробуйте перегенерировать тест или проверьте настройки AI (Ollama должна быть запущена)."
+		print(f"[Tests] ERROR: {error_msg}")
+		print(f"[Tests] Проблемные вопросы: {invalid_questions}")
+		print(f"[Tests] Полный ответ AI (первые 1000 символов): {raw[:1000]}")
+		raise HTTPException(status_code=500, detail=error_msg)
+	
+	if invalid_questions:
+		print(f"[Tests] WARNING: Обнаружены некоторые вопросы-заглушки: {invalid_questions}")
+		print(f"[Tests] Используем {len(valid_questions)} валидных вопросов из {len(questions)}")
+		questions = valid_questions  # Используем только валидные вопросы
+		
+		if not questions:
+			raise HTTPException(status_code=500, detail="Все сгенерированные вопросы оказались заглушками. Попробуйте перегенерировать тест или проверьте настройки AI.")
 
 	title = data.get("title") or f"Тест: {topic}"
 	topic = data.get("topic") or topic
@@ -315,12 +506,30 @@ async def generate_test(request: Request, db: Session = Depends(get_db)):
 
 	try:
 		db.commit()
-	except Exception:
+	except Exception as e:
 		db.rollback()
-		raise
-	db.refresh(test)
+		print(f"[Tests] Database commit error: {e}")
+		raise HTTPException(status_code=500, detail=f"Ошибка сохранения теста в базу данных: {str(e)}")
+	
+	try:
+		db.refresh(test)
+	except Exception as e:
+		print(f"[Tests] Database refresh error: {e}")
+		# Продолжаем, даже если refresh не удался - у нас есть test.id
+	
 	print(f"[Tests] saved test id={test.id} title={title} questions={len(questions)} topic={topic}")
-	return {"test": _serialize_test(test, include_questions=True)}
+	
+	try:
+		serialized = _serialize_test(test, include_questions=True)
+		if not serialized or not isinstance(serialized, dict):
+			raise ValueError("_serialize_test returned invalid data")
+		if "id" not in serialized:
+			raise ValueError("_serialize_test returned data without id")
+		print(f"[Tests] serialized test: id={serialized.get('id')}, questions_count={len(serialized.get('questions', []))}")
+		return {"test": serialized}
+	except Exception as e:
+		print(f"[Tests] Serialization error: {e}")
+		raise HTTPException(status_code=500, detail=f"Ошибка сериализации теста: {str(e)}")
 
 
 @router.get("/tests", response_model=List[Dict[str, Any]])

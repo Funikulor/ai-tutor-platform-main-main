@@ -1,3 +1,5 @@
+
+
 # Рекомендация по выбору базы данных для AdaptEd
 
 ## 🎯 Рекомендация: **PostgreSQL** (основная) + **Redis** (кэш, опционально)
@@ -310,6 +312,9 @@ python -m uvicorn app:app --reload
 - [PostgreSQL JSONB документация](https://www.postgresql.org/docs/current/datatype-json.html)
 - [SQLAlchemy + PostgreSQL](https://docs.sqlalchemy.org/en/20/dialects/postgresql.html)
 - [PostgreSQL индексы для JSONB](https://www.postgresql.org/docs/current/datatype-json.html#JSON-INDEXING)
+
+
+
 
 
 

@@ -59,6 +59,13 @@ export async function generateTest(payload: GeneratedTestRequest) {
     const resp = await api.post<{ test: TestDetail }>('/tests/generate', payload);
     // бэкенд возвращает { test: {...} }, но на всякий случай поддержим прямой объект
     const data = resp.data as any;
+    
+    // Логируем для отладки
+    console.log('[tests] generate response data:', data);
+    console.log('[tests] generate response data type:', typeof data);
+    console.log('[tests] generate response data.test:', data?.test);
+    console.log('[tests] generate response data.id:', data?.id);
+    
     if (data && data.test) {
       return data.test as TestDetail;
     }
@@ -66,6 +73,17 @@ export async function generateTest(payload: GeneratedTestRequest) {
       // Если вернулся прямой объект теста
       return data as TestDetail;
     }
+    
+    // Дополнительная проверка: возможно ответ пришел в другом формате
+    if (data && typeof data === 'object') {
+      // Проверяем, может быть это уже сам тест
+      if (data.title !== undefined || data.questions !== undefined) {
+        console.log('[tests] treating data as direct test object');
+        return data as TestDetail;
+      }
+    }
+    
+    console.error('[tests] Unexpected response format:', JSON.stringify(data, null, 2));
     throw new Error('Неверный формат ответа от сервера');
   } catch (error: any) {
     // Пробрасываем ошибку дальше с правильной информацией
@@ -74,6 +92,10 @@ export async function generateTest(payload: GeneratedTestRequest) {
       const err = new Error(detail || 'Ошибка генерации теста');
       (err as any).response = error.response;
       throw err;
+    }
+    // Если это наша ошибка о формате, пробрасываем как есть
+    if (error.message === 'Неверный формат ответа от сервера') {
+      throw error;
     }
     throw error;
   }

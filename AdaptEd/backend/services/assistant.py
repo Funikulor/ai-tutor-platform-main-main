@@ -10,6 +10,7 @@ except Exception:
 	external_available = False
 
 from utils.persistent_storage import persistent_storage
+from utils.batched_saver import get_personality_batcher
 import requests
 from utils.db import has_db, get_db
 from models.personality_profile import PersonalityProfile, PersonalityTrait, CommunicationStyle
@@ -29,11 +30,61 @@ class AssistantService:
 		self._model = None
 		self._documents: List[Dict] = self._load_documents()
 		self._personality_profiles: Dict[str, PersonalityProfile] = {}
+		self._load_personality_profiles()  # Загружаем профили при инициализации
 		
 		# Логируем настройки при инициализации
 		print(f"[AssistantService] Провайдер: {self.provider}")
 		print(f"[AssistantService] Ollama URL: {self.ollama_url}")
 		print(f"[AssistantService] Ollama модель: {self.ollama_model}")
+	
+	def _load_personality_profiles(self):
+		"""Загружает профили личности из persistent_storage"""
+		try:
+			profiles_data = persistent_storage.get("personality_profiles", {})
+			for user_id, profile_data in profiles_data.items():
+				try:
+					profile = PersonalityProfile(**profile_data)
+					self._personality_profiles[user_id] = profile
+					print(f"[AssistantService] Загружен профиль личности для {user_id}")
+				except Exception as e:
+					print(f"[AssistantService] Ошибка загрузки профиля личности {user_id}: {e}")
+			print(f"[AssistantService] Загружено {len(self._personality_profiles)} профилей личности")
+		except Exception as e:
+			print(f"[AssistantService] Ошибка загрузки профилей личности: {e}")
+	
+	def _save_personality_profile(self, user_id: str, force: bool = False):
+		"""
+		Сохраняет профиль личности в persistent_storage через батчинг
+		
+		Args:
+			user_id: ID пользователя
+			force: Если True, сохраняет немедленно (для критичных обновлений)
+		"""
+		try:
+			if user_id in self._personality_profiles:
+				profile = self._personality_profiles[user_id]
+				profile_dict = profile.dict()
+				profile_dict['last_updated'] = datetime.now().isoformat()
+				
+				# Используем батчинг для сохранения
+				batcher = get_personality_batcher()
+				if force:
+					# Принудительное сохранение
+					batcher.flush(user_id)
+					# Также сохраняем напрямую для гарантии
+					profiles_data = persistent_storage.get("personality_profiles", {})
+					profiles_data[user_id] = profile_dict
+					persistent_storage.set("personality_profiles", profiles_data)
+				else:
+					# Планируем сохранение через батчер
+					batcher.schedule_save(user_id, profile_dict)
+		except Exception as e:
+			print(f"[AssistantService] Ошибка сохранения профиля личности {user_id}: {e}")
+	
+	def flush_all_profiles(self):
+		"""Принудительно сохраняет все профили личности (используется при завершении)"""
+		batcher = get_personality_batcher()
+		batcher.flush_all()
 
 	def _load_documents(self) -> List[Dict]:
 		if has_db():
@@ -349,6 +400,8 @@ class AssistantService:
 		"""Получить профиль личности ученика"""
 		if user_id not in self._personality_profiles:
 			self._personality_profiles[user_id] = PersonalityProfile(user_id=user_id)
+			# Сохраняем новый профиль
+			self._save_personality_profile(user_id)
 		return self._personality_profiles.get(user_id)
 	
 	def update_personality_from_chat(self, user_id: str, messages: List[Dict[str, str]]):
@@ -370,19 +423,42 @@ class AssistantService:
 		# Анализируем диалог для выявления черт личности
 		# Используем простую эвристику или можно использовать LLM для анализа
 		all_text = " ".join([m.get("content", "") for m in profile.chat_history[-20:]])
+		all_text_lower = all_text.lower()
 		
 		# Определяем стиль общения
 		question_count = all_text.count("?")
 		profile.communication_style.question_frequency = min(question_count / max(len(profile.chat_history), 1), 1.0)
 		
 		# Определяем формальность (по наличию формальных слов)
-		formal_words = ["пожалуйста", "спасибо", "благодарю", "извините"]
-		has_formal = any(word in all_text.lower() for word in formal_words)
-		profile.communication_style.formality = 0.7 if has_formal else 0.3
+		formal_words = ["пожалуйста", "спасибо", "благодарю", "извините", "прошу", "будьте добры"]
+		informal_words = ["привет", "пока", "ок", "давай", "эй", "слушай"]
+		formal_count = sum(1 for word in formal_words if word in all_text_lower)
+		informal_count = sum(1 for word in informal_words if word in all_text_lower)
+		if formal_count + informal_count > 0:
+			profile.communication_style.formality = formal_count / (formal_count + informal_count)
+		else:
+			profile.communication_style.formality = 0.5
 		
 		# Определяем многословность
 		avg_length = sum(len(m.get("content", "")) for m in profile.chat_history[-10:]) / max(len(profile.chat_history[-10:]), 1)
 		profile.communication_style.verbosity = min(avg_length / 100, 1.0)
+		
+		# Определяем эмоциональный тон
+		positive_words = ["отлично", "классно", "нравится", "интересно", "понял", "спасибо", "рад", "хорошо"]
+		negative_words = ["плохо", "не понимаю", "сложно", "трудно", "не получается", "не могу", "устал"]
+		positive_count = sum(1 for word in positive_words if word in all_text_lower)
+		negative_count = sum(1 for word in negative_words if word in all_text_lower)
+		if positive_count > negative_count * 2:
+			profile.communication_style.emotional_tone = "positive"
+		elif negative_count > positive_count * 2:
+			profile.communication_style.emotional_tone = "negative"
+		elif negative_count > 0:
+			profile.communication_style.emotional_tone = "frustrated"
+		else:
+			profile.communication_style.emotional_tone = "neutral"
+		
+		# Выявляем черты личности на основе поведения
+		self._update_personality_traits(profile, all_text_lower)
 		
 		# Выявляем упоминания слабых мест
 		weakness_keywords = ["не понимаю", "сложно", "трудно", "не получается", "не знаю", "забыл", "не помню"]
@@ -402,6 +478,43 @@ class AssistantService:
 		
 		profile.last_updated = datetime.now()
 		self._personality_profiles[user_id] = profile
+		# Сохраняем профиль после обновления
+		self._save_personality_profile(user_id)
+	
+	def _update_personality_traits(self, profile: PersonalityProfile, text: str):
+		"""Обновляет черты личности на основе анализа текста"""
+		# Любознательность - много вопросов, интерес к новому
+		curiosity_indicators = ["почему", "как", "что", "интересно", "хочу узнать", "расскажи", "объясни"]
+		curiosity_score = min(sum(1 for word in curiosity_indicators if word in text) / 10, 1.0)
+		if "curiosity" not in profile.traits:
+			profile.traits["curiosity"] = PersonalityTrait(trait_name="curiosity", score=curiosity_score)
+		else:
+			# Усредняем с предыдущим значением
+			profile.traits["curiosity"].score = (profile.traits["curiosity"].score + curiosity_score) / 2
+		
+		# Настойчивость - продолжает задавать вопросы, не сдается
+		persistence_indicators = ["еще", "снова", "попробую", "продолжу", "не сдаюсь", "еще раз"]
+		persistence_score = min(sum(1 for word in persistence_indicators if word in text) / 5, 1.0)
+		if "persistence" not in profile.traits:
+			profile.traits["persistence"] = PersonalityTrait(trait_name="persistence", score=persistence_score)
+		else:
+			profile.traits["persistence"].score = (profile.traits["persistence"].score + persistence_score) / 2
+		
+		# Уверенность - использует уверенные формулировки
+		confidence_indicators = ["знаю", "уверен", "точно", "понял", "легко", "справлюсь", "могу"]
+		confidence_score = min(sum(1 for word in confidence_indicators if word in text) / 7, 1.0)
+		if "confidence" not in profile.traits:
+			profile.traits["confidence"] = PersonalityTrait(trait_name="confidence", score=confidence_score)
+		else:
+			profile.traits["confidence"].score = (profile.traits["confidence"].score + confidence_score) / 2
+		
+		# Креативность - нестандартные вопросы, творческий подход
+		creativity_indicators = ["может быть", "а если", "интересно", "необычно", "по-другому", "идея"]
+		creativity_score = min(sum(1 for word in creativity_indicators if word in text) / 6, 1.0)
+		if "creativity" not in profile.traits:
+			profile.traits["creativity"] = PersonalityTrait(trait_name="creativity", score=creativity_score)
+		else:
+			profile.traits["creativity"].score = (profile.traits["creativity"].score + creativity_score) / 2
 	
 	def analyze_personality_traits(self, user_id: str) -> Dict[str, float]:
 		"""Анализирует черты личности через LLM"""

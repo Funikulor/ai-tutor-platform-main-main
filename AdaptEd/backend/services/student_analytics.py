@@ -113,12 +113,12 @@ class StudentAnalyticsService:
         self.adaptive_educator.record_hint_request(user_id)
     
     def _sync_with_cognitive_profile(self, user_id: str, cognitive_profile: CognitiveProfile):
-        """Синхронизирует данные с CognitiveProfile"""
+        """Синхронизирует данные с CognitiveProfile (двусторонняя синхронизация)"""
         student_data = self.adaptive_educator.get_student_data(user_id)
         if not student_data:
             return
         
-        # Синхронизируем слабые темы
+        # Синхронизируем слабые темы из CognitiveProfile в StudentAnalytics
         if cognitive_profile.error_frequency:
             top_errors = sorted(
                 cognitive_profile.error_frequency.items(), 
@@ -129,6 +129,11 @@ class StudentAnalyticsService:
                 error_str = str(error_tag.value) if hasattr(error_tag, 'value') else str(error_tag)
                 if error_str not in student_data.academic_traits.weak_topics:
                     student_data.academic_traits.weak_topics.append(error_str)
+        
+        # Синхронизируем слабые темы из topic_mastery
+        for topic, mastery in cognitive_profile.topic_mastery.items():
+            if mastery < 0.5 and topic not in student_data.academic_traits.weak_topics:
+                student_data.academic_traits.weak_topics.append(topic)
         
         # Синхронизируем точность тестов
         if cognitive_profile.accuracy_rate > 0:
@@ -160,6 +165,22 @@ class StudentAnalyticsService:
             emotion_str = cognitive_profile.current_emotional_state.value if hasattr(cognitive_profile.current_emotional_state, 'value') else str(cognitive_profile.current_emotional_state)
             if emotion_str in emotion_map:
                 student_data.behavioral_traits.emotional_state = emotion_map[emotion_str]
+        
+        # Обратная синхронизация: обновляем CognitiveProfile из StudentAnalytics
+        profiler = self._get_profiler()
+        if profiler:
+            # Обновляем тренды улучшения в метриках прогресса
+            if cognitive_profile.improvement_trends:
+                for topic, trend in cognitive_profile.improvement_trends.items():
+                    if trend > 0.05:  # Улучшение > 5%
+                        if topic not in student_data.progress_metrics.improvement_areas:
+                            student_data.progress_metrics.improvement_areas.append(topic)
+                    elif trend < -0.05:  # Ухудшение > 5%
+                        if topic not in student_data.progress_metrics.improvement_areas:
+                            student_data.progress_metrics.improvement_areas.append(topic)
+        
+        # Сохраняем обновленные данные
+        self.adaptive_educator._save_student_data(user_id)
 
 
 # Глобальный экземпляр сервиса

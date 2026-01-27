@@ -217,6 +217,8 @@ export function MaterialViewer({ material, onBack, onStudyComplete }: MaterialVi
     
     const element = contentRef.current;
     if (element) {
+      // Вызываем сразу для установки начального значения
+      handleScroll();
       element.addEventListener('scroll', handleScroll);
       return () => element.removeEventListener('scroll', handleScroll);
     }

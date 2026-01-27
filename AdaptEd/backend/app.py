@@ -64,3 +64,55 @@ def debug_storage():
         "users": persistent_storage.get("users", {}),
         "data_file_exists": os.path.exists("data.json")
     }
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    """Обработчик завершения приложения - сохраняет все данные"""
+    print("[App] Завершение работы, сохранение всех данных...")
+    
+    try:
+        # Сохраняем все профили через батчеры
+        try:
+            from agents.orchestrator import AgentOrchestrator
+            orchestrator = AgentOrchestrator()
+            orchestrator.profiler.flush_all_profiles()
+        except Exception as e:
+            print(f"[App] Ошибка сохранения профилей: {e}")
+        
+        try:
+            from services.student_analytics import get_analytics_service
+            analytics_service = get_analytics_service()
+            analytics_service.adaptive_educator.flush_all_data()
+        except Exception as e:
+            print(f"[App] Ошибка сохранения аналитики: {e}")
+        
+        try:
+            from services.assistant import get_assistant_service
+            assistant_service = get_assistant_service()
+            assistant_service.flush_all_profiles()
+        except Exception as e:
+            print(f"[App] Ошибка сохранения профилей личности: {e}")
+        
+        print("[App] Все данные сохранены")
+    except Exception as e:
+        print(f"[App] Критическая ошибка при сохранении данных при завершении: {e}")
+        import traceback
+        traceback.print_exc()
+
+@app.get("/batcher-stats")
+def get_batcher_stats():
+    """Endpoint для получения статистики батчеров"""
+    try:
+        from utils.batched_saver import (
+            get_profiler_batcher,
+            get_analytics_batcher,
+            get_personality_batcher
+        )
+        
+        return {
+            "profiler": get_profiler_batcher().get_stats(),
+            "analytics": get_analytics_batcher().get_stats(),
+            "personality": get_personality_batcher().get_stats()
+        }
+    except Exception as e:
+        return {"error": str(e)}

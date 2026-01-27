@@ -18,6 +18,9 @@ from models.student_analytics import (
 from models.cognitive_profile import CognitiveProfile
 from datetime import datetime, timedelta
 import re
+from utils.persistent_storage import persistent_storage
+from utils.batched_saver import get_analytics_batcher
+import json
 
 
 class AdaptiveEducatorAgent(BaseAgent):
@@ -30,6 +33,74 @@ class AdaptiveEducatorAgent(BaseAgent):
         super().__init__("AdaptiveEducator")
         self.student_data: Dict[str, StudentAnalyticsData] = {}
         self.ethics_message_shown: Dict[str, bool] = {}  # Показывали ли сообщение об этике
+        self._load_student_data()  # Загружаем данные при инициализации
+    
+    def _load_student_data(self):
+        """Загружает данные об учениках из persistent_storage"""
+        try:
+            analytics_data = persistent_storage.get("student_analytics", {})
+            ethics_data = persistent_storage.get("ethics_message_shown", {})
+            
+            for user_id, data_dict in analytics_data.items():
+                try:
+                    student_data = StudentAnalyticsData(**data_dict)
+                    self.student_data[user_id] = student_data
+                    self.log(f"Загружены аналитические данные для {user_id}")
+                except Exception as e:
+                    self.log(f"Ошибка загрузки аналитики {user_id}: {e}")
+            
+            self.ethics_message_shown = ethics_data
+            self.log(f"Загружено {len(self.student_data)} записей аналитики")
+        except Exception as e:
+            self.log(f"Ошибка загрузки аналитики: {e}")
+    
+    def _save_student_data(self, user_id: str, force: bool = False):
+        """
+        Сохраняет данные об ученике в persistent_storage через батчинг
+        
+        Args:
+            user_id: ID пользователя
+            force: Если True, сохраняет немедленно (для критичных обновлений)
+        """
+        try:
+            if user_id in self.student_data:
+                student_data = self.student_data[user_id]
+                # Обновляем last_updated
+                student_data.last_updated = datetime.now()
+                # Конвертируем в dict
+                data_dict = student_data.dict()
+                
+                # Подготавливаем данные для сохранения (включая флаг этики)
+                save_data = {
+                    "analytics_data": data_dict,
+                    "ethics_flag": self.ethics_message_shown.get(user_id)
+                }
+                
+                # Используем батчинг для сохранения
+                batcher = get_analytics_batcher()
+                if force:
+                    # Принудительное сохранение - сначала сохраняем через батчер
+                    batcher.schedule_save(user_id, save_data)
+                    batcher.flush(user_id)
+                    # Также сохраняем напрямую для гарантии
+                    analytics_data = persistent_storage.get("student_analytics", {})
+                    analytics_data[user_id] = data_dict
+                    persistent_storage.set("student_analytics", analytics_data)
+                    
+                    if user_id in self.ethics_message_shown:
+                        ethics_data = persistent_storage.get("ethics_message_shown", {})
+                        ethics_data[user_id] = self.ethics_message_shown[user_id]
+                        persistent_storage.set("ethics_message_shown", ethics_data)
+                else:
+                    # Планируем сохранение через батчер
+                    batcher.schedule_save(user_id, save_data)
+        except Exception as e:
+            self.log(f"Ошибка сохранения аналитики {user_id}: {e}")
+    
+    def flush_all_data(self):
+        """Принудительно сохраняет все данные (используется при завершении)"""
+        batcher = get_analytics_batcher()
+        batcher.flush_all()
     
     def process(self, input_data: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -130,6 +201,9 @@ class AdaptiveEducatorAgent(BaseAgent):
         
         # Генерируем персонализированный ответ
         personalized_response = self._generate_personalized_response(message, student_data)
+        
+        # Сохраняем данные после обновления
+        self._save_student_data(user_id)
         
         result = {
             "response": personalized_response,
@@ -367,6 +441,9 @@ class AdaptiveEducatorAgent(BaseAgent):
         
         student_data.last_updated = datetime.now()
         
+        # Сохраняем данные после обновления
+        self._save_student_data(user_id)
+        
         # Генерируем рефлексивный вопрос
         reflection_question = self._generate_reflection_question(test_result, student_data)
         
@@ -399,6 +476,9 @@ class AdaptiveEducatorAgent(BaseAgent):
                 student_data.academic_traits.task_completion_speed = time_spent
         
         student_data.last_updated = datetime.now()
+        
+        # Сохраняем данные после обновления
+        self._save_student_data(user_id)
         
         return {
             "analytics_updated": True,
@@ -493,10 +573,13 @@ class AdaptiveEducatorAgent(BaseAgent):
         student_data.progress_metrics.hint_requests_frequency += 1
         student_data.progress_metrics.hint_requests_history.append(datetime.now())
         student_data.last_updated = datetime.now()
+        # Сохраняем данные
+        self._save_student_data(user_id)
     
     def get_student_data(self, user_id: str) -> Optional[StudentAnalyticsData]:
         """Получить данные об ученике"""
         return self.student_data.get(user_id)
+
 
 
 
