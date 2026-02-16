@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { AIChatPanel } from './AIChatPanel';
 import { AICharacter } from './AICharacter';
 import { motion } from 'motion/react';
@@ -13,7 +13,17 @@ export function ChatTab() {
   });
   const [loadingProgress, setLoadingProgress] = useState(true);
 
-  // Загрузка реальных данных о прогрессе
+  const getQuestionsCount = useCallback(() => {
+    const savedMessages = localStorage.getItem('ai_chat_messages');
+    if (!savedMessages) return 0;
+    try {
+      const messages = JSON.parse(savedMessages);
+      return messages.filter((msg: any) => msg.sender === 'user').length;
+    } catch {
+      return 0;
+    }
+  }, []);
+
   useEffect(() => {
     const loadChatProgress = async () => {
       try {
@@ -23,17 +33,7 @@ export function ChatTab() {
           return;
         }
 
-        // Подсчитываем количество сообщений пользователя из localStorage
-        const savedMessages = localStorage.getItem('ai_chat_messages');
-        let questionsCount = 0;
-        if (savedMessages) {
-          try {
-            const messages = JSON.parse(savedMessages);
-            questionsCount = messages.filter((msg: any) => msg.sender === 'user').length;
-          } catch (e) {
-            console.error('Error parsing chat messages:', e);
-          }
-        }
+        const questionsCount = getQuestionsCount();
 
         // Получаем количество изученных тем из API
         try {
@@ -48,15 +48,14 @@ export function ChatTab() {
             questionsAsked: questionsCount,
             topicsStudied: topicsStudied
           });
-        } catch (err) {
-          // Если API не доступен, используем только данные из localStorage
+        } catch {
           setChatProgress({
             questionsAsked: questionsCount,
             topicsStudied: 0
           });
         }
-      } catch (err) {
-        console.error('Error loading chat progress:', err);
+      } catch {
+        // Ignore
       } finally {
         setLoadingProgress(false);
       }
@@ -64,29 +63,22 @@ export function ChatTab() {
 
     loadChatProgress();
 
-    // Обновляем данные при изменении сообщений в localStorage
-    const handleStorageChange = () => {
-      const savedMessages = localStorage.getItem('ai_chat_messages');
-      if (savedMessages) {
-        try {
-          const messages = JSON.parse(savedMessages);
-          const questionsCount = messages.filter((msg: any) => msg.sender === 'user').length;
-          setChatProgress(prev => ({ ...prev, questionsAsked: questionsCount }));
-        } catch (e) {
-          // Ignore
-        }
-      }
+    const handleMessagesUpdate = () => {
+      const questionsCount = getQuestionsCount();
+      setChatProgress((prev) => ({ ...prev, questionsAsked: questionsCount }));
     };
 
-    window.addEventListener('storage', handleStorageChange);
-    // Также проверяем периодически (на случай, если изменения происходят в том же окне)
-    const interval = setInterval(handleStorageChange, 2000);
+    window.addEventListener('storage', handleMessagesUpdate);
+    window.addEventListener('ai-chat-updated', handleMessagesUpdate as EventListener);
+    // Редкий fallback, если браузер блокирует события
+    const interval = setInterval(handleMessagesUpdate, 10000);
 
     return () => {
-      window.removeEventListener('storage', handleStorageChange);
+      window.removeEventListener('storage', handleMessagesUpdate);
+      window.removeEventListener('ai-chat-updated', handleMessagesUpdate as EventListener);
       clearInterval(interval);
     };
-  }, []);
+  }, [getQuestionsCount]);
 
   // Обработчик клика по популярной теме
   const handleTopicClick = (topic: string) => {

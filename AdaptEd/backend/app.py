@@ -6,18 +6,11 @@ from routes import assistant, homework, tests
 try:
 	from dotenv import load_dotenv  # type: ignore
 	import os
-	# Загружаем .env из папки backend
 	env_path = os.path.join(os.path.dirname(__file__), '.env')
 	load_dotenv(env_path)
-	print(f"[App] Загружен .env из: {env_path}")
-	print(f"[App] ASSISTANT_PROVIDER={os.getenv('ASSISTANT_PROVIDER', 'не установлен')}")
-	print(f"[App] OLLAMA_URL={os.getenv('OLLAMA_URL', 'не установлен')}")
-	print(f"[App] OLLAMA_MODEL={os.getenv('OLLAMA_MODEL', 'не установлен')}")
-	print(f"[App] DATABASE_URL={'установлен' if os.getenv('DATABASE_URL') else 'не установлен'}")
-except Exception as e:
+except Exception:
 	def load_dotenv():
 		return None
-	print(f"[App] Ошибка загрузки .env: {e}")
 
 # Инициализируем БД ПОСЛЕ загрузки .env
 from utils.db import init_db
@@ -26,10 +19,9 @@ init_db()  # Создает таблицы только если их нет
 # Инициализируем assistant_service после инициализации БД
 try:
 	from services.assistant import get_assistant_service
-	get_assistant_service()  # Создаем экземпляр с правильными настройками
-	print(f"[App] AssistantService инициализирован")
-except Exception as e:
-	print(f"[App] Ошибка инициализации AssistantService: {e}")
+	get_assistant_service()
+except Exception:
+	pass
 
 app = FastAPI()
 
@@ -54,50 +46,31 @@ app.include_router(tests.router, tags=["Tests"])
 def read_root():
     return {"message": "Welcome to the AdaptEd API!"}
 
-@app.get("/debug")
-def debug_storage():
-    """Отладочный endpoint для проверки хранилища"""
-    from utils.persistent_storage import persistent_storage
-    import os
-    return {
-        "users_count": len(persistent_storage.get("users", {})),
-        "users": persistent_storage.get("users", {}),
-        "data_file_exists": os.path.exists("data.json")
-    }
-
 @app.on_event("shutdown")
 async def shutdown_event():
-    """Обработчик завершения приложения - сохраняет все данные"""
-    print("[App] Завершение работы, сохранение всех данных...")
-    
     try:
-        # Сохраняем все профили через батчеры
         try:
             from agents.orchestrator import AgentOrchestrator
             orchestrator = AgentOrchestrator()
             orchestrator.profiler.flush_all_profiles()
-        except Exception as e:
-            print(f"[App] Ошибка сохранения профилей: {e}")
+        except Exception:
+            pass
         
         try:
             from services.student_analytics import get_analytics_service
             analytics_service = get_analytics_service()
             analytics_service.adaptive_educator.flush_all_data()
-        except Exception as e:
-            print(f"[App] Ошибка сохранения аналитики: {e}")
+        except Exception:
+            pass
         
         try:
             from services.assistant import get_assistant_service
             assistant_service = get_assistant_service()
             assistant_service.flush_all_profiles()
-        except Exception as e:
-            print(f"[App] Ошибка сохранения профилей личности: {e}")
-        
-        print("[App] Все данные сохранены")
-    except Exception as e:
-        print(f"[App] Критическая ошибка при сохранении данных при завершении: {e}")
-        import traceback
-        traceback.print_exc()
+        except Exception:
+            pass
+    except Exception:
+        pass
 
 @app.get("/batcher-stats")
 def get_batcher_stats():

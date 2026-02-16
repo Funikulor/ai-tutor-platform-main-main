@@ -1,15 +1,14 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, type ReactElement } from 'react';
 import { ArrowLeft, BookOpen, Video, FileText, Clock, Star, Download, Share2, CheckCircle, Target, Lightbulb, AlertCircle, Zap } from 'lucide-react';
 import { motion } from 'motion/react';
 import type { Material } from './LibraryTab';
 import api from '../services/api';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import React from 'react';
 import { toast } from 'sonner';
 
 // Функция для форматирования математических формул (скопирована из AdaptiveTask)
-const formatMathText = (text: string): React.ReactElement[] => {
+const formatMathText = (text: string): ReactElement[] => {
   let cleaned = text
     .replace(/\\\(/g, '')
     .replace(/\\\)/g, '')
@@ -62,7 +61,7 @@ const formatMathText = (text: string): React.ReactElement[] => {
     return match;
   });
 
-  const parts: (string | React.ReactElement)[] = [];
+  const parts: (string | ReactElement)[] = [];
   let lastIndex = 0;
 
   const fractionPattern = /(\([^()]+\)|[a-zA-Z]?\d+[a-zA-Z]*|\d+)\s*\/\s*(\([^()]+\)|[a-zA-Z]?\d+[a-zA-Z]*|\d+)/g;
@@ -198,7 +197,7 @@ export function MaterialViewer({ material, onBack, onStudyComplete }: MaterialVi
   useEffect(() => {
     const interval = setInterval(() => {
       setTimeSpent(Math.floor((Date.now() - startTimeRef.current) / 1000));
-    }, 1000);
+    }, 5000);
     
     return () => clearInterval(interval);
   }, []);
@@ -231,13 +230,15 @@ export function MaterialViewer({ material, onBack, onStudyComplete }: MaterialVi
       if (!userId) {
         throw new Error('User ID not found');
       }
+      const currentTimeSpent = Math.floor((Date.now() - startTimeRef.current) / 1000);
+      setTimeSpent(currentTimeSpent);
       
       const response = await api.post('/study/material', {
         user_id: userId,
         material_id: material.id,
         topic: material.topic,
         subject: material.subject,
-        time_spent_seconds: timeSpent,
+        time_spent_seconds: currentTimeSpent,
         completion_percentage: scrollProgress / 100
       });
       

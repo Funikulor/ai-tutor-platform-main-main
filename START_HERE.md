@@ -54,5 +54,5 @@ pip install streamlit requests --upgrade
 ## 📚 Дополнительная информация
 
 - API документация: http://localhost:8000/docs
-- Подробная инструкция: `AdaptEd/README_installation.md`
-- Список изменений: `AdaptEd/CHANGELOG.md`
+- Руководство по проекту: `AdaptEd/README.md`
+- Диагностика и решение проблем: `TROUBLESHOOTING.md`

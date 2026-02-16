@@ -1,6 +1,12 @@
 import axios from 'axios';
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+export const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+export const clearAuthStorage = () => {
+  localStorage.removeItem('token');
+  localStorage.removeItem('user_id');
+  localStorage.removeItem('role');
+  localStorage.removeItem('full_name');
+};
 
 // Создаем экземпляр axios с базовой конфигурацией
 const api = axios.create({
@@ -8,27 +14,30 @@ const api = axios.create({
   headers: {
     'Content-Type': 'application/json',
   },
-  timeout: 120000, // 120 секунд таймаут (для Ollama может потребоваться больше времени)
+  timeout: 120000,
 });
 
-// Добавляем interceptor для автоматической подстановки токена
 api.interceptors.request.use((config) => {
   const token = localStorage.getItem('token');
   if (token) {
+    config.headers = config.headers ?? {};
     config.headers.Authorization = `Bearer ${token}`;
   }
   return config;
 });
 
-// Обработка ошибок
 api.interceptors.response.use(
   (response) => response,
   (error) => {
-    if (error.response?.status === 401) {
-      localStorage.removeItem('token');
-      localStorage.removeItem('user_id');
-      localStorage.removeItem('role');
-      window.location.href = '/';
+    const status = error.response?.status;
+    const requestUrl = error.config?.url as string | undefined;
+    const isLoginOrRegister = !!requestUrl && /\/auth\/(login|register)\b/.test(requestUrl);
+
+    if (status === 401 && !isLoginOrRegister) {
+      clearAuthStorage();
+      if (window.location.pathname !== '/') {
+        window.location.href = '/';
+      }
     }
     return Promise.reject(error);
   }

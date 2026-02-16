@@ -13,7 +13,6 @@ import {
   TestSummary,
 } from '../services/tests';
 import api from '../services/api';
-import React from 'react';
 
 const DIFFICULTIES = [
   { value: 'easy', label: 'Легкий' },
@@ -211,9 +210,7 @@ export function TeacherTestsTab() {
           .filter((u: any) => u.role === 'student')
           .map((u: any) => ({ user_id: u.user_id, full_name: u.full_name || u.email || u.user_id }));
         setStudents(studentsList);
-      } catch (error) {
-        console.error('Ошибка загрузки учеников:', error);
-      }
+      } catch {}
     };
     loadStudents();
   }, []);
@@ -289,9 +286,7 @@ export function TeacherTestsTab() {
     setGenStatus('Отправляем запрос на генерацию...');
     setLoadingGen(true);
     try {
-      console.log('[tests] generate payload', payload);
       const test = await generateTest(payload);
-      console.log('[tests] generate response', test);
       let savedTest = test as any;
 
       // Если бэкенд вернул сырой объект без id, пробуем сами сохранить через /tests/manual
@@ -310,7 +305,6 @@ export function TeacherTestsTab() {
         }));
         if (manualQuestions.length > 0) {
           try {
-            console.log('[tests] fallback saving manual test');
             const manualSaved = await createManualTest({
               title: savedTest?.title || payload.topic || 'Сгенерированный тест',
               topic: savedTest?.topic || payload.topic,
@@ -319,10 +313,7 @@ export function TeacherTestsTab() {
               questions: manualQuestions,
             });
             savedTest = manualSaved;
-            console.log('[tests] fallback saved manual', manualSaved);
-          } catch (err) {
-            console.log('[tests] fallback manual save error', err);
-          }
+          } catch {}
         }
       }
 

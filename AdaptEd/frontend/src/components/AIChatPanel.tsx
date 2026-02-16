@@ -59,6 +59,7 @@ export function AIChatPanel({ isMinimized = false, onToggleMinimize, fullscreen 
   useEffect(() => {
     try {
       localStorage.setItem('ai_chat_messages', JSON.stringify(messages));
+      window.dispatchEvent(new Event('ai-chat-updated'));
     } catch (e) {
       console.error('Error saving messages to storage:', e);
     }

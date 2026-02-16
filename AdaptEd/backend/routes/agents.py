@@ -1,12 +1,6 @@
 """
 API маршруты для работы с ИИ-агентами
 """
-import sys
-import os
-
-# Добавляем путь к backend для импорта
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from typing import List, Optional, Dict, Any
@@ -249,8 +243,6 @@ async def generate_adaptive_task(request: Dict[str, Any]):
         print(f"[AdaptiveTask] Raw AI response preview: {raw_response[:300]}")
         
         # Парсим JSON из ответа
-        import json
-        import re
         
         # Пытаемся найти JSON в ответе (более гибкий поиск)
         task_data = None
@@ -375,7 +367,6 @@ async def generate_adaptive_task(request: Dict[str, Any]):
                 if explanation_clean.startswith('"') and explanation_clean.endswith('"'):
                     explanation_clean = explanation_clean[1:-1]
                 # Убираем markdown форматирование более тщательно
-                import re
                 explanation_clean = re.sub(r'\*\*([^*]+)\*\*', r'\1', explanation_clean)  # **текст** -> текст
                 explanation_clean = re.sub(r'#{1,6}\s*', '', explanation_clean)  # Заголовки
                 explanation_clean = re.sub(r'---+', '', explanation_clean)  # Разделители ---

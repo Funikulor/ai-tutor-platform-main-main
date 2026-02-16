@@ -1,7 +1,6 @@
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from typing import List, Optional, Dict
-import os
 from utils.auth_service import auth_service
 from utils.persistent_storage import persistent_storage
 
@@ -36,16 +35,6 @@ async def get_user_data(user_id: int):
 	if user_id not in user_data:
 		raise HTTPException(status_code=404, detail="User not found")
 	return UserResponse(user_id=user_id, answers=user_data[user_id])
-
-@router.get("/debug")
-def debug_storage():
-	"""Отладочный endpoint для проверки хранилища"""
-	from utils.persistent_storage import persistent_storage
-	return {
-		"users_count": len(persistent_storage.get("users", {})),
-		"users": persistent_storage.get("users", {}),
-		"data_file_exists": os.path.exists("data.json")
-	}
 
 @router.get("/all")
 def get_all_users():

@@ -3,7 +3,6 @@
 """
 import json
 import os
-from datetime import datetime
 from typing import Dict, Any
 
 
@@ -11,8 +10,6 @@ class PersistentStorage:
     """Класс для постоянного хранения данных"""
     
     def __init__(self, data_file: str = "data.json"):
-        # Создаем файл в директории backend
-        import os
         backend_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         self.data_file = os.path.join(backend_dir, data_file)
         self.data = self._load_data()
@@ -23,8 +20,7 @@ class PersistentStorage:
             try:
                 with open(self.data_file, 'r', encoding='utf-8') as f:
                     return json.load(f)
-            except Exception as e:
-                print(f"Ошибка загрузки данных: {e}")
+            except Exception:
                 return self._get_default_data()
         else:
             return self._get_default_data()
@@ -46,8 +42,8 @@ class PersistentStorage:
         try:
             with open(self.data_file, 'w', encoding='utf-8') as f:
                 json.dump(self.data, f, ensure_ascii=False, indent=2, default=str)
-        except Exception as e:
-            print(f"Ошибка сохранения данных: {e}")
+        except Exception:
+            pass
     
     def get(self, key: str, default=None):
         """Получает значение по ключу"""

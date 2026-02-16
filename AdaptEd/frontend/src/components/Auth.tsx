@@ -1,7 +1,7 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { BookOpen, Mail, Lock, User, Phone, GraduationCap, AlertCircle } from 'lucide-react';
 import { authService } from '../services/auth';
-import axios from 'axios';
+import api from '../services/api';
 
 interface AuthProps {
   onSuccess: () => void;
@@ -27,51 +27,44 @@ export function Auth({ onSuccess }: AuthProps) {
     phone: '',
   });
 
-  // Проверяем доступность бэкенда при загрузке
-  useEffect(() => {
-    const checkBackend = async () => {
-      setBackendStatus('checking');
-      try {
-        const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
-        const response = await axios.get(`${API_BASE_URL}/`, { 
-          timeout: 5000,
-          headers: {
-            'Accept': 'application/json',
-          }
-        });
-        if (response.status === 200) {
-          setBackendStatus('online');
-        } else {
-          setBackendStatus('offline');
-        }
-      } catch (error) {
-        setBackendStatus('offline');
-      }
-    };
-    checkBackend();
-    // Проверяем каждые 5 секунд
-    const interval = setInterval(checkBackend, 5000);
-    return () => clearInterval(interval);
-  }, []);
-
-  const handleCheckBackend = async () => {
+  const checkBackend = useCallback(async () => {
     setBackendStatus('checking');
     try {
-      const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
-      const response = await axios.get(`${API_BASE_URL}/`, { 
-        timeout: 5000,
-        headers: {
-          'Accept': 'application/json',
-        }
-      });
-      if (response.status === 200) {
-        setBackendStatus('online');
-      } else {
-        setBackendStatus('offline');
-      }
-    } catch (error) {
+      const response = await api.get('/', { timeout: 5000 });
+      setBackendStatus(response.status === 200 ? 'online' : 'offline');
+    } catch {
       setBackendStatus('offline');
     }
+  }, []);
+
+  useEffect(() => {
+    checkBackend();
+    const interval = setInterval(checkBackend, 15000);
+    return () => clearInterval(interval);
+  }, [checkBackend]);
+
+  const getAuthErrorMessage = (err: any, mode: 'login' | 'register') => {
+    const fallback =
+      mode === 'login'
+        ? 'Ошибка входа. Проверьте email и пароль.'
+        : 'Ошибка регистрации. Проверьте данные.';
+
+    if (err?.code === 'ERR_NETWORK' || err?.message?.includes('Network Error') || err?.code === 'ECONNREFUSED') {
+      return '❌ Ошибка подключения к серверу!\n\nУбедитесь, что бэкенд запущен:\n1. Откройте новое окно терминала\n2. Перейдите в папку AdaptEd/backend\n3. Запустите: uvicorn app:app --reload --port 8000\n\nИли используйте: start_backend.bat';
+    }
+    if (err?.code === 'ETIMEDOUT' || err?.message?.includes('timeout')) {
+      return 'Превышено время ожидания ответа от сервера. Проверьте, что бэкенд запущен.';
+    }
+    if (mode === 'login' && err?.response?.status === 401) {
+      return 'Неверный email или пароль. Проверьте данные и попробуйте снова.';
+    }
+    if (err?.response?.data?.detail) {
+      return err.response.data.detail;
+    }
+    if (err?.message) {
+      return err.message;
+    }
+    return fallback;
   };
 
   const handleLogin = async (e: React.FormEvent) => {
@@ -82,26 +75,8 @@ export function Auth({ onSuccess }: AuthProps) {
     try {
       await authService.login(loginEmail, loginPassword);
       onSuccess();
-      // Небольшая задержка для обновления состояния
-      setTimeout(() => {
-        window.location.reload();
-      }, 100);
     } catch (err: any) {
-      let errorMessage = 'Ошибка входа. Проверьте email и пароль.';
-      
-      if (err.code === 'ERR_NETWORK' || err.message?.includes('Network Error') || err.code === 'ECONNREFUSED') {
-        errorMessage = '❌ Ошибка подключения к серверу!\n\nУбедитесь, что бэкенд запущен:\n1. Откройте новое окно терминала\n2. Перейдите в папку AdaptEd/backend\n3. Запустите: uvicorn app:app --reload --port 8000\n\nИли используйте: start_backend.bat';
-      } else if (err.code === 'ETIMEDOUT' || err.message?.includes('timeout')) {
-        errorMessage = 'Превышено время ожидания ответа от сервера. Проверьте, что бэкенд запущен.';
-      } else if (err.response?.status === 401) {
-        errorMessage = 'Неверный email или пароль. Проверьте данные и попробуйте снова.';
-      } else if (err.response?.data?.detail) {
-        errorMessage = err.response.data.detail;
-      } else if (err.message) {
-        errorMessage = err.message;
-      }
-      
-      setError(errorMessage);
+      setError(getAuthErrorMessage(err, 'login'));
     } finally {
       setLoading(false);
     }
@@ -114,27 +89,10 @@ export function Auth({ onSuccess }: AuthProps) {
 
     try {
       await authService.register(registerData);
-      // После регистрации автоматически входим
       await authService.login(registerData.email, registerData.password);
       onSuccess();
-      // Небольшая задержка для обновления состояния
-      setTimeout(() => {
-        window.location.reload();
-      }, 100);
     } catch (err: any) {
-      let errorMessage = 'Ошибка регистрации. Проверьте данные.';
-      
-      if (err.code === 'ERR_NETWORK' || err.message?.includes('Network Error') || err.code === 'ECONNREFUSED') {
-        errorMessage = '❌ Ошибка подключения к серверу!\n\nУбедитесь, что бэкенд запущен:\n1. Откройте новое окно терминала\n2. Перейдите в папку AdaptEd/backend\n3. Запустите: uvicorn app:app --reload --port 8000\n\nИли используйте: start_backend.bat';
-      } else if (err.code === 'ETIMEDOUT' || err.message?.includes('timeout')) {
-        errorMessage = 'Превышено время ожидания ответа от сервера. Проверьте, что бэкенд запущен.';
-      } else if (err.response?.data?.detail) {
-        errorMessage = err.response.data.detail;
-      } else if (err.message) {
-        errorMessage = err.message;
-      }
-      
-      setError(errorMessage);
+      setError(getAuthErrorMessage(err, 'register'));
     } finally {
       setLoading(false);
     }
@@ -165,7 +123,7 @@ export function Auth({ onSuccess }: AuthProps) {
                   Запустите бэкенд на порту 8000 перед входом в систему.
                 </p>
                 <button
-                  onClick={handleCheckBackend}
+                  onClick={checkBackend}
                   className="text-xs text-red-700 hover:text-red-900 underline"
                 >
                   Проверить снова

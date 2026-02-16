@@ -6,6 +6,7 @@ import secrets
 from datetime import datetime, timedelta
 from typing import Optional, Dict, List
 from models.auth import User, UserRole
+from models.user_db import User as UserDB
 from utils.persistent_storage import persistent_storage
 from utils.db import get_db, has_db
 
@@ -29,7 +30,6 @@ class AuthService:
             db = get_db()
             if db:
                 try:
-                    from models.user_db import User as UserDB
                     # Проверяем, не существует ли уже админ
                     existing = db.query(UserDB).filter(
                         (UserDB.user_id == admin_id) | (UserDB.email == admin_email)
@@ -98,7 +98,6 @@ class AuthService:
             db = get_db()
             if db:
                 try:
-                    from models.user_db import User as UserDB
                     # Проверяем, не существует ли уже пользователь
                     existing = db.query(UserDB).filter(UserDB.email == email).first()
                     if existing:
@@ -176,7 +175,6 @@ class AuthService:
             db = get_db()
             if db:
                 try:
-                    from models.user_db import User as UserDB
                     user_db = db.query(UserDB).filter(
                         UserDB.email == email,
                         UserDB.password_hash == hashed_password,
@@ -222,7 +220,6 @@ class AuthService:
             db = get_db()
             if db:
                 try:
-                    from models.user_db import User as UserDB
                     user_db = db.query(UserDB).filter(UserDB.user_id == user_id).first()
                     if user_db and user_db.is_active:
                         return {
@@ -266,7 +263,6 @@ class AuthService:
             db = get_db()
             if db:
                 try:
-                    from models.user_db import User as UserDB
                     users_db = db.query(UserDB).all()
                     for user_db in users_db:
                         users.append({
@@ -300,7 +296,6 @@ class AuthService:
             db = get_db()
             if db:
                 try:
-                    from models.user_db import User as UserDB
                     user_db = db.query(UserDB).filter(UserDB.user_id == user_id).first()
                     if user_db:
                         return {
