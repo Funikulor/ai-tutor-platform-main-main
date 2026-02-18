@@ -67,31 +67,72 @@ def handler(event, context):
     if init_error:
         return {
             "statusCode": 500,
-            "headers": {"Content-Type": "application/json", "Access-Control-Allow-Origin": "*"},
-            "body": json.dumps(init_error)
+            "headers": {
+                "Content-Type": "application/json",
+                "Access-Control-Allow-Origin": "*",
+                "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
+                "Access-Control-Allow-Headers": "Content-Type, Authorization"
+            },
+            "body": json.dumps(init_error, ensure_ascii=False)
         }
     
     # Если handler не создан, возвращаем ошибку
     if handler_instance is None:
         return {
             "statusCode": 500,
-            "headers": {"Content-Type": "application/json", "Access-Control-Allow-Origin": "*"},
-            "body": json.dumps({"error": "Handler not initialized"})
+            "headers": {
+                "Content-Type": "application/json",
+                "Access-Control-Allow-Origin": "*",
+                "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
+                "Access-Control-Allow-Headers": "Content-Type, Authorization"
+            },
+            "body": json.dumps({
+                "error": "Handler not initialized",
+                "backend_path": backend_path,
+                "cwd": os.getcwd(),
+                "sys_path": sys.path[:5]
+            }, ensure_ascii=False)
+        }
+    
+    # Обработка OPTIONS запроса для CORS
+    if event.get("httpMethod") == "OPTIONS":
+        return {
+            "statusCode": 200,
+            "headers": {
+                "Access-Control-Allow-Origin": "*",
+                "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
+                "Access-Control-Allow-Headers": "Content-Type, Authorization"
+            },
+            "body": ""
         }
     
     try:
         # Обрабатываем запрос через Mangum
         response = handler_instance(event, context)
+        
+        # Убеждаемся, что заголовки CORS присутствуют
+        if isinstance(response, dict):
+            headers = response.get("headers", {})
+            headers["Access-Control-Allow-Origin"] = "*"
+            headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS"
+            headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization"
+            response["headers"] = headers
+        
         return response
     except Exception as e:
         import traceback
         return {
             "statusCode": 500,
-            "headers": {"Content-Type": "application/json", "Access-Control-Allow-Origin": "*"},
+            "headers": {
+                "Content-Type": "application/json",
+                "Access-Control-Allow-Origin": "*",
+                "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
+                "Access-Control-Allow-Headers": "Content-Type, Authorization"
+            },
             "body": json.dumps({
                 "error": "Request processing failed",
                 "message": str(e),
                 "traceback": traceback.format_exc()
-            })
+            }, ensure_ascii=False)
         }
 

@@ -14,6 +14,10 @@
   # Версия Python для backend functions
   PYTHON_VERSION = "3.11"
 
+# Указываем, где находятся функции (относительно корня репозитория)
+[functions]
+  directory = "netlify/functions"
+
 # Проксирование API запросов к Netlify Functions (должно быть ПЕРЕД SPA редиректом)
 [[redirects]]
   from = "/api/*"
