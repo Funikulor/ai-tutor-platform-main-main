@@ -1,0 +1,11 @@
+FastAPI
+mangum>=0.17.0
+pydantic
+python-dotenv>=1.0.1
+SQLAlchemy>=2.0.30
+psycopg2-binary>=2.9.9
+python-multipart>=0.0.9
+openai>=1.0.0
+httpx
+requests
+
