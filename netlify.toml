@@ -1,9 +1,12 @@
 [build]
-  # Команда сборки frontend
-  command = "cd AdaptEd/frontend && npm install && npm run build"
+  # Базовая директория для сборки
+  base = "AdaptEd/frontend"
   
-  # Директория с собранными файлами
-  publish = "AdaptEd/frontend/build"
+  # Команда сборки frontend
+  command = "npm install && npm run build"
+  
+  # Директория с собранными файлами (относительно base)
+  publish = "build"
 
 [build.environment]
   # Версия Node.js для frontend
