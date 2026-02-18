@@ -1,0 +1,25 @@
+services:
+  # Backend API (FastAPI)
+  - type: web
+    name: adapted-backend
+    env: python
+    region: frankfurt  # или другой регион, ближайший к вам
+    plan: free  # или starter, standard и т.д.
+    # Root Directory: все команды выполняются из этой директории
+    rootDir: AdaptEd/backend
+    # Команды теперь относительно rootDir (т.е. из AdaptEd/backend/)
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.0
+      - key: DATABASE_URL
+        sync: false  # Установите вручную в панели Render
+      - key: ASSISTANT_PROVIDER
+        value: openai
+      - key: OPENAI_API_KEY
+        sync: false  # Установите вручную в панели Render
+      - key: OPENAI_MODEL
+        value: gpt-4o-mini
+    healthCheckPath: /
+

@@ -1,8 +1,9 @@
 import axios from 'axios';
 
-// Для Netlify используем относительный путь /api, для разработки - localhost
+// Для production используем VITE_API_URL из переменных окружения
+// Для разработки - localhost
 export const API_BASE_URL = import.meta.env.VITE_API_URL || 
-  (import.meta.env.PROD ? '/api' : 'http://localhost:8000');
+  (import.meta.env.PROD ? 'https://adapted-backend.onrender.com' : 'http://localhost:8000');
 export const clearAuthStorage = () => {
   localStorage.removeItem('token');
   localStorage.removeItem('user_id');

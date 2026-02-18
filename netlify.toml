@@ -11,23 +11,11 @@
 [build.environment]
   # Версия Node.js для frontend
   NODE_VERSION = "20"
-  # Версия Python для backend functions
-  PYTHON_VERSION = "3.11"
+  # Укажите URL вашего backend на Render
+  # После деплоя backend на Render замените на реальный URL
+  VITE_API_URL = "https://adapted-backend.onrender.com"
 
-# Указываем, где находятся функции
-# ВАЖНО: путь всегда относительно КОРНЯ репозитория, не base!
-# Netlify автоматически найдет функции в netlify/functions/
-[functions]
-  directory = "netlify/functions"
-
-# Проксирование API запросов к Netlify Functions (должно быть ПЕРЕД SPA редиректом)
-[[redirects]]
-  from = "/api/*"
-  to = "/.netlify/functions/api/:splat"
-  status = 200
-  force = true
-
-# Редирект для SPA (React Router) - должен быть последним
+# Редирект для SPA (React Router)
 [[redirects]]
   from = "/*"
   to = "/index.html"
