@@ -4,6 +4,7 @@
   import path from 'path';
 
   export default defineConfig({
+    base: '/', // Базовый путь для production
     plugins: [react()],
     resolve: {
       extensions: ['.js', '.jsx', '.ts', '.tsx', '.json'],
