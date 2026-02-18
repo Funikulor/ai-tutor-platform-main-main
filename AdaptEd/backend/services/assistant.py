@@ -1,6 +1,7 @@
 from typing import List, Dict, Optional
 import os
 import json
+import time
 from datetime import datetime
 
 try:
@@ -8,6 +9,15 @@ try:
 	external_available = True
 except Exception:
 	external_available = False
+
+try:
+	from openai import OpenAI, RateLimitError, APIError, APIConnectionError  # type: ignore
+	openai_available = True
+except Exception:
+	openai_available = False
+	RateLimitError = None
+	APIError = None
+	APIConnectionError = None
 
 from utils.persistent_storage import persistent_storage
 from utils.batched_saver import get_personality_batcher
@@ -20,11 +30,17 @@ class AssistantService:
 	"""AI Assistant wrapper with provider selection: hf_api or local pipeline."""
 
 	def __init__(self, model_name: str = None):
-		self.provider = os.getenv("ASSISTANT_PROVIDER", "ollama")  # ollama | hf_api | local
+		self.provider = os.getenv("ASSISTANT_PROVIDER", "openai")  # openai | hf_api | local
 		self.hf_model = os.getenv("HF_MODEL", model_name or "microsoft/DialoGPT-medium")
 		self.hf_token = os.getenv("HF_API_TOKEN", "")
-		self.ollama_url = os.getenv("OLLAMA_URL", "http://localhost:11434")
-		self.ollama_model = os.getenv("OLLAMA_MODEL", "llama3.2")  # llama3.2, mistral, qwen2.5, etc.
+		self.openai_api_key = os.getenv("OPENAI_API_KEY", "")
+		self.openai_model = os.getenv("OPENAI_MODEL", "gpt-4o-mini")  # gpt-4o-mini (рекомендуется), gpt-3.5-turbo, gpt-4o, etc.
+		self._openai_client = None
+		if openai_available and self.openai_api_key:
+			try:
+				self._openai_client = OpenAI(api_key=self.openai_api_key)
+			except Exception as e:
+				print(f"[AssistantService] Ошибка инициализации OpenAI клиента: {e}")
 		self._pipe = None
 		self._tokenizer = None
 		self._model = None
@@ -34,8 +50,8 @@ class AssistantService:
 		
 		# Логируем настройки при инициализации
 		print(f"[AssistantService] Провайдер: {self.provider}")
-		print(f"[AssistantService] Ollama URL: {self.ollama_url}")
-		print(f"[AssistantService] Ollama модель: {self.ollama_model}")
+		print(f"[AssistantService] OpenAI модель: {self.openai_model}")
+		print(f"[AssistantService] OpenAI API ключ: {'установлен' if self.openai_api_key else 'не установлен'}")
 	
 	def _load_personality_profiles(self):
 		"""Загружает профили личности из persistent_storage"""
@@ -127,61 +143,106 @@ class AssistantService:
 				except Exception:
 					self._pipe = None
 
-	def _generate_ollama(self, prompt: str, messages: Optional[List[Dict[str, str]]] = None, max_new_tokens: int = 512) -> Optional[str]:
-		"""Генерация через Ollama API (локальная нейросеть)"""
-		url = f"{self.ollama_url}/api/chat"
+	def _generate_openai(self, prompt: str, messages: Optional[List[Dict[str, str]]] = None, max_new_tokens: int = 512) -> Optional[str]:
+		"""
+		Генерация через OpenAI API с обработкой rate limits
 		
-		# Формируем сообщения для Ollama
-		ollama_messages = []
+		Лимиты для gpt-4o-mini (рекомендуется):
+		- 60,000 TPM (токенов в минуту)
+		- 3 RPM (запросов в минуту)
+		- 200 RPD (запросов в день)
+		- 200,000 TPD (токенов в день)
+		"""
+		if not openai_available or not self._openai_client:
+			print(f"[OpenAI] OpenAI клиент недоступен")
+			return None
+		
+		# Формируем сообщения для OpenAI
+		openai_messages = []
 		if messages:
-			# Конвертируем формат сообщений для Ollama
+			# Конвертируем формат сообщений для OpenAI
 			for msg in messages:
 				role = msg.get("role", "user")
 				content = msg.get("content", "")
 				if role in ["user", "assistant", "system"]:
-					ollama_messages.append({"role": role, "content": content})
+					openai_messages.append({"role": role, "content": content})
 		else:
 			# Если нет истории, используем prompt как user сообщение
-			ollama_messages = [{"role": "user", "content": prompt}]
+			openai_messages = [{"role": "user", "content": prompt}]
 		
-		payload = {
-			"model": self.ollama_model,
-			"messages": ollama_messages,
-			"stream": False,
-			"options": {
-				"temperature": 0.7,
-				"num_predict": max_new_tokens,
-			}
-		}
+		# Retry логика для обработки rate limits
+		max_retries = 3
+		base_delay = 1  # секунда
 		
-		try:
-			print(f"[Ollama] Подключение к {url}, модель: {self.ollama_model}")
-			# Отключаем прокси для локальных запросов
-			resp = requests.post(url, json=payload, timeout=120, proxies={"http": None, "https": None})
-			print(f"[Ollama] Статус ответа: {resp.status_code}")
-			
-			if resp.status_code == 200:
-				data = resp.json()
-				message = data.get("message", {})
-				content = message.get("content", "")
-				result = content.strip() if content else None
-				if result:
-					print(f"[Ollama] Успешно получен ответ (длина: {len(result)})")
+		for attempt in range(max_retries):
+			try:
+				print(f"[OpenAI] Отправка запроса, модель: {self.openai_model} (попытка {attempt + 1}/{max_retries})")
+				response = self._openai_client.chat.completions.create(
+					model=self.openai_model,
+					messages=openai_messages,
+					temperature=0.7,
+					max_tokens=max_new_tokens,
+				)
+				
+				if response and response.choices:
+					content = response.choices[0].message.content
+					result = content.strip() if content else None
+					if result:
+						print(f"[OpenAI] Успешно получен ответ (длина: {len(result)})")
+					else:
+						print(f"[OpenAI] Пустой ответ от модели")
+					return result
 				else:
-					print(f"[Ollama] Пустой ответ от модели")
-				return result
-			else:
-				print(f"[Ollama] Ошибка HTTP {resp.status_code}: {resp.text}")
+					print(f"[OpenAI] Пустой ответ от API")
+					return None
+					
+			except RateLimitError as e:
+				# Обработка rate limit ошибок
+				retry_after = getattr(e, 'retry_after', None)
+				if retry_after:
+					wait_time = float(retry_after)
+				else:
+					# Exponential backoff: 1s, 2s, 4s
+					wait_time = base_delay * (2 ** attempt)
+				
+				if attempt < max_retries - 1:
+					print(f"[OpenAI] Rate limit превышен. Ожидание {wait_time:.1f} секунд перед повтором...")
+					time.sleep(wait_time)
+				else:
+					print(f"[OpenAI] Rate limit превышен после {max_retries} попыток. Лимиты: 3 RPM, 60,000 TPM для gpt-4o-mini")
+					return "Извините, превышен лимит запросов к OpenAI API. Пожалуйста, подождите немного и попробуйте снова. Лимиты: 3 запроса в минуту, 60,000 токенов в минуту."
+					
+			except APIConnectionError as e:
+				# Ошибки подключения
+				if attempt < max_retries - 1:
+					wait_time = base_delay * (2 ** attempt)
+					print(f"[OpenAI] Ошибка подключения. Повтор через {wait_time:.1f} секунд...")
+					time.sleep(wait_time)
+				else:
+					print(f"[OpenAI] Ошибка подключения после {max_retries} попыток: {e}")
+					return None
+					
+			except APIError as e:
+				# Другие ошибки API
+				error_code = getattr(e, 'code', None)
+				if error_code == 'insufficient_quota':
+					print(f"[OpenAI] Недостаточно средств на счету. Проверьте баланс на https://platform.openai.com/account/usage")
+					return "Извините, недостаточно средств на счету OpenAI. Пожалуйста, пополните баланс."
+				else:
+					print(f"[OpenAI] Ошибка API: {type(e).__name__}: {e}")
+					if attempt < max_retries - 1:
+						wait_time = base_delay * (2 ** attempt)
+						time.sleep(wait_time)
+					else:
+						return None
+						
+			except Exception as e:
+				print(f"[OpenAI] Неожиданная ошибка: {type(e).__name__}: {e}")
+				import traceback
+				traceback.print_exc()
 				return None
-		except requests.exceptions.ConnectionError as e:
-			# Ollama не запущен
-			print(f"[Ollama] Ошибка подключения: {e}")
-			return None
-		except Exception as e:
-			print(f"[Ollama] Ошибка: {type(e).__name__}: {e}")
-			import traceback
-			traceback.print_exc()
-			return None
+		
+		return None
 
 	def _generate_hf_api(self, prompt: str, max_new_tokens: int = 256) -> Optional[str]:
 		"""Генерация через Hugging Face API"""
@@ -224,16 +285,16 @@ class AssistantService:
 			return None
 
 	def _generate(self, prompt: str, max_new_tokens: int = 256, messages: Optional[List[Dict[str, str]]] = None) -> str:
-		# Пробуем Ollama первым (локальная нейросеть)
-		ollama_text = None
-		if self.provider == "ollama":
-			ollama_text = self._generate_ollama(prompt, messages, max_new_tokens)
-			if ollama_text:
-				return ollama_text
-			# Fallback на другие провайдеры если Ollama недоступна
-			print("Ollama недоступна, пробуем другие провайдеры...")
+		# Пробуем OpenAI первым
+		openai_text = None
+		if self.provider == "openai":
+			openai_text = self._generate_openai(prompt, messages, max_new_tokens)
+			if openai_text:
+				return openai_text
+			# Fallback на другие провайдеры если OpenAI недоступна
+			print("OpenAI недоступна, пробуем другие провайдеры...")
 		
-		if self.provider == "hf_api" or (self.provider == "ollama" and not ollama_text):
+		if self.provider == "hf_api" or (self.provider == "openai" and not openai_text):
 			api_text = self._generate_hf_api(prompt, max_new_tokens)
 			if api_text:
 				return api_text
@@ -249,7 +310,7 @@ class AssistantService:
 			except Exception:
 				pass
 		
-		return "Извините, модель временно недоступна. Убедитесь, что Ollama запущена (ollama serve) или проверьте настройки провайдера."
+		return "Извините, модель временно недоступна. Убедитесь, что OPENAI_API_KEY установлен в .env файле или проверьте настройки провайдера."
 
 	def _get_homeworks_context(self, user_id: str) -> str:
 		"""Краткий контекст по активным ДЗ ученика (из БД, если доступно)."""
@@ -318,8 +379,8 @@ class AssistantService:
 		base_system = system_prompt or "Ты дружелюбный образовательный ассистент. Помогай ученику учиться, объясняй понятно и поддерживай."
 		base_system = base_system + name_text
 		
-		# Для Ollama используем формат с системным сообщением
-		if self.provider == "ollama":
+		# Для OpenAI используем формат с системным сообщением
+		if self.provider == "openai":
 			# Добавляем системное сообщение в начало
 			formatted_messages = [{"role": "system", "content": f"{base_system}{personality_context}"}]
 			# Добавляем последние сообщения из истории

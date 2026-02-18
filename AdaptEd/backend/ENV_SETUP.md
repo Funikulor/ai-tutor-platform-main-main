@@ -22,45 +22,46 @@ DATABASE_URL=postgresql://username:password@localhost:5432/database_name
 DATABASE_URL=mysql://username:password@localhost:3306/database_name
 ```
 
-### 2. Настройки Ollama
+### 2. Настройки OpenAI
 
 ```env
-ASSISTANT_PROVIDER=ollama
-OLLAMA_URL=http://localhost:11434
-OLLAMA_MODEL=llama3.2
+ASSISTANT_PROVIDER=openai
+OPENAI_API_KEY=your_api_key_here
+OPENAI_MODEL=gpt-4o-mini
 ```
 
 **Важно:** 
-- `OLLAMA_URL` должен указывать на адрес, где запущен Ollama сервер
-- `OLLAMA_MODEL` должна быть установлена в вашей системе Ollama
+- `OPENAI_API_KEY` - ваш API ключ от OpenAI (получить можно на https://platform.openai.com/api-keys)
+- `OPENAI_MODEL` - модель OpenAI для использования
 
-## Проверка работы Ollama
+**Рекомендации по выбору модели (для бесплатного тарифа с $5/месяц):**
+- **gpt-4o-mini** (рекомендуется) - лучший баланс цены и качества:
+  - 60,000 токенов в минуту (TPM)
+  - 3 запроса в минуту (RPM)
+  - 200 запросов в день (RPD)
+  - 200,000 токенов в день (TPD)
+- **gpt-3.5-turbo** - самый дешевый вариант:
+  - 40,000 TPM, 3 RPM, 200 RPD, 200,000 TPD
+- **gpt-4o** - более качественные ответы, но дороже:
+  - 10,000 TPM, 3 RPM, 200 RPD, 90,000 TPD
 
-### 1. Проверьте, что Ollama запущен:
-```bash
-ollama list
-```
+## Получение API ключа OpenAI
 
-### 2. Проверьте, что модель установлена:
-```bash
-ollama list
-```
-Должна быть видна ваша модель (например, `llama3.2`)
+1. Перейдите на https://platform.openai.com/api-keys
+2. Войдите в свой аккаунт или создайте новый
+3. Нажмите "Create new secret key"
+4. Скопируйте ключ и добавьте его в `.env` файл
 
-### 3. Если модель не установлена, установите её:
-```bash
-ollama pull llama3.2
-```
+## Проверка работы OpenAI
 
-### 4. Проверьте доступность API:
-```bash
-curl http://localhost:11434/api/tags
-```
+### 1. Убедитесь, что API ключ установлен:
+Проверьте, что в `.env` файле есть строка `OPENAI_API_KEY=sk-...`
 
-### 5. Протестируйте модель:
-```bash
-ollama run llama3.2 "Привет!"
-```
+### 2. Проверьте баланс аккаунта:
+Перейдите на https://platform.openai.com/account/usage и убедитесь, что у вас есть доступные средства
+
+### 3. Протестируйте подключение:
+Запустите backend и проверьте логи - должно быть сообщение `[OpenAI] Успешно получен ответ`
 
 ## Пример полного .env файла
 
@@ -68,19 +69,19 @@ ollama run llama3.2 "Привет!"
 # База данных
 DATABASE_URL=sqlite:///./adapted.db
 
-# Ollama настройки
-ASSISTANT_PROVIDER=ollama
-OLLAMA_URL=http://localhost:11434
-OLLAMA_MODEL=llama3.2
+# OpenAI настройки (рекомендуется gpt-4o-mini для бесплатного тарифа)
+
 ```
 
 ## Решение проблем
 
-### Ollama не работает:
-1. Убедитесь, что Ollama запущен: `ollama serve` или проверьте службу Windows
-2. Проверьте, что модель установлена: `ollama list`
-3. Проверьте URL в .env - должен быть `http://localhost:11434`
-4. Проверьте имя модели - должно совпадать с установленной моделью
+### OpenAI не работает:
+1. Убедитесь, что `OPENAI_API_KEY` установлен в `.env` файле
+2. Проверьте, что API ключ действителен на https://platform.openai.com/api-keys
+3. Проверьте баланс аккаунта на https://platform.openai.com/account/usage
+4. Убедитесь, что модель указана правильно (рекомендуется: `gpt-4o-mini` для бесплатного тарифа)
+5. Проверьте интернет-соединение - OpenAI требует подключения к интернету
+6. При превышении rate limits система автоматически повторит запрос с задержкой (3 попытки)
 
 ### База данных не работает:
 1. Проверьте формат DATABASE_URL

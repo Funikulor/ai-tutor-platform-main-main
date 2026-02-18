@@ -14,7 +14,7 @@ const api = axios.create({
   headers: {
     'Content-Type': 'application/json',
   },
-  timeout: 120000,
+  timeout: 120000, // 120 секунд таймаут (для OpenAI может потребоваться больше времени)
 });
 
 api.interceptors.request.use((config) => {

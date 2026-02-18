@@ -141,7 +141,7 @@ export function AIChatPanel({ isMinimized = false, onToggleMinimize, fullscreen 
         user_id: localStorage.getItem('user_id') || null,
         user_name: userName,
       }, {
-        timeout: 120000, // 120 секунд для Ollama
+        timeout: 120000, // 120 секунд для OpenAI
       });
 
       const aiResponseText = response.data.message || 'Извините, не удалось получить ответ.';
@@ -161,7 +161,7 @@ export function AIChatPanel({ isMinimized = false, onToggleMinimize, fullscreen 
       console.error('Chat error:', error);
       const errorMessage: Message = {
         id: messages.length + 2,
-        text: error.response?.data?.detail || 'Произошла ошибка при отправке сообщения. Убедитесь, что backend запущен и Ollama работает.',
+        text: error.response?.data?.detail || 'Произошла ошибка при отправке сообщения. Убедитесь, что backend запущен и OPENAI_API_KEY установлен в .env файле.',
         sender: 'ai',
         timestamp: new Date(),
         emotion: 'thinking'

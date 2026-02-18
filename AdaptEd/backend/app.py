@@ -8,13 +8,18 @@ try:
 	import os
 	env_path = os.path.join(os.path.dirname(__file__), '.env')
 	load_dotenv(env_path)
-except Exception:
+	print(f"[App] Загружен .env из: {env_path}")
+	print(f"[App] ASSISTANT_PROVIDER={os.getenv('ASSISTANT_PROVIDER', 'не установлен')}")
+	print(f"[App] OPENAI_MODEL={os.getenv('OPENAI_MODEL', 'не установлен')}")
+	print(f"[App] OPENAI_API_KEY={'установлен' if os.getenv('OPENAI_API_KEY') else 'не установлен'}")
+except Exception as e:
+	print(f"[App] Ошибка загрузки .env: {e}")
 	def load_dotenv():
 		return None
 
-# Инициализируем БД ПОСЛЕ загрузки .env
 from utils.db import init_db
-init_db()  # Создает таблицы только если их нет
+
+init_db()
 
 # Инициализируем assistant_service после инициализации БД
 try:
@@ -45,6 +50,17 @@ app.include_router(tests.router, tags=["Tests"])
 @app.get("/")
 def read_root():
     return {"message": "Welcome to the AdaptEd API!"}
+
+@app.get("/debug")
+def debug_storage():
+    """Отладочный endpoint для проверки хранилища"""
+    from utils.persistent_storage import persistent_storage
+    import os
+    return {
+        "users_count": len(persistent_storage.get("users", {})),
+        "users": persistent_storage.get("users", {}),
+        "data_file_exists": os.path.exists("data.json")
+    }
 
 @app.on_event("shutdown")
 async def shutdown_event():
