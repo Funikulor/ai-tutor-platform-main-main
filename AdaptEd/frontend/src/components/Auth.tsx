@@ -30,22 +30,51 @@ export function Auth({ onSuccess }: AuthProps) {
   const checkBackend = useCallback(async () => {
     setBackendStatus('checking');
     try {
+      // Логируем для отладки
+      const baseURL = (api.defaults.baseURL || '') as string;
+      console.log('Checking backend at:', baseURL || '/');
+      
       // Проверяем доступность backend через корневой endpoint
-      const response = await api.get('/', { timeout: 10000 });
+      const response = await api.get('/', { timeout: 15000 });
       if (response.status === 200 && response.data) {
+        console.log('✅ Backend is online:', response.data);
         setBackendStatus('online');
       } else {
+        console.warn('⚠️ Backend responded but status is not 200:', response.status);
         setBackendStatus('offline');
       }
     } catch (error: any) {
-      // В production не показываем ошибку сразу - может быть холодный старт Neon
-      if (import.meta.env.PROD && error?.code === 'ETIMEDOUT') {
-        // Даем еще одну попытку для холодного старта
+      const baseURL = (api.defaults.baseURL || '') as string;
+      const fullURL = baseURL + '/';
+      
+      console.error('❌ Backend check failed:', {
+        error: error.message,
+        code: error.code,
+        status: error.response?.status,
+        url: error.config?.url,
+        baseURL: baseURL,
+        fullURL: fullURL,
+        env: {
+          VITE_API_URL: import.meta.env.VITE_API_URL,
+          PROD: import.meta.env.PROD
+        }
+      });
+      
+      // В production может быть холодный старт Railway или Neon
+      if (import.meta.env.PROD && (error?.code === 'ETIMEDOUT' || error?.code === 'ECONNREFUSED' || error?.code === 'ERR_NETWORK')) {
+        console.log('⏳ Retrying backend check in 3 seconds...');
+        // Даем еще одну попытку через 3 секунды
         setTimeout(() => {
-          api.get('/', { timeout: 10000 })
-            .then(() => setBackendStatus('online'))
-            .catch(() => setBackendStatus('offline'));
-        }, 2000);
+          api.get('/', { timeout: 15000 })
+            .then(() => {
+              console.log('✅ Backend is online (after retry)');
+              setBackendStatus('online');
+            })
+            .catch(() => {
+              console.error('❌ Backend is still offline after retry');
+              setBackendStatus('offline');
+            });
+        }, 3000);
       } else {
         setBackendStatus('offline');
       }
@@ -66,7 +95,7 @@ export function Auth({ onSuccess }: AuthProps) {
 
     if (err?.code === 'ERR_NETWORK' || err?.message?.includes('Network Error') || err?.code === 'ECONNREFUSED') {
       if (import.meta.env.PROD) {
-        return '❌ Ошибка подключения к серверу!\n\nПроверьте:\n1. Netlify Function "api" работает\n2. Переменная DATABASE_URL установлена в Netlify\n3. Проверьте логи функции в Netlify Dashboard';
+        return '❌ Ошибка подключения к серверу!\n\nПроверьте:\n1. Backend запущен на Railway\n2. VITE_API_URL установлен правильно (с https://)\n3. Backend доступен по URL из VITE_API_URL\n4. Проверьте логи backend в Railway Dashboard';
       }
       return '❌ Ошибка подключения к серверу!\n\nУбедитесь, что бэкенд запущен:\n1. Откройте новое окно терминала\n2. Перейдите в папку AdaptEd/backend\n3. Запустите: uvicorn app:app --reload --port 8000\n\nИли используйте: start_backend.bat';
     }
@@ -142,7 +171,7 @@ export function Auth({ onSuccess }: AuthProps) {
                 </p>
                 <p className="text-xs text-red-700 mb-2">
                   {import.meta.env.PROD 
-                    ? 'Backend API недоступен. Проверьте настройки Netlify Functions.'
+                    ? 'Backend API недоступен. Проверьте, что backend запущен на Railway и VITE_API_URL установлен правильно.'
                     : 'Запустите бэкенд на порту 8000 перед входом в систему.'}
                 </p>
                 <button
