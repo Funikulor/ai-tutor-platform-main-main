@@ -1,5 +1,5 @@
 [build]
-  # Базовая директория для сборки
+  # Базовая директория для сборки frontend
   base = "AdaptEd/frontend"
   
   # Команда сборки frontend
@@ -14,7 +14,9 @@
   # Версия Python для backend functions
   PYTHON_VERSION = "3.11"
 
-# Указываем, где находятся функции (относительно корня репозитория)
+# Указываем, где находятся функции
+# ВАЖНО: путь всегда относительно КОРНЯ репозитория, не base!
+# Netlify автоматически найдет функции в netlify/functions/
 [functions]
   directory = "netlify/functions"
 
