@@ -19,6 +19,8 @@ except Exception:
 	APIError = None
 	APIConnectionError = None
 
+# PROXYAPI использует requests (уже импортирован)
+
 from utils.persistent_storage import persistent_storage
 from utils.batched_saver import get_personality_batcher
 import requests
@@ -30,11 +32,14 @@ class AssistantService:
 	"""AI Assistant wrapper with provider selection: hf_api or local pipeline."""
 
 	def __init__(self, model_name: str = None):
-		self.provider = os.getenv("ASSISTANT_PROVIDER", "openai")  # openai | hf_api | local
+		self.provider = os.getenv("ASSISTANT_PROVIDER", "openai")  # openai | proxyapi | hf_api | local
 		self.hf_model = os.getenv("HF_MODEL", model_name or "microsoft/DialoGPT-medium")
 		self.hf_token = os.getenv("HF_API_TOKEN", "")
 		self.openai_api_key = os.getenv("OPENAI_API_KEY", "")
 		self.openai_model = os.getenv("OPENAI_MODEL", "gpt-4o-mini")  # gpt-4o-mini (рекомендуется), gpt-3.5-turbo, gpt-4o, etc.
+		self.proxyapi_key = os.getenv("PROXYAPI_KEY", "")
+		self.proxyapi_url = os.getenv("PROXYAPI_URL", "https://api.proxyapi.ru/openai/v1/chat/completions")  # URL для PROXYAPI
+		self.proxyapi_model = os.getenv("PROXYAPI_MODEL", "gpt-4o-mini")  # Модель для PROXYAPI
 		self._openai_client = None
 		if openai_available and self.openai_api_key:
 			try:
@@ -52,6 +57,9 @@ class AssistantService:
 		print(f"[AssistantService] Провайдер: {self.provider}")
 		print(f"[AssistantService] OpenAI модель: {self.openai_model}")
 		print(f"[AssistantService] OpenAI API ключ: {'установлен' if self.openai_api_key else 'не установлен'}")
+		print(f"[AssistantService] PROXYAPI URL: {self.proxyapi_url}")
+		print(f"[AssistantService] PROXYAPI модель: {self.proxyapi_model}")
+		print(f"[AssistantService] PROXYAPI ключ: {'установлен' if self.proxyapi_key else 'не установлен'}")
 	
 	def _load_personality_profiles(self):
 		"""Загружает профили личности из persistent_storage"""
@@ -244,6 +252,129 @@ class AssistantService:
 		
 		return None
 
+	def _generate_proxyapi(self, prompt: str, messages: Optional[List[Dict[str, str]]] = None, max_new_tokens: int = 512) -> Optional[str]:
+		"""
+		Генерация через PROXYAPI (совместим с OpenAI форматом)
+		
+		PROXYAPI предоставляет доступ к различным AI моделям через единый API
+		"""
+		if not self.proxyapi_key:
+			print(f"[PROXYAPI] PROXYAPI ключ не установлен")
+			return None
+		
+		# Формируем сообщения для PROXYAPI (совместим с OpenAI форматом)
+		proxyapi_messages = []
+		if messages:
+			# Конвертируем формат сообщений для PROXYAPI
+			for msg in messages:
+				role = msg.get("role", "user")
+				content = msg.get("content", "")
+				if role in ["user", "assistant", "system"]:
+					proxyapi_messages.append({"role": role, "content": content})
+		else:
+			# Если нет истории, используем prompt как user сообщение
+			proxyapi_messages = [{"role": "user", "content": prompt}]
+		
+		# Retry логика для обработки rate limits
+		max_retries = 3
+		base_delay = 1  # секунда
+		
+		for attempt in range(max_retries):
+			try:
+				print(f"[PROXYAPI] Отправка запроса, модель: {self.proxyapi_model} (попытка {attempt + 1}/{max_retries})")
+				
+				headers = {
+					"Authorization": f"Bearer {self.proxyapi_key}",
+					"Content-Type": "application/json"
+				}
+				
+				payload = {
+					"model": self.proxyapi_model,
+					"messages": proxyapi_messages,
+					"temperature": 0.7,
+					"max_tokens": max_new_tokens
+				}
+				
+				response = requests.post(
+					self.proxyapi_url,
+					headers=headers,
+					json=payload,
+					timeout=60
+				)
+				
+				if response.status_code == 200:
+					data = response.json()
+					if data and "choices" in data and len(data["choices"]) > 0:
+						content = data["choices"][0].get("message", {}).get("content", "")
+						result = content.strip() if content else None
+						
+						if result:
+							print(f"[PROXYAPI] Успешно получен ответ (длина: {len(result)})")
+							return result
+						else:
+							print(f"[PROXYAPI] Пустой ответ от модели")
+					else:
+						print(f"[PROXYAPI] Неожиданный формат ответа: {data}")
+				else:
+					error_msg = response.text
+					print(f"[PROXYAPI] Ошибка HTTP {response.status_code}: {error_msg}")
+					
+					# Обработка rate limits
+					if response.status_code == 429:
+						wait_time = base_delay * (2 ** attempt)
+						print(f"[PROXYAPI] Rate limit превышен. Ожидание {wait_time:.1f} секунд перед повтором...")
+						if attempt < max_retries - 1:
+							time.sleep(wait_time)
+							continue
+						else:
+							print(f"[PROXYAPI] Rate limit превышен после {max_retries} попыток")
+							return "Извините, превышен лимит запросов к PROXYAPI. Пожалуйста, подождите немного и попробуйте снова."
+					
+					# Обработка ошибок аутентификации
+					elif response.status_code in [401, 403]:
+						print(f"[PROXYAPI] Ошибка аутентификации. Проверьте PROXYAPI_KEY")
+						return "Извините, ошибка аутентификации PROXYAPI. Проверьте настройки API ключа."
+					
+					# Другие ошибки
+					else:
+						if attempt < max_retries - 1:
+							wait_time = base_delay * (2 ** attempt)
+							time.sleep(wait_time)
+							continue
+						else:
+							return None
+						
+			except requests.exceptions.Timeout:
+				wait_time = base_delay * (2 ** attempt)
+				print(f"[PROXYAPI] Timeout. Повтор через {wait_time:.1f} секунд...")
+				if attempt < max_retries - 1:
+					time.sleep(wait_time)
+					continue
+				else:
+					print(f"[PROXYAPI] Timeout после {max_retries} попыток")
+					return None
+					
+			except requests.exceptions.ConnectionError as e:
+				wait_time = base_delay * (2 ** attempt)
+				print(f"[PROXYAPI] Ошибка подключения. Повтор через {wait_time:.1f} секунд...")
+				if attempt < max_retries - 1:
+					time.sleep(wait_time)
+					continue
+				else:
+					print(f"[PROXYAPI] Ошибка подключения после {max_retries} попыток: {e}")
+					return None
+					
+			except Exception as e:
+				error_type = type(e).__name__
+				print(f"[PROXYAPI] Ошибка: {error_type}: {e}")
+				if attempt < max_retries - 1:
+					wait_time = base_delay * (2 ** attempt)
+					time.sleep(wait_time)
+				else:
+					return None
+		
+		return None
+
 	def _generate_hf_api(self, prompt: str, max_new_tokens: int = 256) -> Optional[str]:
 		"""Генерация через Hugging Face API"""
 		# Пробуем с токеном, если нет - используем публичный API
@@ -285,7 +416,16 @@ class AssistantService:
 			return None
 
 	def _generate(self, prompt: str, max_new_tokens: int = 256, messages: Optional[List[Dict[str, str]]] = None) -> str:
-		# Пробуем OpenAI первым
+		# Пробуем PROXYAPI первым, если выбран
+		proxyapi_text = None
+		if self.provider == "proxyapi":
+			proxyapi_text = self._generate_proxyapi(prompt, messages, max_new_tokens)
+			if proxyapi_text:
+				return proxyapi_text
+			# Fallback на другие провайдеры если PROXYAPI недоступна
+			print("PROXYAPI недоступна, пробуем другие провайдеры...")
+		
+		# Пробуем OpenAI
 		openai_text = None
 		if self.provider == "openai":
 			openai_text = self._generate_openai(prompt, messages, max_new_tokens)
@@ -294,7 +434,19 @@ class AssistantService:
 			# Fallback на другие провайдеры если OpenAI недоступна
 			print("OpenAI недоступна, пробуем другие провайдеры...")
 		
-		if self.provider == "hf_api" or (self.provider == "openai" and not openai_text):
+		# Fallback на PROXYAPI, если OpenAI была выбрана но не работает
+		if self.provider == "openai" and not openai_text and self.proxyapi_key:
+			proxyapi_text = self._generate_proxyapi(prompt, messages, max_new_tokens)
+			if proxyapi_text:
+				return proxyapi_text
+		
+		# Fallback на OpenAI, если PROXYAPI была выбрана но не работает
+		if self.provider == "proxyapi" and not proxyapi_text and openai_available and self.openai_api_key:
+			openai_text = self._generate_openai(prompt, messages, max_new_tokens)
+			if openai_text:
+				return openai_text
+		
+		if self.provider == "hf_api" or ((self.provider == "openai" or self.provider == "proxyapi") and not openai_text and not proxyapi_text):
 			api_text = self._generate_hf_api(prompt, max_new_tokens)
 			if api_text:
 				return api_text
@@ -310,7 +462,7 @@ class AssistantService:
 			except Exception:
 				pass
 		
-		return "Извините, модель временно недоступна. Убедитесь, что OPENAI_API_KEY установлен в .env файле или проверьте настройки провайдера."
+		return "Извините, модель временно недоступна. Убедитесь, что API ключ установлен в .env файле (OPENAI_API_KEY или PROXYAPI_KEY) или проверьте настройки провайдера."
 
 	def _get_homeworks_context(self, user_id: str) -> str:
 		"""Краткий контекст по активным ДЗ ученика (из БД, если доступно)."""

@@ -2,8 +2,14 @@ import axios from 'axios';
 
 // Для production используем VITE_API_URL из переменных окружения
 // Для разработки - localhost
+// ВАЖНО: VITE_API_URL должен быть установлен в Railway Variables для frontend!
 export const API_BASE_URL = import.meta.env.VITE_API_URL || 
-  (import.meta.env.PROD ? 'https://adapted-backend.onrender.com' : 'http://localhost:8000');
+  (import.meta.env.PROD ? '' : 'http://localhost:8000'); // В production без VITE_API_URL будет ошибка
+
+// Логируем для отладки
+if (import.meta.env.PROD && !import.meta.env.VITE_API_URL) {
+  console.error('⚠️ VITE_API_URL не установлен! Установите его в Railway Variables для frontend.');
+}
 export const clearAuthStorage = () => {
   localStorage.removeItem('token');
   localStorage.removeItem('user_id');
@@ -27,13 +33,19 @@ api.interceptors.request.use((config) => {
     config.headers.Authorization = `Bearer ${token}`;
   }
   
-  // Логируем запросы для отладки (только в development или при ошибках)
-  if (import.meta.env.DEV || config.url?.includes('/auth/')) {
+  // Логируем запросы для отладки (особенно для auth)
+  if (config.url?.includes('/auth/')) {
     console.log('API Request:', {
       method: config.method?.toUpperCase(),
       url: `${API_BASE_URL}${config.url}`,
       baseURL: API_BASE_URL,
-      path: config.url
+      path: config.url,
+      fullUrl: `${API_BASE_URL}${config.url}`,
+      env: {
+        VITE_API_URL: import.meta.env.VITE_API_URL,
+        PROD: import.meta.env.PROD,
+        MODE: import.meta.env.MODE
+      }
     });
   }
   
