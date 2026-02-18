@@ -59,6 +59,7 @@ def init_db():
 		from models.document import Document  # noqa: F401
 		from models.homework import Homework, HomeworkSubmission  # noqa: F401
 		from models.test import Test, TestQuestion, TestSubmission  # noqa: F401
+		from models.user_db import User  # noqa: F401
 		Base.metadata.create_all(bind=_engine)
 	except Exception:
 		# Silently skip DB init if models import fails
