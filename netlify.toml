@@ -1,12 +1,9 @@
 [build]
-  # Базовая директория для сборки
-  base = "AdaptEd/frontend"
-  
   # Команда сборки frontend
-  command = "npm install && npm run build"
+  command = "cd AdaptEd/frontend && npm install && npm run build"
   
-  # Директория с собранными файлами (относительно base)
-  publish = "build"
+  # Директория с собранными файлами
+  publish = "AdaptEd/frontend/build"
 
 [build.environment]
   # Версия Node.js для frontend
@@ -17,9 +14,8 @@
 # Проксирование API запросов к Netlify Functions (должно быть ПЕРЕД SPA редиректом)
 [[redirects]]
   from = "/api/*"
-  to = "/.netlify/functions/api/:splat"
+  to = "/.netlify/functions/api"
   status = 200
-  force = true
 
 # Редирект для SPA (React Router) - должен быть последним
 [[redirects]]
