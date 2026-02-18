@@ -26,6 +26,17 @@ api.interceptors.request.use((config) => {
     config.headers = config.headers ?? {};
     config.headers.Authorization = `Bearer ${token}`;
   }
+  
+  // Логируем запросы для отладки (только в development или при ошибках)
+  if (import.meta.env.DEV || config.url?.includes('/auth/')) {
+    console.log('API Request:', {
+      method: config.method?.toUpperCase(),
+      url: `${API_BASE_URL}${config.url}`,
+      baseURL: API_BASE_URL,
+      path: config.url
+    });
+  }
+  
   return config;
 });
 
@@ -35,6 +46,19 @@ api.interceptors.response.use(
     const status = error.response?.status;
     const requestUrl = error.config?.url as string | undefined;
     const isLoginOrRegister = !!requestUrl && /\/auth\/(login|register)\b/.test(requestUrl);
+    const method = error.config?.method?.toUpperCase();
+    const fullUrl = error.config?.url ? `${API_BASE_URL}${error.config.url}` : 'unknown';
+
+    // Логируем ошибки для отладки
+    if (status === 405) {
+      console.error('405 Method Not Allowed:', {
+        method,
+        url: fullUrl,
+        requestUrl,
+        baseURL: API_BASE_URL,
+        error: error.message
+      });
+    }
 
     if (status === 401 && !isLoginOrRegister) {
       clearAuthStorage();

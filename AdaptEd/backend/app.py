@@ -28,7 +28,7 @@ try:
 except Exception:
 	pass
 
-app = FastAPI()
+app = FastAPI(redirect_slashes=False)  # Отключаем автоматический редирект слэшей
 
 app.add_middleware(
     CORSMiddleware,

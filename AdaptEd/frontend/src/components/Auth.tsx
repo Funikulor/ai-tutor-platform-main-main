@@ -76,6 +76,9 @@ export function Auth({ onSuccess }: AuthProps) {
     if (mode === 'login' && err?.response?.status === 401) {
       return 'Неверный email или пароль. Проверьте данные и попробуйте снова.';
     }
+    if (err?.response?.status === 405) {
+      return 'Ошибка 405: Метод не разрешен. Проверьте, что backend правильно настроен и URL правильный.';
+    }
     if (err?.response?.data?.detail) {
       return err.response.data.detail;
     }
