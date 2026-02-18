@@ -22,10 +22,8 @@ services:
     healthCheckPath: /
 
   # Frontend (React + Vite) - опционально, если хотите деплоить и frontend на Render
-  - type: web
+  - type: static
     name: adapted-frontend
-    env: static
-    region: frankfurt
     plan: free
     buildCommand: cd AdaptEd/frontend && npm install && npm run build
     staticPublishPath: AdaptEd/frontend/build
