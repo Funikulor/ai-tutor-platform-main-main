@@ -3,8 +3,8 @@ services:
   - type: web
     name: adapted-backend
     env: python
-    region: frankfurt  # или другой регион, ближайший к вам
-    plan: free  # или starter, standard и т.д.
+    region: frankfurt
+    plan: free
     buildCommand: pip install -r AdaptEd/backend/requirements.txt
     startCommand: cd AdaptEd/backend && uvicorn app:app --host 0.0.0.0 --port $PORT
     rootDir: AdaptEd/backend
@@ -20,21 +20,6 @@ services:
       - key: OPENAI_MODEL
         value: gpt-4o-mini
     healthCheckPath: /
-
-  # Frontend (React + Vite) - опционально, если хотите деплоить и frontend на Render
-  - type: static
-    name: adapted-frontend
-    plan: free
-    buildCommand: cd AdaptEd/frontend && npm install && npm run build
-    staticPublishPath: AdaptEd/frontend/build
-    rootDir: AdaptEd/frontend
-    envVars:
-      - key: VITE_API_URL
-        value: https://adapted-backend.onrender.com/api
-    routes:
-      - type: rewrite
-        source: /*
-        destination: /index.html
 
 # Если используете PostgreSQL на Render
 # databases:
