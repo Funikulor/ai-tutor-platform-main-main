@@ -30,10 +30,25 @@ export function Auth({ onSuccess }: AuthProps) {
   const checkBackend = useCallback(async () => {
     setBackendStatus('checking');
     try {
-      const response = await api.get('/', { timeout: 5000 });
-      setBackendStatus(response.status === 200 ? 'online' : 'offline');
-    } catch {
-      setBackendStatus('offline');
+      // Проверяем доступность backend через корневой endpoint
+      const response = await api.get('/', { timeout: 10000 });
+      if (response.status === 200 && response.data) {
+        setBackendStatus('online');
+      } else {
+        setBackendStatus('offline');
+      }
+    } catch (error: any) {
+      // В production не показываем ошибку сразу - может быть холодный старт Neon
+      if (import.meta.env.PROD && error?.code === 'ETIMEDOUT') {
+        // Даем еще одну попытку для холодного старта
+        setTimeout(() => {
+          api.get('/', { timeout: 10000 })
+            .then(() => setBackendStatus('online'))
+            .catch(() => setBackendStatus('offline'));
+        }, 2000);
+      } else {
+        setBackendStatus('offline');
+      }
     }
   }, []);
 
@@ -50,6 +65,9 @@ export function Auth({ onSuccess }: AuthProps) {
         : 'Ошибка регистрации. Проверьте данные.';
 
     if (err?.code === 'ERR_NETWORK' || err?.message?.includes('Network Error') || err?.code === 'ECONNREFUSED') {
+      if (import.meta.env.PROD) {
+        return '❌ Ошибка подключения к серверу!\n\nПроверьте:\n1. Netlify Function "api" работает\n2. Переменная DATABASE_URL установлена в Netlify\n3. Проверьте логи функции в Netlify Dashboard';
+      }
       return '❌ Ошибка подключения к серверу!\n\nУбедитесь, что бэкенд запущен:\n1. Откройте новое окно терминала\n2. Перейдите в папку AdaptEd/backend\n3. Запустите: uvicorn app:app --reload --port 8000\n\nИли используйте: start_backend.bat';
     }
     if (err?.code === 'ETIMEDOUT' || err?.message?.includes('timeout')) {
@@ -120,7 +138,9 @@ export function Auth({ onSuccess }: AuthProps) {
                   Бэкенд не доступен
                 </p>
                 <p className="text-xs text-red-700 mb-2">
-                  Запустите бэкенд на порту 8000 перед входом в систему.
+                  {import.meta.env.PROD 
+                    ? 'Backend API недоступен. Проверьте настройки Netlify Functions.'
+                    : 'Запустите бэкенд на порту 8000 перед входом в систему.'}
                 </p>
                 <button
                   onClick={checkBackend}
