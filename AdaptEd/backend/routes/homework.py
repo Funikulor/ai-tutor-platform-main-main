@@ -39,29 +39,6 @@ class HomeworkSubmissionPayload(BaseModel):
     topic: Optional[str] = None
 
 
-class TestGenerationRequest(BaseModel):
-    """Запрос на генерацию теста"""
-    user_id: str
-    topic: str
-    difficulty: Optional[str] = "medium"  # easy, medium, hard
-    question_count: Optional[int] = 5
-
-
-class TestQuestion(BaseModel):
-    """Вопрос теста"""
-    question: str
-    options: List[str]  # Варианты ответов
-    correct_answer: int  # Индекс правильного ответа
-    explanation: Optional[str] = None
-
-
-class TestSubmission(BaseModel):
-    """Сдача теста"""
-    user_id: str
-    test_id: str
-    answers: Dict[int, Any]  # {question_index: answer}
-
-
 # Новые схемы для работы с БД (должны быть определены до использования в эндпоинтах)
 class HomeworkCreate(BaseModel):
     title: str
@@ -248,31 +225,8 @@ async def submit_homework(submission: HomeworkSubmissionPayload):
 
 
 # УДАЛЕН: эндпоинт /tests/generate перенесен в routes/tests.py
-# Используйте эндпоинт из routes/tests.py для генерации тестов
-
-
-@router.post("/tests/submit", response_model=Dict[str, Any])
-async def submit_test(submission: TestSubmission):
-    """
-    Сдача теста с анализом результатов
-    """
-    try:
-        # Здесь должна быть логика получения теста по test_id
-        # Для упрощения считаем что тест уже есть
-        
-        # Анализируем результаты
-        profile = orchestrator.profiler.get_profile(submission.user_id)
-        
-        # Обновляем профиль на основе результатов теста
-        # (в реальности нужно получить вопросы теста)
-        
-        return {
-            "status": "submitted",
-            "score": 0,  # Будет рассчитан на основе ответов
-            "analysis": "Анализ результатов теста"
-        }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+# УДАЛЕН: эндпоинт /tests/submit перенесен в routes/tests.py
+# Используйте эндпоинты из routes/tests.py для работы с тестами
 
 
 @router.get("/statistics/{user_id}", response_model=Dict[str, Any])
@@ -1332,8 +1286,31 @@ async def get_content_structure(db: Session = Depends(get_db)):
                     "sections": sections_list
                 })
         
+        # Проверяем сохраненную структуру контента из админ-панели
+        from utils.persistent_storage import persistent_storage
+        admin_content = persistent_storage.get("admin_content_structure", None)
+        
+        # Если есть админ-контент, используем его как основу и дополняем статистикой
+        if admin_content and len(admin_content) > 0:
+            # Создаем словарь для быстрого поиска статистики по темам
+            topic_stats_dict = {topic: stats for topic, stats in topic_stats.items()}
+            
+            # Обновляем статистику в админ-контенте
+            for admin_subject in admin_content:
+                for admin_section in admin_subject.get('sections', []):
+                    for admin_topic in admin_section.get('topics', []):
+                        topic_name = admin_topic.get('name')
+                        if topic_name in topic_stats_dict:
+                            stats = topic_stats_dict[topic_name]
+                            # Обновляем статистику, сохраняя значения из админ-панели если они больше
+                            admin_topic['tasks'] = max(admin_topic.get('tasks', 0), stats['tasks_count'])
+                            # Обновляем элементы на основе статистики
+                            if stats['materials_count'] > 0:
+                                admin_topic['elements'] = max(admin_topic.get('elements', 0), stats['materials_count'])
+            
+            content_structure = admin_content
         # Если нет данных, возвращаем базовую структуру на основе известных материалов
-        if not content_structure:
+        elif not content_structure:
             content_structure = [
                 {
                     "id": 1,
@@ -1368,28 +1345,583 @@ async def get_content_structure(db: Session = Depends(get_db)):
         }
     except Exception as e:
         print(f"Error in get_content_structure: {e}")
-        import traceback
-        traceback.print_exc()
-        # Возвращаем базовую структуру при ошибке
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ========== ADMIN USER MANAGEMENT ==========
+
+class UserCreateRequest(BaseModel):
+    email: str
+    password: str
+    full_name: str
+    role: str  # student, teacher, admin
+    class_id: Optional[str] = None
+    phone: Optional[str] = None
+
+
+@router.post("/admin/users", response_model=Dict[str, Any])
+async def create_user(user_data: UserCreateRequest, db: Session = Depends(get_db)):
+    """Создать нового пользователя (админ)"""
+    try:
+        from utils.auth_service import auth_service
+        from models.auth import UserRole
+        
+        # Проверяем, существует ли пользователь
+        all_users = auth_service.get_all_users()
+        for user in all_users:
+            if user.get('email') == user_data.email:
+                raise HTTPException(status_code=400, detail="Пользователь с таким email уже существует")
+        
+        # Создаем пользователя
+        role = UserRole(user_data.role) if user_data.role in ['student', 'teacher', 'admin'] else UserRole.STUDENT
+        user = auth_service.register_user(
+            email=user_data.email,
+            password=user_data.password,
+            full_name=user_data.full_name,
+            role=role,
+            class_id=user_data.class_id,
+            phone=user_data.phone
+        )
+        
+        if not user:
+            raise HTTPException(status_code=500, detail="Не удалось создать пользователя")
+        
         return {
-            "structure": [
-                {
-                    "id": 1,
-                    "subject": "Математика",
-                    "sections": [
-                        {
-                            "id": 11,
-                            "name": "Алгебра",
-                            "topics": [
-                                {"id": 111, "name": "Уравнения", "elements": 12, "tasks": 0},
-                                {"id": 112, "name": "Функции", "elements": 8, "tasks": 0}
-                            ]
-                        }
-                    ]
-                }
-            ],
-            "total_subjects": 1,
-            "total_sections": 1,
-            "total_topics": 2
+            "id": user.user_id,
+            "name": user.full_name,
+            "email": user.email,
+            "role": user.role.value,
+            "status": "active" if user.is_active else "inactive"
         }
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Error in create_user: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.put("/admin/users/{user_id}", response_model=Dict[str, Any])
+async def update_admin_user(user_id: str, updates: Dict[str, Any], db: Session = Depends(get_db)):
+    """Обновить данные пользователя (админ)"""
+    try:
+        from utils.auth_service import auth_service
+        from utils.db import get_db as get_db_session
+        from models.user_db import User as UserDB
+        
+        # Пробуем обновить в БД
+        if has_db():
+            db_session = get_db_session()
+            if db_session:
+                try:
+                    user_db = db_session.query(UserDB).filter(UserDB.user_id == user_id).first()
+                    if not user_db:
+                        raise HTTPException(status_code=404, detail="Пользователь не найден")
+                    
+                    if 'full_name' in updates:
+                        user_db.full_name = updates['full_name']
+                    if 'email' in updates:
+                        user_db.email = updates['email']
+                    if 'role' in updates:
+                        user_db.role = updates['role']
+                    if 'class_id' in updates:
+                        user_db.class_id = updates['class_id']
+                    if 'phone' in updates:
+                        user_db.phone = updates['phone']
+                    if 'is_active' in updates:
+                        user_db.is_active = updates['is_active']
+                    
+                    db_session.commit()
+                    
+                    return {
+                        "id": user_db.user_id,
+                        "name": user_db.full_name,
+                        "email": user_db.email,
+                        "role": user_db.role,
+                        "status": "active" if user_db.is_active else "inactive"
+                    }
+                except HTTPException:
+                    raise
+                except Exception as e:
+                    db_session.rollback()
+                    print(f"Error updating user in DB: {e}")
+                finally:
+                    db_session.close()
+        
+        # Fallback на persistent_storage
+        from utils.persistent_storage import persistent_storage
+        users = persistent_storage.get("users", {})
+        if user_id not in users:
+            raise HTTPException(status_code=404, detail="Пользователь не найден")
+        
+        user = users[user_id]
+        for key, value in updates.items():
+            if key in ['full_name', 'email', 'role', 'class_id', 'phone', 'is_active']:
+                user[key] = value
+        
+        persistent_storage.set("users", users)
+        
+        return {
+            "id": user_id,
+            "name": user.get('full_name', ''),
+            "email": user.get('email', ''),
+            "role": user.get('role', 'student'),
+            "status": "active" if user.get('is_active', True) else "inactive"
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Error in update_admin_user: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.delete("/admin/users/{user_id}", response_model=Dict[str, Any])
+async def delete_admin_user(user_id: str, db: Session = Depends(get_db)):
+    """Удалить пользователя (админ)"""
+    try:
+        from utils.db import get_db as get_db_session
+        from models.user_db import User as UserDB
+        
+        # Пробуем удалить из БД
+        if has_db():
+            db_session = get_db_session()
+            if db_session:
+                try:
+                    user_db = db_session.query(UserDB).filter(UserDB.user_id == user_id).first()
+                    if not user_db:
+                        raise HTTPException(status_code=404, detail="Пользователь не найден")
+                    
+                    # Не удаляем, а деактивируем
+                    user_db.is_active = False
+                    db_session.commit()
+                    
+                    return {
+                        "id": user_id,
+                        "message": "Пользователь деактивирован"
+                    }
+                except HTTPException:
+                    raise
+                except Exception as e:
+                    db_session.rollback()
+                    print(f"Error deleting user from DB: {e}")
+                finally:
+                    db_session.close()
+        
+        # Fallback на persistent_storage
+        from utils.persistent_storage import persistent_storage
+        users = persistent_storage.get("users", {})
+        if user_id not in users:
+            raise HTTPException(status_code=404, detail="Пользователь не найден")
+        
+        # Деактивируем вместо удаления
+        users[user_id]['is_active'] = False
+        persistent_storage.set("users", users)
+        
+        return {
+            "id": user_id,
+            "message": "Пользователь деактивирован"
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Error in delete_admin_user: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ========== ADMIN CONTENT MANAGEMENT ==========
+
+class ContentSubjectCreate(BaseModel):
+    subject: str
+
+
+class ContentSectionCreate(BaseModel):
+    subject_id: int
+    name: str
+
+
+class ContentTopicCreate(BaseModel):
+    section_id: int
+    name: str
+
+
+@router.post("/admin/content/subject", response_model=Dict[str, Any])
+async def create_subject(data: ContentSubjectCreate, db: Session = Depends(get_db)):
+    """Создать новый предмет"""
+    try:
+        from utils.persistent_storage import persistent_storage
+        
+        content_structure = persistent_storage.get("admin_content_structure", [])
+        
+        # Генерируем ID
+        max_id = max([s.get('id', 0) for s in content_structure], default=0)
+        new_id = max_id + 1
+        
+        new_subject = {
+            "id": new_id,
+            "subject": data.subject,
+            "sections": []
+        }
+        
+        content_structure.append(new_subject)
+        persistent_storage.set("admin_content_structure", content_structure)
+        
+        return new_subject
+    except Exception as e:
+        print(f"Error in create_subject: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.put("/admin/content/subject/{subject_id}", response_model=Dict[str, Any])
+async def update_subject(subject_id: int, data: Dict[str, Any], db: Session = Depends(get_db)):
+    """Обновить предмет"""
+    try:
+        from utils.persistent_storage import persistent_storage
+        
+        content_structure = persistent_storage.get("admin_content_structure", [])
+        
+        subject = next((s for s in content_structure if s.get('id') == subject_id), None)
+        if not subject:
+            raise HTTPException(status_code=404, detail="Предмет не найден")
+        
+        if 'subject' in data:
+            subject['subject'] = data['subject']
+        
+        persistent_storage.set("admin_content_structure", content_structure)
+        
+        return subject
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Error in update_subject: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.delete("/admin/content/subject/{subject_id}", response_model=Dict[str, Any])
+async def delete_subject(subject_id: int, db: Session = Depends(get_db)):
+    """Удалить предмет"""
+    try:
+        from utils.persistent_storage import persistent_storage
+        
+        content_structure = persistent_storage.get("admin_content_structure", [])
+        
+        subject = next((s for s in content_structure if s.get('id') == subject_id), None)
+        if not subject:
+            raise HTTPException(status_code=404, detail="Предмет не найден")
+        
+        content_structure = [s for s in content_structure if s.get('id') != subject_id]
+        persistent_storage.set("admin_content_structure", content_structure)
+        
+        return {"message": "Предмет удален", "id": subject_id}
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Error in delete_subject: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/admin/content/section", response_model=Dict[str, Any])
+async def create_section(data: ContentSectionCreate, db: Session = Depends(get_db)):
+    """Создать новый раздел"""
+    try:
+        from utils.persistent_storage import persistent_storage
+        
+        content_structure = persistent_storage.get("admin_content_structure", [])
+        
+        subject = next((s for s in content_structure if s.get('id') == data.subject_id), None)
+        if not subject:
+            raise HTTPException(status_code=404, detail="Предмет не найден")
+        
+        # Генерируем ID
+        max_id = max([sec.get('id', 0) for sec in subject.get('sections', [])], default=0)
+        new_id = max(max_id + 1, data.subject_id * 10 + len(subject.get('sections', [])) + 1)
+        
+        new_section = {
+            "id": new_id,
+            "name": data.name,
+            "topics": []
+        }
+        
+        if 'sections' not in subject:
+            subject['sections'] = []
+        subject['sections'].append(new_section)
+        
+        persistent_storage.set("admin_content_structure", content_structure)
+        
+        return new_section
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Error in create_section: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.put("/admin/content/section/{section_id}", response_model=Dict[str, Any])
+async def update_section(section_id: int, data: Dict[str, Any], db: Session = Depends(get_db)):
+    """Обновить раздел"""
+    try:
+        from utils.persistent_storage import persistent_storage
+        
+        content_structure = persistent_storage.get("admin_content_structure", [])
+        
+        section = None
+        for subject in content_structure:
+            for sec in subject.get('sections', []):
+                if sec.get('id') == section_id:
+                    section = sec
+                    break
+            if section:
+                break
+        
+        if not section:
+            raise HTTPException(status_code=404, detail="Раздел не найден")
+        
+        if 'name' in data:
+            section['name'] = data['name']
+        
+        persistent_storage.set("admin_content_structure", content_structure)
+        
+        return section
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Error in update_section: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.delete("/admin/content/section/{section_id}", response_model=Dict[str, Any])
+async def delete_section(section_id: int, db: Session = Depends(get_db)):
+    """Удалить раздел"""
+    try:
+        from utils.persistent_storage import persistent_storage
+        
+        content_structure = persistent_storage.get("admin_content_structure", [])
+        
+        for subject in content_structure:
+            subject['sections'] = [sec for sec in subject.get('sections', []) if sec.get('id') != section_id]
+        
+        persistent_storage.set("admin_content_structure", content_structure)
+        
+        return {"message": "Раздел удален", "id": section_id}
+    except Exception as e:
+        print(f"Error in delete_section: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/admin/content/topic", response_model=Dict[str, Any])
+async def create_topic(data: ContentTopicCreate, db: Session = Depends(get_db)):
+    """Создать новую тему"""
+    try:
+        from utils.persistent_storage import persistent_storage
+        
+        content_structure = persistent_storage.get("admin_content_structure", [])
+        
+        section = None
+        for subject in content_structure:
+            for sec in subject.get('sections', []):
+                if sec.get('id') == data.section_id:
+                    section = sec
+                    break
+            if section:
+                break
+        
+        if not section:
+            raise HTTPException(status_code=404, detail="Раздел не найден")
+        
+        # Генерируем ID
+        max_id = max([t.get('id', 0) for t in section.get('topics', [])], default=0)
+        new_id = max(max_id + 1, data.section_id * 10 + len(section.get('topics', [])) + 1)
+        
+        new_topic = {
+            "id": new_id,
+            "name": data.name,
+            "elements": 0,
+            "tasks": 0
+        }
+        
+        if 'topics' not in section:
+            section['topics'] = []
+        section['topics'].append(new_topic)
+        
+        persistent_storage.set("admin_content_structure", content_structure)
+        
+        return new_topic
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Error in create_topic: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.put("/admin/content/topic/{topic_id}", response_model=Dict[str, Any])
+async def update_topic(topic_id: int, data: Dict[str, Any], db: Session = Depends(get_db)):
+    """Обновить тему"""
+    try:
+        from utils.persistent_storage import persistent_storage
+        
+        content_structure = persistent_storage.get("admin_content_structure", [])
+        
+        topic = None
+        for subject in content_structure:
+            for section in subject.get('sections', []):
+                for top in section.get('topics', []):
+                    if top.get('id') == topic_id:
+                        topic = top
+                        break
+                if topic:
+                    break
+            if topic:
+                break
+        
+        if not topic:
+            raise HTTPException(status_code=404, detail="Тема не найдена")
+        
+        if 'name' in data:
+            topic['name'] = data['name']
+        if 'elements' in data:
+            topic['elements'] = data['elements']
+        if 'tasks' in data:
+            topic['tasks'] = data['tasks']
+        
+        persistent_storage.set("admin_content_structure", content_structure)
+        
+        return topic
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Error in update_topic: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.delete("/admin/content/topic/{topic_id}", response_model=Dict[str, Any])
+async def delete_topic(topic_id: int, db: Session = Depends(get_db)):
+    """Удалить тему"""
+    try:
+        from utils.persistent_storage import persistent_storage
+        
+        content_structure = persistent_storage.get("admin_content_structure", [])
+        
+        for subject in content_structure:
+            for section in subject.get('sections', []):
+                section['topics'] = [t for t in section.get('topics', []) if t.get('id') != topic_id]
+        
+        persistent_storage.set("admin_content_structure", content_structure)
+        
+        return {"message": "Тема удалена", "id": topic_id}
+    except Exception as e:
+        print(f"Error in delete_topic: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ========== ADMIN SYSTEM SETTINGS ==========
+
+class SystemSettings(BaseModel):
+    adaptation_strategy: Optional[str] = "balanced"
+    target_mastery_percent: Optional[int] = 80
+    attempts_before_strategy_change: Optional[int] = 3
+    gigachat_api_key: Optional[str] = None
+    pinecone_api_key: Optional[str] = None
+    pinecone_index: Optional[str] = None
+
+
+@router.post("/admin/settings", response_model=Dict[str, Any])
+async def save_system_settings(settings: SystemSettings, db: Session = Depends(get_db)):
+    """Сохранить настройки системы"""
+    try:
+        from utils.persistent_storage import persistent_storage
+        
+        current_settings = persistent_storage.get("admin_system_settings", {})
+        
+        settings_dict = settings.dict(exclude_none=True)
+        current_settings.update(settings_dict)
+        
+        persistent_storage.set("admin_system_settings", current_settings)
+        
+        return {
+            "message": "Настройки сохранены",
+            "settings": current_settings
+        }
+    except Exception as e:
+        print(f"Error in save_system_settings: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/admin/settings", response_model=Dict[str, Any])
+async def get_system_settings(db: Session = Depends(get_db)):
+    """Получить настройки системы"""
+    try:
+        from utils.persistent_storage import persistent_storage
+        
+        settings = persistent_storage.get("admin_system_settings", {
+            "adaptation_strategy": "balanced",
+            "target_mastery_percent": 80,
+            "attempts_before_strategy_change": 3
+        })
+        
+        return settings
+    except Exception as e:
+        print(f"Error in get_system_settings: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/admin/materials/upload", response_model=Dict[str, Any])
+async def upload_materials(
+    title: str,
+    content: str,
+    topic: Optional[str] = None,
+    subject: Optional[str] = None,
+    db: Session = Depends(get_db)
+):
+    """Загрузить образовательный материал"""
+    try:
+        from models.document import Document
+        from utils.db import get_db as get_db_session
+        
+        if has_db():
+            db_session = get_db_session()
+            if db_session:
+                try:
+                    doc = Document(
+                        title=title,
+                        content=content
+                    )
+                    db_session.add(doc)
+                    db_session.commit()
+                    db_session.refresh(doc)
+                    
+                    return {
+                        "id": doc.id,
+                        "title": doc.title,
+                        "message": "Материал успешно загружен"
+                    }
+                except Exception as e:
+                    db_session.rollback()
+                    print(f"Error uploading material to DB: {e}")
+                finally:
+                    db_session.close()
+        
+        # Fallback на persistent_storage
+        from utils.persistent_storage import persistent_storage
+        
+        materials = persistent_storage.get("admin_materials", [])
+        new_id = len(materials) + 1
+        
+        new_material = {
+            "id": new_id,
+            "title": title,
+            "content": content,
+            "topic": topic,
+            "subject": subject,
+            "created_at": datetime.now().isoformat()
+        }
+        
+        materials.append(new_material)
+        persistent_storage.set("admin_materials", materials)
+        
+        return {
+            "id": new_id,
+            "title": title,
+            "message": "Материал успешно загружен"
+        }
+    except Exception as e:
+        print(f"Error in upload_materials: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 

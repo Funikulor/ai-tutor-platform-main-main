@@ -19,11 +19,13 @@ AdaptEd
 │   │   └── database.py      # In-memory storage for tasks and user data
 │   └── requirements.txt     # Backend dependencies
 ├── frontend
-│   ├── app.py               # Entry point for the Streamlit frontend
-│   ├── components
-│   │   ├── dashboard.py      # Dashboard view components
-│   │   └── quiz.py           # Quiz interface components
-│   └── requirements.txt      # Frontend dependencies
+│   ├── src
+│   │   ├── App.tsx           # Main React application
+│   │   ├── main.tsx          # React entry point
+│   │   ├── components        # React components
+│   │   └── services          # API services
+│   ├── package.json          # Frontend dependencies
+│   └── vite.config.ts        # Vite configuration
 ├── README.md                # Project documentation
 └── .gitignore               # Files to be ignored by version control
 ```
@@ -64,16 +66,17 @@ AdaptEd
      ```
    - Install the required dependencies:
      ```
-     pip install -r requirements.txt
+     npm install
      ```
-   - Run the Streamlit application:
+   - Run the development server:
      ```
-     streamlit run app.py
+     npm run dev
      ```
 
 ## Usage
 
-- Access the frontend application in your web browser at `http://localhost:8501`.
+- Access the frontend application in your web browser at `http://localhost:5173` (Vite default port).
+- Access the backend API documentation at `http://localhost:8000/docs`.
 - Interact with the platform by completing math tasks and viewing your progress on the dashboard.
 
 ## Contributing

@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
-import { Plus, Edit, Trash2, Upload, BookOpen, Users, Settings, Database } from 'lucide-react';
+import { Plus, Edit, Trash2, Upload, BookOpen, Users, Settings, Database, X } from 'lucide-react';
 import api from '../services/api';
+import { toast } from 'sonner';
 
 export function AdminPanel() {
   const [activeTab, setActiveTab] = useState<'content' | 'users' | 'system'>('content');
@@ -36,8 +37,38 @@ export function AdminPanel() {
     }>;
   }>>([]);
 
+  // Modal states
+  const [showUserModal, setShowUserModal] = useState(false);
+  const [showSubjectModal, setShowSubjectModal] = useState(false);
+  const [showSectionModal, setShowSectionModal] = useState(false);
+  const [showTopicModal, setShowTopicModal] = useState(false);
+  const [showUploadModal, setShowUploadModal] = useState(false);
+  const [showEditUserModal, setShowEditUserModal] = useState(false);
+  const [showEditSubjectModal, setShowEditSubjectModal] = useState(false);
+  const [showEditSectionModal, setShowEditSectionModal] = useState(false);
+  const [showEditTopicModal, setShowEditTopicModal] = useState(false);
+
+  // Form states
+  const [editingUser, setEditingUser] = useState<any>(null);
+  const [editingSubject, setEditingSubject] = useState<any>(null);
+  const [editingSection, setEditingSection] = useState<any>(null);
+  const [editingTopic, setEditingTopic] = useState<any>(null);
+  const [selectedSubjectId, setSelectedSubjectId] = useState<number | null>(null);
+  const [selectedSectionId, setSelectedSectionId] = useState<number | null>(null);
+
+  // System settings state
+  const [systemSettings, setSystemSettings] = useState({
+    adaptation_strategy: 'balanced',
+    target_mastery_percent: 80,
+    attempts_before_strategy_change: 3,
+    gigachat_api_key: '',
+    pinecone_api_key: '',
+    pinecone_index: ''
+  });
+
   useEffect(() => {
     loadAdminData();
+    loadSystemSettings();
   }, []);
 
   const loadAdminData = async () => {
@@ -45,7 +76,6 @@ export function AdminPanel() {
       setLoading(true);
       setError(null);
       
-      // Загружаем статистику, пользователей и структуру контента параллельно
       const [statsResponse, usersResponse, contentResponse] = await Promise.all([
         api.get('/admin/stats'),
         api.get('/admin/users'),
@@ -63,7 +93,263 @@ export function AdminPanel() {
     }
   };
 
-  // Fallback структура контента (если API не вернул данные)
+  const loadSystemSettings = async () => {
+    try {
+      const response = await api.get('/admin/settings');
+      setSystemSettings({ ...systemSettings, ...response.data });
+    } catch (err) {
+      console.error('Error loading settings:', err);
+    }
+  };
+
+  // User management handlers
+  const handleCreateUser = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    const formData = new FormData(e.currentTarget);
+    try {
+      await api.post('/admin/users', {
+        email: formData.get('email'),
+        password: formData.get('password'),
+        full_name: formData.get('full_name'),
+        role: formData.get('role'),
+        class_id: formData.get('class_id') || null,
+        phone: formData.get('phone') || null
+      });
+      toast.success('Пользователь успешно создан');
+      setShowUserModal(false);
+      loadAdminData();
+    } catch (err: any) {
+      toast.error(err.response?.data?.detail || 'Ошибка при создании пользователя');
+    }
+  };
+
+  const handleEditUser = (user: any) => {
+    setEditingUser(user);
+    setShowEditUserModal(true);
+  };
+
+  const handleUpdateUser = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    const formData = new FormData(e.currentTarget);
+    try {
+      await api.put(`/admin/users/${editingUser.id}`, {
+        full_name: formData.get('full_name'),
+        email: formData.get('email'),
+        role: formData.get('role'),
+        class_id: formData.get('class_id') || null,
+        phone: formData.get('phone') || null,
+        is_active: formData.get('is_active') === 'true'
+      });
+      toast.success('Пользователь успешно обновлен');
+      setShowEditUserModal(false);
+      setEditingUser(null);
+      loadAdminData();
+    } catch (err: any) {
+      toast.error(err.response?.data?.detail || 'Ошибка при обновлении пользователя');
+    }
+  };
+
+  const handleDeleteUser = async (userId: string) => {
+    if (!confirm('Вы уверены, что хотите деактивировать этого пользователя?')) return;
+    try {
+      await api.delete(`/admin/users/${userId}`);
+      toast.success('Пользователь деактивирован');
+      loadAdminData();
+    } catch (err: any) {
+      toast.error(err.response?.data?.detail || 'Ошибка при удалении пользователя');
+    }
+  };
+
+  // Content management handlers
+  const handleCreateSubject = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    const formData = new FormData(e.currentTarget);
+    try {
+      await api.post('/admin/content/subject', {
+        subject: formData.get('subject')
+      });
+      toast.success('Предмет успешно создан');
+      setShowSubjectModal(false);
+      loadAdminData();
+    } catch (err: any) {
+      toast.error(err.response?.data?.detail || 'Ошибка при создании предмета');
+    }
+  };
+
+  const handleEditSubject = (subject: any) => {
+    setEditingSubject(subject);
+    setShowEditSubjectModal(true);
+  };
+
+  const handleUpdateSubject = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    const formData = new FormData(e.currentTarget);
+    try {
+      await api.put(`/admin/content/subject/${editingSubject.id}`, {
+        subject: formData.get('subject')
+      });
+      toast.success('Предмет успешно обновлен');
+      setShowEditSubjectModal(false);
+      setEditingSubject(null);
+      loadAdminData();
+    } catch (err: any) {
+      toast.error(err.response?.data?.detail || 'Ошибка при обновлении предмета');
+    }
+  };
+
+  const handleDeleteSubject = async (subjectId: number) => {
+    if (!confirm('Вы уверены, что хотите удалить этот предмет? Все разделы и темы будут удалены.')) return;
+    try {
+      await api.delete(`/admin/content/subject/${subjectId}`);
+      toast.success('Предмет успешно удален');
+      loadAdminData();
+    } catch (err: any) {
+      toast.error(err.response?.data?.detail || 'Ошибка при удалении предмета');
+    }
+  };
+
+  const handleCreateSection = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    const formData = new FormData(e.currentTarget);
+    try {
+      await api.post('/admin/content/section', {
+        subject_id: selectedSubjectId,
+        name: formData.get('name')
+      });
+      toast.success('Раздел успешно создан');
+      setShowSectionModal(false);
+      setSelectedSubjectId(null);
+      loadAdminData();
+    } catch (err: any) {
+      toast.error(err.response?.data?.detail || 'Ошибка при создании раздела');
+    }
+  };
+
+  const handleEditSection = (section: any, subjectId: number) => {
+    setEditingSection(section);
+    setSelectedSubjectId(subjectId);
+    setShowEditSectionModal(true);
+  };
+
+  const handleUpdateSection = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    const formData = new FormData(e.currentTarget);
+    try {
+      await api.put(`/admin/content/section/${editingSection.id}`, {
+        name: formData.get('name')
+      });
+      toast.success('Раздел успешно обновлен');
+      setShowEditSectionModal(false);
+      setEditingSection(null);
+      setSelectedSubjectId(null);
+      loadAdminData();
+    } catch (err: any) {
+      toast.error(err.response?.data?.detail || 'Ошибка при обновлении раздела');
+    }
+  };
+
+  const handleDeleteSection = async (sectionId: number) => {
+    if (!confirm('Вы уверены, что хотите удалить этот раздел? Все темы будут удалены.')) return;
+    try {
+      await api.delete(`/admin/content/section/${sectionId}`);
+      toast.success('Раздел успешно удален');
+      loadAdminData();
+    } catch (err: any) {
+      toast.error(err.response?.data?.detail || 'Ошибка при удалении раздела');
+    }
+  };
+
+  const handleCreateTopic = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    const formData = new FormData(e.currentTarget);
+    try {
+      await api.post('/admin/content/topic', {
+        section_id: selectedSectionId,
+        name: formData.get('name')
+      });
+      toast.success('Тема успешно создана');
+      setShowTopicModal(false);
+      setSelectedSectionId(null);
+      loadAdminData();
+    } catch (err: any) {
+      toast.error(err.response?.data?.detail || 'Ошибка при создании темы');
+    }
+  };
+
+  const handleEditTopic = (topic: any, sectionId: number) => {
+    setEditingTopic(topic);
+    setSelectedSectionId(sectionId);
+    setShowEditTopicModal(true);
+  };
+
+  const handleUpdateTopic = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    const formData = new FormData(e.currentTarget);
+    try {
+      await api.put(`/admin/content/topic/${editingTopic.id}`, {
+        name: formData.get('name'),
+        elements: parseInt(formData.get('elements') as string) || 0,
+        tasks: parseInt(formData.get('tasks') as string) || 0
+      });
+      toast.success('Тема успешно обновлена');
+      setShowEditTopicModal(false);
+      setEditingTopic(null);
+      setSelectedSectionId(null);
+      loadAdminData();
+    } catch (err: any) {
+      toast.error(err.response?.data?.detail || 'Ошибка при обновлении темы');
+    }
+  };
+
+  const handleDeleteTopic = async (topicId: number) => {
+    if (!confirm('Вы уверены, что хотите удалить эту тему?')) return;
+    try {
+      await api.delete(`/admin/content/topic/${topicId}`);
+      toast.success('Тема успешно удалена');
+      loadAdminData();
+    } catch (err: any) {
+      toast.error(err.response?.data?.detail || 'Ошибка при удалении темы');
+    }
+  };
+
+  const handleUploadMaterial = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    const formData = new FormData(e.currentTarget);
+    try {
+      await api.post('/admin/materials/upload', {
+        title: formData.get('title'),
+        content: formData.get('content'),
+        topic: formData.get('topic') || null,
+        subject: formData.get('subject') || null
+      });
+      toast.success('Материал успешно загружен');
+      setShowUploadModal(false);
+      loadAdminData();
+    } catch (err: any) {
+      toast.error(err.response?.data?.detail || 'Ошибка при загрузке материала');
+    }
+  };
+
+  const handleSaveSettings = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    const formData = new FormData(e.currentTarget);
+    try {
+      await api.post('/admin/settings', {
+        adaptation_strategy: formData.get('adaptation_strategy'),
+        target_mastery_percent: parseInt(formData.get('target_mastery_percent') as string),
+        attempts_before_strategy_change: parseInt(formData.get('attempts_before_strategy_change') as string),
+        gigachat_api_key: formData.get('gigachat_api_key') || null,
+        pinecone_api_key: formData.get('pinecone_api_key') || null,
+        pinecone_index: formData.get('pinecone_index') || null
+      });
+      toast.success('Настройки успешно сохранены');
+      loadSystemSettings();
+    } catch (err: any) {
+      toast.error(err.response?.data?.detail || 'Ошибка при сохранении настроек');
+    }
+  };
+
+  // Fallback структура контента
   const fallbackContentStructure: Array<{
     id: number;
     subject: string;
@@ -103,6 +389,25 @@ export function AdminPanel() {
     }
   ];
 
+  // Modal component
+  const Modal = ({ isOpen, onClose, title, children }: { isOpen: boolean; onClose: () => void; title: string; children: React.ReactNode }) => {
+    if (!isOpen) return null;
+    return (
+      <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+        <div className="bg-white rounded-xl shadow-xl max-w-2xl w-full mx-4 max-h-[90vh] overflow-y-auto">
+          <div className="flex items-center justify-between p-6 border-b border-gray-200">
+            <h3 className="text-xl font-semibold text-gray-900">{title}</h3>
+            <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
+              <X className="w-6 h-6" />
+            </button>
+          </div>
+          <div className="p-6">
+            {children}
+          </div>
+        </div>
+      </div>
+    );
+  };
 
   return (
     <div className="space-y-6">
@@ -140,27 +445,27 @@ export function AdminPanel() {
             <p className="text-gray-600 text-sm">Пользователи</p>
             <p className="text-2xl text-gray-900 mt-1">{systemStats.totalUsers}</p>
           </div>
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
-          <p className="text-gray-600 text-sm">Задания</p>
-          <p className="text-2xl text-gray-900 mt-1">{systemStats.totalTasks}</p>
+          <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
+            <p className="text-gray-600 text-sm">Задания</p>
+            <p className="text-2xl text-gray-900 mt-1">{systemStats.totalTasks}</p>
+          </div>
+          <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
+            <p className="text-gray-600 text-sm">Материалы</p>
+            <p className="text-2xl text-gray-900 mt-1">{systemStats.totalMaterials}</p>
+          </div>
+          <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
+            <p className="text-gray-600 text-sm">AI запросы</p>
+            <p className="text-2xl text-gray-900 mt-1">{systemStats.aiQueries}</p>
+          </div>
+          <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
+            <p className="text-gray-600 text-sm">Хранилище</p>
+            <p className="text-2xl text-gray-900 mt-1">{systemStats.storageUsed}</p>
+          </div>
+          <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
+            <p className="text-gray-600 text-sm">Аптайм</p>
+            <p className="text-2xl text-green-600 mt-1">{systemStats.uptime}</p>
+          </div>
         </div>
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
-          <p className="text-gray-600 text-sm">Материалы</p>
-          <p className="text-2xl text-gray-900 mt-1">{systemStats.totalMaterials}</p>
-        </div>
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
-          <p className="text-gray-600 text-sm">AI запросы</p>
-          <p className="text-2xl text-gray-900 mt-1">{systemStats.aiQueries}</p>
-        </div>
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
-          <p className="text-gray-600 text-sm">Хранилище</p>
-          <p className="text-2xl text-gray-900 mt-1">{systemStats.storageUsed}</p>
-        </div>
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
-          <p className="text-gray-600 text-sm">Аптайм</p>
-          <p className="text-2xl text-green-600 mt-1">{systemStats.uptime}</p>
-        </div>
-      </div>
       )}
 
       {/* Tabs */}
@@ -207,11 +512,17 @@ export function AdminPanel() {
             <div className="flex items-center justify-between mb-6">
               <h3 className="text-gray-900">Образовательный контент</h3>
               <div className="flex gap-3">
-                <button className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors">
+                <button 
+                  onClick={() => setShowUploadModal(true)}
+                  className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
+                >
                   <Upload className="w-4 h-4" />
                   Загрузить материалы
                 </button>
-                <button className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors">
+                <button 
+                  onClick={() => setShowSubjectModal(true)}
+                  className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                >
                   <Plus className="w-4 h-4" />
                   Создать предмет
                 </button>
@@ -231,10 +542,16 @@ export function AdminPanel() {
                       </span>
                     </div>
                     <div className="flex gap-2">
-                      <button className="p-2 text-blue-600 hover:bg-blue-100 rounded transition-colors">
+                      <button 
+                        onClick={() => handleEditSubject(subject)}
+                        className="p-2 text-blue-600 hover:bg-blue-100 rounded transition-colors"
+                      >
                         <Edit className="w-4 h-4" />
                       </button>
-                      <button className="p-2 text-red-600 hover:bg-red-100 rounded transition-colors">
+                      <button 
+                        onClick={() => handleDeleteSubject(subject.id)}
+                        className="p-2 text-red-600 hover:bg-red-100 rounded transition-colors"
+                      >
                         <Trash2 className="w-4 h-4" />
                       </button>
                     </div>
@@ -259,22 +576,54 @@ export function AdminPanel() {
                                 </p>
                               </div>
                               <div className="flex gap-2">
-                                <button className="px-3 py-1 text-sm text-blue-600 hover:bg-blue-50 rounded transition-colors">
+                                <button 
+                                  onClick={() => handleEditTopic(topic, section.id)}
+                                  className="px-3 py-1 text-sm text-blue-600 hover:bg-blue-50 rounded transition-colors"
+                                >
                                   Редактировать
                                 </button>
-                                <button className="px-3 py-1 text-sm text-green-600 hover:bg-green-50 rounded transition-colors">
+                                <button 
+                                  onClick={() => toast.info('Функция добавления заданий будет реализована позже')}
+                                  className="px-3 py-1 text-sm text-green-600 hover:bg-green-50 rounded transition-colors"
+                                >
                                   + Задание
                                 </button>
                               </div>
                             </div>
                           ))}
-                          <button className="w-full py-2 text-sm text-blue-600 border border-blue-200 rounded-lg hover:bg-blue-50 transition-colors">
+                          <button 
+                            onClick={() => {
+                              setSelectedSectionId(section.id);
+                              setShowTopicModal(true);
+                            }}
+                            className="w-full py-2 text-sm text-blue-600 border border-blue-200 rounded-lg hover:bg-blue-50 transition-colors"
+                          >
                             + Добавить тему
+                          </button>
+                        </div>
+                        <div className="mt-2 flex gap-2">
+                          <button 
+                            onClick={() => handleEditSection(section, subject.id)}
+                            className="px-3 py-1 text-sm text-blue-600 hover:bg-blue-50 rounded transition-colors"
+                          >
+                            Редактировать раздел
+                          </button>
+                          <button 
+                            onClick={() => handleDeleteSection(section.id)}
+                            className="px-3 py-1 text-sm text-red-600 hover:bg-red-50 rounded transition-colors"
+                          >
+                            Удалить раздел
                           </button>
                         </div>
                       </div>
                     ))}
-                    <button className="w-full py-2 text-sm text-purple-600 border border-purple-200 rounded-lg hover:bg-purple-50 transition-colors">
+                    <button 
+                      onClick={() => {
+                        setSelectedSubjectId(subject.id);
+                        setShowSectionModal(true);
+                      }}
+                      className="w-full py-2 text-sm text-purple-600 border border-purple-200 rounded-lg hover:bg-purple-50 transition-colors"
+                    >
                       + Добавить раздел
                     </button>
                   </div>
@@ -299,7 +648,10 @@ export function AdminPanel() {
                     <span className="text-gray-600">Точность:</span>
                     <span className="text-green-600">94.2%</span>
                   </div>
-                  <button className="w-full py-2 bg-blue-50 text-blue-600 rounded-lg hover:bg-blue-100 transition-colors text-sm">
+                  <button 
+                    onClick={() => toast.info('Настройка NLP модуля будет реализована позже')}
+                    className="w-full py-2 bg-blue-50 text-blue-600 rounded-lg hover:bg-blue-100 transition-colors text-sm"
+                  >
                     Настроить
                   </button>
                 </div>
@@ -317,7 +669,10 @@ export function AdminPanel() {
                     <span className="text-gray-600">Векторная БД:</span>
                     <span className="text-gray-900">Pinecone</span>
                   </div>
-                  <button className="w-full py-2 bg-purple-50 text-purple-600 rounded-lg hover:bg-purple-100 transition-colors text-sm">
+                  <button 
+                    onClick={() => toast.info('Настройка RAG модуля доступна в разделе "Настройки системы"')}
+                    className="w-full py-2 bg-purple-50 text-purple-600 rounded-lg hover:bg-purple-100 transition-colors text-sm"
+                  >
                     Настроить
                   </button>
                 </div>
@@ -332,7 +687,10 @@ export function AdminPanel() {
         <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
           <div className="flex items-center justify-between mb-6">
             <h3 className="text-gray-900">Управление пользователями</h3>
-            <button className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors">
+            <button 
+              onClick={() => setShowUserModal(true)}
+              className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+            >
               <Plus className="w-4 h-4" />
               Добавить пользователя
             </button>
@@ -360,41 +718,53 @@ export function AdminPanel() {
                 </thead>
                 <tbody>
                   {users.map((user) => (
-                  <tr key={user.id} className="border-b border-gray-100 hover:bg-gray-50 transition-colors">
-                    <td className="py-4 px-4">
-                      <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 bg-gradient-to-br from-blue-400 to-purple-500 rounded-full flex items-center justify-center text-white">
-                          {user.name.charAt(0)}
+                    <tr key={user.id} className="border-b border-gray-100 hover:bg-gray-50 transition-colors">
+                      <td className="py-4 px-4">
+                        <div className="flex items-center gap-3">
+                          <div className="w-10 h-10 bg-gradient-to-br from-blue-400 to-purple-500 rounded-full flex items-center justify-center text-white">
+                            {user.name.charAt(0)}
+                          </div>
+                          <span className="text-gray-900">{user.name}</span>
                         </div>
-                        <span className="text-gray-900">{user.name}</span>
-                      </div>
-                    </td>
-                    <td className="py-4 px-4 text-gray-600">{user.email}</td>
-                    <td className="text-center py-4 px-4">
-                      <span className={`px-3 py-1 rounded-full text-xs ${
-                        user.role === 'teacher' 
-                          ? 'bg-purple-100 text-purple-700' 
-                          : 'bg-blue-100 text-blue-700'
-                      }`}>
-                        {user.role === 'teacher' ? 'Учитель' : 'Ученик'}
-                      </span>
-                    </td>
-                    <td className="text-center py-4 px-4">
-                      <span className="px-3 py-1 bg-green-100 text-green-700 rounded-full text-xs">
-                        Активен
-                      </span>
-                    </td>
-                    <td className="text-right py-4 px-4">
-                      <div className="flex items-center justify-end gap-2">
-                        <button className="p-2 text-blue-600 hover:bg-blue-50 rounded transition-colors">
-                          <Edit className="w-4 h-4" />
-                        </button>
-                        <button className="p-2 text-red-600 hover:bg-red-50 rounded transition-colors">
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
+                      </td>
+                      <td className="py-4 px-4 text-gray-600">{user.email}</td>
+                      <td className="text-center py-4 px-4">
+                        <span className={`px-3 py-1 rounded-full text-xs ${
+                          user.role === 'teacher' 
+                            ? 'bg-purple-100 text-purple-700' 
+                            : user.role === 'admin'
+                            ? 'bg-red-100 text-red-700'
+                            : 'bg-blue-100 text-blue-700'
+                        }`}>
+                          {user.role === 'teacher' ? 'Учитель' : user.role === 'admin' ? 'Админ' : 'Ученик'}
+                        </span>
+                      </td>
+                      <td className="text-center py-4 px-4">
+                        <span className={`px-3 py-1 rounded-full text-xs ${
+                          user.status === 'active' 
+                            ? 'bg-green-100 text-green-700' 
+                            : 'bg-gray-100 text-gray-700'
+                        }`}>
+                          {user.status === 'active' ? 'Активен' : 'Неактивен'}
+                        </span>
+                      </td>
+                      <td className="text-right py-4 px-4">
+                        <div className="flex items-center justify-end gap-2">
+                          <button 
+                            onClick={() => handleEditUser(user)}
+                            className="p-2 text-blue-600 hover:bg-blue-50 rounded transition-colors"
+                          >
+                            <Edit className="w-4 h-4" />
+                          </button>
+                          <button 
+                            onClick={() => handleDeleteUser(user.id)}
+                            className="p-2 text-red-600 hover:bg-red-50 rounded transition-colors"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
                   ))}
                 </tbody>
               </table>
@@ -408,13 +778,17 @@ export function AdminPanel() {
         <div className="space-y-6">
           <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
             <h3 className="text-gray-900 mb-6">Настройки адаптивности</h3>
-            <div className="space-y-6">
+            <form onSubmit={handleSaveSettings} className="space-y-6">
               <div>
                 <label className="block text-gray-700 mb-2">Стратегия адаптации</label>
-                <select className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent">
-                  <option>Агрессивная (быстрое повышение сложности)</option>
-                  <option>Сбалансированная (рекомендуется)</option>
-                  <option>Щадящая (постепенное повышение)</option>
+                <select 
+                  name="adaptation_strategy"
+                  defaultValue={systemSettings.adaptation_strategy}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                >
+                  <option value="aggressive">Агрессивная (быстрое повышение сложности)</option>
+                  <option value="balanced">Сбалансированная (рекомендуется)</option>
+                  <option value="gentle">Щадящая (постепенное повышение)</option>
                 </select>
               </div>
 
@@ -424,14 +798,15 @@ export function AdminPanel() {
                 </label>
                 <input 
                   type="range" 
+                  name="target_mastery_percent"
                   min="60" 
                   max="100" 
-                  defaultValue="80"
+                  defaultValue={systemSettings.target_mastery_percent}
                   className="w-full"
                 />
                 <div className="flex justify-between text-sm text-gray-600 mt-1">
                   <span>60%</span>
-                  <span>80%</span>
+                  <span>{systemSettings.target_mastery_percent}%</span>
                   <span>100%</span>
                 </div>
               </div>
@@ -442,20 +817,23 @@ export function AdminPanel() {
                 </label>
                 <input 
                   type="number" 
-                  defaultValue="3"
+                  name="attempts_before_strategy_change"
+                  defaultValue={systemSettings.attempts_before_strategy_change}
+                  min="1"
+                  max="10"
                   className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                 />
               </div>
 
-              <button className="w-full py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors">
+              <button type="submit" className="w-full py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors">
                 Сохранить настройки
               </button>
-            </div>
+            </form>
           </div>
 
           <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
             <h3 className="text-gray-900 mb-6">Интеграции API</h3>
-            <div className="space-y-4">
+            <form onSubmit={handleSaveSettings} className="space-y-4">
               <div className="p-4 border border-gray-200 rounded-lg">
                 <div className="flex items-center justify-between mb-2">
                   <h4 className="text-gray-800">GigaChat API</h4>
@@ -464,9 +842,13 @@ export function AdminPanel() {
                   </span>
                 </div>
                 <p className="text-sm text-gray-600 mb-3">API для генерации текста в RAG модуле</p>
-                <button className="text-sm text-blue-600 hover:text-blue-700">
-                  Изменить API ключ →
-                </button>
+                <input
+                  type="password"
+                  name="gigachat_api_key"
+                  placeholder="Введите API ключ"
+                  defaultValue={systemSettings.gigachat_api_key}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+                />
               </div>
 
               <div className="p-4 border border-gray-200 rounded-lg">
@@ -477,14 +859,256 @@ export function AdminPanel() {
                   </span>
                 </div>
                 <p className="text-sm text-gray-600 mb-3">Векторная база данных для RAG</p>
-                <button className="text-sm text-blue-600 hover:text-blue-700">
-                  Настроить подключение →
-                </button>
+                <div className="space-y-2">
+                  <input
+                    type="password"
+                    name="pinecone_api_key"
+                    placeholder="Введите API ключ"
+                    defaultValue={systemSettings.pinecone_api_key}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+                  />
+                  <input
+                    type="text"
+                    name="pinecone_index"
+                    placeholder="Название индекса"
+                    defaultValue={systemSettings.pinecone_index}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+                  />
+                </div>
               </div>
-            </div>
+
+              <button type="submit" className="w-full py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors">
+                Сохранить настройки API
+              </button>
+            </form>
           </div>
         </div>
       )}
+
+      {/* Modals */}
+      <Modal isOpen={showUserModal} onClose={() => setShowUserModal(false)} title="Добавить пользователя">
+        <form onSubmit={handleCreateUser} className="space-y-4">
+          <div>
+            <label className="block text-gray-700 mb-2">Имя</label>
+            <input type="text" name="full_name" required className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500" />
+          </div>
+          <div>
+            <label className="block text-gray-700 mb-2">Email</label>
+            <input type="email" name="email" required className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500" />
+          </div>
+          <div>
+            <label className="block text-gray-700 mb-2">Пароль</label>
+            <input type="password" name="password" required className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500" />
+          </div>
+          <div>
+            <label className="block text-gray-700 mb-2">Роль</label>
+            <select name="role" required className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+              <option value="student">Ученик</option>
+              <option value="teacher">Учитель</option>
+              <option value="admin">Администратор</option>
+            </select>
+          </div>
+          <div>
+            <label className="block text-gray-700 mb-2">Класс (опционально)</label>
+            <input type="text" name="class_id" className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500" />
+          </div>
+          <div>
+            <label className="block text-gray-700 mb-2">Телефон (опционально)</label>
+            <input type="text" name="phone" className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500" />
+          </div>
+          <div className="flex gap-3">
+            <button type="submit" className="flex-1 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">
+              Создать
+            </button>
+            <button type="button" onClick={() => setShowUserModal(false)} className="flex-1 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300">
+              Отмена
+            </button>
+          </div>
+        </form>
+      </Modal>
+
+      <Modal isOpen={showEditUserModal} onClose={() => { setShowEditUserModal(false); setEditingUser(null); }} title="Редактировать пользователя">
+        {editingUser && (
+          <form onSubmit={handleUpdateUser} className="space-y-4">
+            <div>
+              <label className="block text-gray-700 mb-2">Имя</label>
+              <input type="text" name="full_name" defaultValue={editingUser.name} required className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500" />
+            </div>
+            <div>
+              <label className="block text-gray-700 mb-2">Email</label>
+              <input type="email" name="email" defaultValue={editingUser.email} required className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500" />
+            </div>
+            <div>
+              <label className="block text-gray-700 mb-2">Роль</label>
+              <select name="role" defaultValue={editingUser.role} required className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+                <option value="student">Ученик</option>
+                <option value="teacher">Учитель</option>
+                <option value="admin">Администратор</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-gray-700 mb-2">Статус</label>
+              <select name="is_active" defaultValue={editingUser.status === 'active' ? 'true' : 'false'} className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+                <option value="true">Активен</option>
+                <option value="false">Неактивен</option>
+              </select>
+            </div>
+            <div className="flex gap-3">
+              <button type="submit" className="flex-1 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">
+                Сохранить
+              </button>
+              <button type="button" onClick={() => { setShowEditUserModal(false); setEditingUser(null); }} className="flex-1 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300">
+                Отмена
+              </button>
+            </div>
+          </form>
+        )}
+      </Modal>
+
+      <Modal isOpen={showSubjectModal} onClose={() => setShowSubjectModal(false)} title="Создать предмет">
+        <form onSubmit={handleCreateSubject} className="space-y-4">
+          <div>
+            <label className="block text-gray-700 mb-2">Название предмета</label>
+            <input type="text" name="subject" required className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500" />
+          </div>
+          <div className="flex gap-3">
+            <button type="submit" className="flex-1 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">
+              Создать
+            </button>
+            <button type="button" onClick={() => setShowSubjectModal(false)} className="flex-1 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300">
+              Отмена
+            </button>
+          </div>
+        </form>
+      </Modal>
+
+      <Modal isOpen={showEditSubjectModal} onClose={() => { setShowEditSubjectModal(false); setEditingSubject(null); }} title="Редактировать предмет">
+        {editingSubject && (
+          <form onSubmit={handleUpdateSubject} className="space-y-4">
+            <div>
+              <label className="block text-gray-700 mb-2">Название предмета</label>
+              <input type="text" name="subject" defaultValue={editingSubject.subject} required className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500" />
+            </div>
+            <div className="flex gap-3">
+              <button type="submit" className="flex-1 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">
+                Сохранить
+              </button>
+              <button type="button" onClick={() => { setShowEditSubjectModal(false); setEditingSubject(null); }} className="flex-1 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300">
+                Отмена
+              </button>
+            </div>
+          </form>
+        )}
+      </Modal>
+
+      <Modal isOpen={showSectionModal} onClose={() => { setShowSectionModal(false); setSelectedSubjectId(null); }} title="Создать раздел">
+        <form onSubmit={handleCreateSection} className="space-y-4">
+          <div>
+            <label className="block text-gray-700 mb-2">Название раздела</label>
+            <input type="text" name="name" required className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500" />
+          </div>
+          <div className="flex gap-3">
+            <button type="submit" className="flex-1 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">
+              Создать
+            </button>
+            <button type="button" onClick={() => { setShowSectionModal(false); setSelectedSubjectId(null); }} className="flex-1 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300">
+              Отмена
+            </button>
+          </div>
+        </form>
+      </Modal>
+
+      <Modal isOpen={showEditSectionModal} onClose={() => { setShowEditSectionModal(false); setEditingSection(null); setSelectedSubjectId(null); }} title="Редактировать раздел">
+        {editingSection && (
+          <form onSubmit={handleUpdateSection} className="space-y-4">
+            <div>
+              <label className="block text-gray-700 mb-2">Название раздела</label>
+              <input type="text" name="name" defaultValue={editingSection.name} required className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500" />
+            </div>
+            <div className="flex gap-3">
+              <button type="submit" className="flex-1 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">
+                Сохранить
+              </button>
+              <button type="button" onClick={() => { setShowEditSectionModal(false); setEditingSection(null); setSelectedSubjectId(null); }} className="flex-1 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300">
+                Отмена
+              </button>
+            </div>
+          </form>
+        )}
+      </Modal>
+
+      <Modal isOpen={showTopicModal} onClose={() => { setShowTopicModal(false); setSelectedSectionId(null); }} title="Создать тему">
+        <form onSubmit={handleCreateTopic} className="space-y-4">
+          <div>
+            <label className="block text-gray-700 mb-2">Название темы</label>
+            <input type="text" name="name" required className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500" />
+          </div>
+          <div className="flex gap-3">
+            <button type="submit" className="flex-1 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">
+              Создать
+            </button>
+            <button type="button" onClick={() => { setShowTopicModal(false); setSelectedSectionId(null); }} className="flex-1 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300">
+              Отмена
+            </button>
+          </div>
+        </form>
+      </Modal>
+
+      <Modal isOpen={showEditTopicModal} onClose={() => { setShowEditTopicModal(false); setEditingTopic(null); setSelectedSectionId(null); }} title="Редактировать тему">
+        {editingTopic && (
+          <form onSubmit={handleUpdateTopic} className="space-y-4">
+            <div>
+              <label className="block text-gray-700 mb-2">Название темы</label>
+              <input type="text" name="name" defaultValue={editingTopic.name} required className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500" />
+            </div>
+            <div>
+              <label className="block text-gray-700 mb-2">Количество элементов</label>
+              <input type="number" name="elements" defaultValue={editingTopic.elements} min="0" className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500" />
+            </div>
+            <div>
+              <label className="block text-gray-700 mb-2">Количество заданий</label>
+              <input type="number" name="tasks" defaultValue={editingTopic.tasks} min="0" className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500" />
+            </div>
+            <div className="flex gap-3">
+              <button type="submit" className="flex-1 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">
+                Сохранить
+              </button>
+              <button type="button" onClick={() => { setShowEditTopicModal(false); setEditingTopic(null); setSelectedSectionId(null); }} className="flex-1 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300">
+                Отмена
+              </button>
+            </div>
+          </form>
+        )}
+      </Modal>
+
+      <Modal isOpen={showUploadModal} onClose={() => setShowUploadModal(false)} title="Загрузить материал">
+        <form onSubmit={handleUploadMaterial} className="space-y-4">
+          <div>
+            <label className="block text-gray-700 mb-2">Название материала</label>
+            <input type="text" name="title" required className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500" />
+          </div>
+          <div>
+            <label className="block text-gray-700 mb-2">Содержание</label>
+            <textarea name="content" required rows={6} className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500" />
+          </div>
+          <div>
+            <label className="block text-gray-700 mb-2">Предмет (опционально)</label>
+            <input type="text" name="subject" className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500" />
+          </div>
+          <div>
+            <label className="block text-gray-700 mb-2">Тема (опционально)</label>
+            <input type="text" name="topic" className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500" />
+          </div>
+          <div className="flex gap-3">
+            <button type="submit" className="flex-1 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700">
+              Загрузить
+            </button>
+            <button type="button" onClick={() => setShowUploadModal(false)} className="flex-1 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300">
+              Отмена
+            </button>
+          </div>
+        </form>
+      </Modal>
     </div>
   );
 }

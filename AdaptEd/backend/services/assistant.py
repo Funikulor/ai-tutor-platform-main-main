@@ -38,8 +38,9 @@ class AssistantService:
 		self.openai_api_key = os.getenv("OPENAI_API_KEY", "")
 		self.openai_model = os.getenv("OPENAI_MODEL", "gpt-4o-mini")  # gpt-4o-mini (рекомендуется), gpt-3.5-turbo, gpt-4o, etc.
 		self.proxyapi_key = os.getenv("PROXYAPI_KEY", "")
-		self.proxyapi_url = os.getenv("PROXYAPI_URL", "https://api.proxyapi.ru/openai/v1/chat/completions")  # URL для PROXYAPI
-		self.proxyapi_model = os.getenv("PROXYAPI_MODEL", "gpt-4o-mini")  # Модель для PROXYAPI
+		# PROXYAPI URL: https://api.proxyapi.ru/openai/v1/chat/completions
+		self.proxyapi_url = os.getenv("PROXYAPI_URL", "https://api.proxyapi.ru/openai/v1/chat/completions")
+		self.proxyapi_model = os.getenv("PROXYAPI_MODEL", "gpt-4o-mini")  # Модель для PROXYAPI (gpt-4o-mini, gpt-4o, gpt-3.5-turbo и т.д.)
 		self._openai_client = None
 		if openai_available and self.openai_api_key:
 			try:
@@ -258,9 +259,21 @@ class AssistantService:
 		
 		PROXYAPI предоставляет доступ к различным AI моделям через единый API
 		"""
+		# Детальная проверка настроек
 		if not self.proxyapi_key:
-			print(f"[PROXYAPI] PROXYAPI ключ не установлен")
+			print(f"[PROXYAPI] ❌ PROXYAPI ключ не установлен")
+			print(f"[PROXYAPI] Проверьте переменную PROXYAPI_KEY в Railway Variables")
 			return None
+		
+		if not self.proxyapi_url:
+			print(f"[PROXYAPI] ❌ PROXYAPI URL не установлен")
+			print(f"[PROXYAPI] Проверьте переменную PROXYAPI_URL в Railway Variables")
+			return None
+		
+		print(f"[PROXYAPI] ✅ Настройки проверены:")
+		print(f"[PROXYAPI]   URL: {self.proxyapi_url}")
+		print(f"[PROXYAPI]   Модель: {self.proxyapi_model}")
+		print(f"[PROXYAPI]   Ключ: {'установлен (длина: ' + str(len(self.proxyapi_key)) + ')' if self.proxyapi_key else 'не установлен'}")
 		
 		# Формируем сообщения для PROXYAPI (совместим с OpenAI форматом)
 		proxyapi_messages = []
@@ -281,7 +294,10 @@ class AssistantService:
 		
 		for attempt in range(max_retries):
 			try:
-				print(f"[PROXYAPI] Отправка запроса, модель: {self.proxyapi_model} (попытка {attempt + 1}/{max_retries})")
+				print(f"[PROXYAPI] 📤 Отправка запроса (попытка {attempt + 1}/{max_retries})")
+				print(f"[PROXYAPI]   URL: {self.proxyapi_url}")
+				print(f"[PROXYAPI]   Модель: {self.proxyapi_model}")
+				print(f"[PROXYAPI]   Сообщений: {len(proxyapi_messages)}")
 				
 				headers = {
 					"Authorization": f"Bearer {self.proxyapi_key}",
@@ -295,12 +311,16 @@ class AssistantService:
 					"max_tokens": max_new_tokens
 				}
 				
+				print(f"[PROXYAPI]   Payload: model={self.proxyapi_model}, messages={len(proxyapi_messages)}, max_tokens={max_new_tokens}")
+				
 				response = requests.post(
 					self.proxyapi_url,
 					headers=headers,
 					json=payload,
 					timeout=60
 				)
+				
+				print(f"[PROXYAPI] 📥 Получен ответ: HTTP {response.status_code}")
 				
 				if response.status_code == 200:
 					data = response.json()

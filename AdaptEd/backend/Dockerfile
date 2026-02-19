@@ -26,3 +26,4 @@ EXPOSE 8080
 # Команда запуска
 CMD uvicorn app:app --host 0.0.0.0 --port $PORT
 
+

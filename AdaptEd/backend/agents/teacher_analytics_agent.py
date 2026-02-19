@@ -54,9 +54,34 @@ class TeacherAnalyticsAgent(BaseAgent):
     
     def _collect_profiles(self, class_id: str = None, user_ids: List[str] = []) -> List[CognitiveProfile]:
         """Собирает профили учеников"""
-        # В реальной реализации здесь будет запрос к базе данных
-        # Сейчас возвращаем заглушку
-        return []
+        from agents.orchestrator import AgentOrchestrator
+        from utils.auth_service import auth_service
+        
+        orchestrator = AgentOrchestrator()
+        profiles = []
+        
+        # Если указаны конкретные user_ids, получаем их профили
+        if user_ids:
+            for user_id in user_ids:
+                profile = orchestrator.profiler.get_profile(user_id)
+                if profile:
+                    profiles.append(profile)
+        # Если указан class_id, получаем всех учеников класса
+        elif class_id:
+            all_users = auth_service.get_all_users()
+            for user in all_users:
+                if user.get('role') == 'student' and user.get('class_id') == class_id:
+                    user_id = user.get('user_id')
+                    if user_id:
+                        profile = orchestrator.profiler.get_profile(user_id)
+                        if profile:
+                            profiles.append(profile)
+        # Если ничего не указано, получаем все профили
+        else:
+            all_profiles = orchestrator.profiler.get_all_profiles()
+            profiles = list(all_profiles.values())
+        
+        return profiles
     
     def _generate_summary_report(self, profiles: List[CognitiveProfile]) -> Dict[str, Any]:
         """Генерирует сводный отчет по классу"""
