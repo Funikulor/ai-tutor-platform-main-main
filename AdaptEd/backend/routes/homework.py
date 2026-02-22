@@ -73,110 +73,270 @@ class HomeworkSubmitDB(BaseModel):
 
 @router.get("/homeworks", response_model=List[HomeworkOut])
 async def list_homeworks(user_id: Optional[str] = None, db: Session = Depends(get_db)):
-    if not has_db() or db is None:
-        raise HTTPException(status_code=503, detail="Database is not configured")
-    stmt = select(Homework)
+    # Пробуем использовать БД
+    if has_db() and db is not None:
+        try:
+            stmt = select(Homework)
+            if user_id:
+                stmt = stmt.where(Homework.assigned_to == user_id)
+            rows = db.execute(stmt).scalars().all()
+            return rows
+        except Exception as e:
+            print(f"Error fetching homeworks from DB: {e}")
+    
+    # Fallback на persistent_storage
+    from utils.persistent_storage import persistent_storage
+    homeworks = persistent_storage.get("homeworks", [])
+    
     if user_id:
-        stmt = stmt.where(Homework.assigned_to == user_id)
-    rows = db.execute(stmt).scalars().all()
-    return rows
+        homeworks = [hw for hw in homeworks if hw.get('assigned_to') == user_id]
+    
+    # Преобразуем в формат HomeworkOut
+    result = []
+    for hw in homeworks:
+        result.append({
+            "id": hw.get('id', 0),
+            "title": hw.get('title', ''),
+            "description": hw.get('description'),
+            "subject": hw.get('subject'),
+            "due_date": hw.get('due_date'),
+            "status": hw.get('status', 'new'),
+            "assigned_to": hw.get('assigned_to', ''),
+            "created_by": hw.get('created_by'),
+            "created_at": hw.get('created_at', datetime.now())
+        })
+    
+    return result
 
 
 @router.post("/homeworks", response_model=HomeworkOut)
 async def create_homework(payload: HomeworkCreate, db: Session = Depends(get_db)):
-    if not has_db() or db is None:
-        raise HTTPException(status_code=503, detail="Database is not configured")
-    hw = Homework(
-        title=payload.title,
-        description=payload.description,
-        subject=payload.subject,
-        due_date=payload.due_date,
-        assigned_to=payload.assigned_to,
-        created_by=payload.created_by,
-        status="new",
-    )
-    db.add(hw)
-    db.commit()
-    db.refresh(hw)
-    return hw
+    # Пробуем использовать БД
+    if has_db() and db is not None:
+        try:
+            hw = Homework(
+                title=payload.title,
+                description=payload.description,
+                subject=payload.subject,
+                due_date=payload.due_date,
+                assigned_to=payload.assigned_to,
+                created_by=payload.created_by,
+                status="new",
+            )
+            db.add(hw)
+            db.commit()
+            db.refresh(hw)
+            return hw
+        except Exception as e:
+            print(f"Error creating homework in DB: {e}")
+            db.rollback()
+    
+    # Fallback на persistent_storage
+    from utils.persistent_storage import persistent_storage
+    homeworks = persistent_storage.get("homeworks", [])
+    
+    new_id = max([hw.get('id', 0) for hw in homeworks], default=0) + 1
+    new_homework = {
+        "id": new_id,
+        "title": payload.title,
+        "description": payload.description,
+        "subject": payload.subject,
+        "due_date": payload.due_date.isoformat() if payload.due_date else None,
+        "assigned_to": payload.assigned_to,
+        "created_by": payload.created_by,
+        "status": "new",
+        "created_at": datetime.now().isoformat()
+    }
+    
+    homeworks.append(new_homework)
+    persistent_storage.set("homeworks", homeworks)
+    
+    return {
+        "id": new_id,
+        "title": payload.title,
+        "description": payload.description,
+        "subject": payload.subject,
+        "due_date": payload.due_date,
+        "status": "new",
+        "assigned_to": payload.assigned_to,
+        "created_by": payload.created_by,
+        "created_at": datetime.now()
+    }
 
 
 @router.post("/homeworks/{homework_id}/submit", response_model=Dict[str, Any])
 async def submit_homework_db(homework_id: int, payload: HomeworkSubmitDB, db: Session = Depends(get_db)):
-    if not has_db() or db is None:
-        raise HTTPException(status_code=503, detail="Database is not configured")
+    # Пробуем использовать БД
+    if has_db() and db is not None:
+        try:
+            hw = db.get(Homework, homework_id)
+            if not hw:
+                raise HTTPException(status_code=404, detail="Homework not found")
+            if hw.assigned_to != payload.user_id:
+                raise HTTPException(status_code=403, detail="Homework is assigned to another student")
 
-    hw = db.get(Homework, homework_id)
+            submission = HomeworkSubmissionORM(
+                homework_id=homework_id,
+                user_id=payload.user_id,
+                answer_text=payload.answer_text or "",
+                created_at=datetime.utcnow(),
+            )
+
+            # Генерируем короткий фидбек через ассистента (неблокирующий)
+            feedback = None
+            try:
+                assist = _assistant()
+                prompt = (
+                    "Кратко оцени ответ ученика и дай 1-2 рекомендации.\n"
+                    f"Задание: {hw.title}\n"
+                    f"Описание: {hw.description or ''}\n"
+                    f"Ответ ученика: {payload.answer_text or ''}\n"
+                )
+                feedback = assist._generate(prompt, max_new_tokens=300)
+            except Exception:
+                feedback = None
+
+            submission.feedback = feedback
+            db.add(submission)
+
+            # Обновляем статус домашки
+            hw.status = "submitted"
+            db.add(hw)
+
+            db.commit()
+            db.refresh(submission)
+            db.refresh(hw)
+
+            return {
+                "status": "submitted",
+                "homework": {
+                    "id": hw.id,
+                    "title": hw.title,
+                    "description": hw.description,
+                    "status": hw.status
+                },
+                "submission": {
+                    "id": submission.id,
+                    "user_id": submission.user_id,
+                    "answer_text": submission.answer_text,
+                    "feedback": submission.feedback,
+                    "created_at": submission.created_at,
+                },
+            }
+        except HTTPException:
+            raise
+        except Exception as e:
+            print(f"Error submitting homework to DB: {e}")
+            db.rollback()
+    
+    # Fallback на persistent_storage
+    from utils.persistent_storage import persistent_storage
+    homeworks = persistent_storage.get("homeworks", [])
+    hw = next((hw for hw in homeworks if hw.get('id') == homework_id), None)
+    
     if not hw:
         raise HTTPException(status_code=404, detail="Homework not found")
-    if hw.assigned_to != payload.user_id:
-        # разрешаем сдавать только назначенному ученику
+    
+    if hw.get('assigned_to') != payload.user_id:
         raise HTTPException(status_code=403, detail="Homework is assigned to another student")
-
-    submission = HomeworkSubmissionORM(
-        homework_id=homework_id,
-        user_id=payload.user_id,
-        answer_text=payload.answer_text or "",
-        created_at=datetime.utcnow(),
-    )
-
-    # Генерируем короткий фидбек через ассистента (неблокирующий)
+    
+    # Генерируем фидбек
     feedback = None
     try:
         assist = _assistant()
         prompt = (
             "Кратко оцени ответ ученика и дай 1-2 рекомендации.\n"
-            f"Задание: {hw.title}\n"
-            f"Описание: {hw.description or ''}\n"
+            f"Задание: {hw.get('title', '')}\n"
+            f"Описание: {hw.get('description', '')}\n"
             f"Ответ ученика: {payload.answer_text or ''}\n"
         )
         feedback = assist._generate(prompt, max_new_tokens=300)
     except Exception:
         feedback = None
-
-    submission.feedback = feedback
-    db.add(submission)
-
+    
+    # Сохраняем submission
+    submissions = persistent_storage.get("homework_submissions", [])
+    new_submission_id = max([s.get('id', 0) for s in submissions], default=0) + 1
+    submission = {
+        "id": new_submission_id,
+        "homework_id": homework_id,
+        "user_id": payload.user_id,
+        "answer_text": payload.answer_text or "",
+        "feedback": feedback,
+        "created_at": datetime.now().isoformat()
+    }
+    submissions.append(submission)
+    persistent_storage.set("homework_submissions", submissions)
+    
     # Обновляем статус домашки
-    hw.status = "submitted"
-    db.add(hw)
-
-    db.commit()
-    db.refresh(submission)
-    db.refresh(hw)
-
+    hw['status'] = "submitted"
+    persistent_storage.set("homeworks", homeworks)
+    
     return {
         "status": "submitted",
-        "homework": hw,
+        "homework": {
+            "id": hw.get('id'),
+            "title": hw.get('title'),
+            "description": hw.get('description'),
+            "status": "submitted"
+        },
         "submission": {
-            "id": submission.id,
-            "user_id": submission.user_id,
-            "answer_text": submission.answer_text,
-            "feedback": submission.feedback,
-            "created_at": submission.created_at,
+            "id": new_submission_id,
+            "user_id": payload.user_id,
+            "answer_text": payload.answer_text or "",
+            "feedback": feedback,
+            "created_at": datetime.now()
         },
     }
 
 
 @router.get("/homeworks/{homework_id}/submissions", response_model=List[Dict[str, Any]])
 async def list_submissions(homework_id: int, db: Session = Depends(get_db)):
-    if not has_db() or db is None:
-        raise HTTPException(status_code=503, detail="Database is not configured")
-    hw = db.get(Homework, homework_id)
+    # Пробуем использовать БД
+    if has_db() and db is not None:
+        try:
+            hw = db.get(Homework, homework_id)
+            if not hw:
+                raise HTTPException(status_code=404, detail="Homework not found")
+            stmt = select(HomeworkSubmissionORM).where(HomeworkSubmissionORM.homework_id == homework_id)
+            rows = db.execute(stmt).scalars().all()
+            return [
+                {
+                    "id": s.id,
+                    "user_id": s.user_id,
+                    "answer_text": s.answer_text,
+                    "feedback": s.feedback,
+                    "score": s.score,
+                    "created_at": s.created_at,
+                }
+                for s in rows
+            ]
+        except HTTPException:
+            raise
+        except Exception as e:
+            print(f"Error fetching submissions from DB: {e}")
+    
+    # Fallback на persistent_storage
+    from utils.persistent_storage import persistent_storage
+    homeworks = persistent_storage.get("homeworks", [])
+    hw = next((hw for hw in homeworks if hw.get('id') == homework_id), None)
+    
     if not hw:
         raise HTTPException(status_code=404, detail="Homework not found")
-    stmt = select(HomeworkSubmissionORM).where(HomeworkSubmissionORM.homework_id == homework_id)
-    rows = db.execute(stmt).scalars().all()
+    
+    submissions = persistent_storage.get("homework_submissions", [])
+    homework_submissions = [s for s in submissions if s.get('homework_id') == homework_id]
+    
     return [
         {
-            "id": s.id,
-            "user_id": s.user_id,
-            "answer_text": s.answer_text,
-            "feedback": s.feedback,
-            "score": s.score,
-            "created_at": s.created_at,
+            "id": s.get('id', 0),
+            "user_id": s.get('user_id', ''),
+            "answer_text": s.get('answer_text', ''),
+            "feedback": s.get('feedback'),
+            "score": s.get('score'),
+            "created_at": s.get('created_at')
         }
-        for s in rows
+        for s in homework_submissions
     ]
 
 

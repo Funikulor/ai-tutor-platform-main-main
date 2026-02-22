@@ -17,6 +17,13 @@ except Exception:
 
 DATABASE_URL = os.getenv("DATABASE_URL")
 
+# Если DATABASE_URL не установлен, используем SQLite по умолчанию
+if not DATABASE_URL and SQLA_AVAILABLE:
+	backend_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+	sqlite_path = os.path.join(backend_dir, "adapted.db")
+	DATABASE_URL = f"sqlite:///{sqlite_path}"
+	print(f"[DB] DATABASE_URL не установлен, используем SQLite: {sqlite_path}")
+
 if SQLA_AVAILABLE:
 	Base = declarative_base()
 else:
