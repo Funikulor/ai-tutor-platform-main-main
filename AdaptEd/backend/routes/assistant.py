@@ -85,7 +85,10 @@ async def assistant_chat(req: ChatRequest):
 				# Самые частые ошибки
 				if profile.error_frequency:
 					top_errors = sorted(profile.error_frequency.items(), key=lambda x: x[1], reverse=True)[:3]
-					weaknesses.extend([str(err[0].value) for err in top_errors])
+					weaknesses.extend([
+						str(err[0].value) if hasattr(err[0], "value") else str(err[0])
+						for err in top_errors
+					])
 				# Низкая точность по темам
 				for topic, mastery in profile.topic_mastery.items():
 					if mastery < 0.5:
