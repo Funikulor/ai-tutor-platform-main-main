@@ -1,5 +1,9 @@
-from fastapi import FastAPI
+from pathlib import Path
+
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 from routes import lessons, users, agents, auth
 from routes import assistant, homework, tests
 
@@ -47,8 +51,20 @@ app.include_router(assistant.router, tags=["Assistant"])
 app.include_router(homework.router, tags=["Homework"])
 app.include_router(tests.router, tags=["Tests"])
 
+# Serve built frontend from backend domain if available.
+BACKEND_DIR = Path(__file__).resolve().parent
+FRONTEND_BUILD_DIR = BACKEND_DIR.parent / "frontend" / "build"
+FRONTEND_INDEX_FILE = FRONTEND_BUILD_DIR / "index.html"
+
+if FRONTEND_BUILD_DIR.exists():
+    assets_dir = FRONTEND_BUILD_DIR / "assets"
+    if assets_dir.exists():
+        app.mount("/assets", StaticFiles(directory=str(assets_dir)), name="frontend-assets")
+
 @app.get("/")
 def read_root():
+    if FRONTEND_INDEX_FILE.exists():
+        return FileResponse(str(FRONTEND_INDEX_FILE))
     return {"message": "Welcome to the AdaptEd API!"}
 
 @app.get("/debug")
@@ -105,3 +121,28 @@ def get_batcher_stats():
         }
     except Exception as e:
         return {"error": str(e)}
+
+
+@app.get("/{full_path:path}")
+def serve_spa(full_path: str):
+    if not FRONTEND_INDEX_FILE.exists():
+        raise HTTPException(status_code=404, detail="Not Found")
+
+    api_prefixes = (
+        "auth/",
+        "users/",
+        "agents/",
+        "assistant/",
+        "homework/",
+        "tests/",
+        "tasks/",
+        "debug",
+        "batcher-stats",
+        "docs",
+        "redoc",
+        "openapi.json",
+    )
+    if full_path in api_prefixes or any(full_path.startswith(prefix) for prefix in api_prefixes):
+        raise HTTPException(status_code=404, detail="Not Found")
+
+    return FileResponse(str(FRONTEND_INDEX_FILE))
