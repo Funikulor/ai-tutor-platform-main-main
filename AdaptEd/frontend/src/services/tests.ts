@@ -87,12 +87,44 @@ export async function deleteTest(id: number) {
   return data;
 }
 
-export async function assignTestAsHomework(testId: number, studentIds: string[], dueDate?: string) {
-  const { data } = await api.post<{ success: boolean; homeworks: any[] }>('/tests/assign', {
+export async function assignTestAsHomework(
+  testId: number,
+  studentIds: string[],
+  dueDate?: string,
+  assignmentType: 'homework' | 'control' | 'quiz' = 'homework'
+) {
+  const { data } = await api.post<{ success: boolean; homeworks: any[]; assigned_count: number }>('/tests/assign', {
     test_id: testId,
     student_ids: studentIds,
+    assignment_type: assignmentType,
     due_date: dueDate,
+    created_by: localStorage.getItem('user_id') || undefined,
   });
+  return data;
+}
+
+export async function submitTest(testId: number, userId: string, answers: number[]) {
+  const { data } = await api.post<{
+    score: number;
+    correct: number;
+    total: number;
+    feedback?: string;
+    submission_id: number;
+  }>(`/tests/${testId}/submit`, {
+    user_id: userId,
+    answers,
+  });
+  return data;
+}
+
+export async function listTestSubmissions(testId: number) {
+  const { data } = await api.get<Array<{
+    id: number;
+    user_id: string;
+    score: number;
+    feedback?: string;
+    created_at?: string;
+  }>>(`/tests/${testId}/submissions`);
   return data;
 }
 

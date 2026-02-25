@@ -1,9 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import { Users, TrendingDown, AlertCircle, Download, Filter, BarChart3, FileText } from 'lucide-react';
-import { TestCreator } from './TestCreator';
+import { TeacherTestsTab } from './TeacherTestsTab';
 import api from '../services/api';
-import { createHomework } from '../services/homework';
 import { toast } from 'sonner';
 
 type StudentStatus = 'excellent' | 'good' | 'average' | 'needs-help';
@@ -209,27 +208,9 @@ export function TeacherDashboard() {
 
   const handleAssignBeforeLesson = async (student: StudentRow) => {
     setAssigningStudentId(student.user_id);
-    try {
-      const dueDate = new Date();
-      dueDate.setDate(dueDate.getDate() + 1);
-      dueDate.setHours(18, 0, 0, 0);
-
-      const focusTopic = commonErrors[0]?.topic || 'Базовые темы';
-      await createHomework({
-        title: `Подготовка до занятия: ${focusTopic}`,
-        description: `Индивидуальное задание для ${student.student}. Цель: подтянуть тему "${focusTopic}" до следующего урока.`,
-        subject: 'Математика',
-        due_date: dueDate.toISOString(),
-        assigned_to: student.user_id,
-        created_by: localStorage.getItem('user_id') || undefined,
-      });
-      toast.success(`Задание назначено ученику ${student.student}`);
-    } catch (error: any) {
-      const message = error?.response?.data?.detail || 'Не удалось назначить задание';
-      toast.error(message);
-    } finally {
-      setAssigningStudentId(null);
-    }
+    setCurrentView('tests');
+    toast.info(`Выберите тест и назначьте ${student.student} во вкладке "Создание тестов"`);
+    setTimeout(() => setAssigningStudentId(null), 300);
   };
 
   const handleShowParentContact = (student: StudentRow) => {
@@ -290,7 +271,7 @@ export function TeacherDashboard() {
       </div>
 
       {/* Tests View */}
-      {currentView === 'tests' && <TestCreator />}
+      {currentView === 'tests' && <TeacherTestsTab />}
 
       {/* Analytics View */}
       {currentView === 'analytics' && (

@@ -49,6 +49,14 @@ class TestSubmitRequest(BaseModel):
 	answers: List[int]  # индексы ответов по порядку вопросов
 
 
+class TestAssignRequest(BaseModel):
+	test_id: int
+	student_ids: List[str]
+	assignment_type: Optional[str] = "homework"  # homework | control | quiz
+	due_date: Optional[datetime] = None
+	created_by: Optional[str] = None
+
+
 def _assistant():
 	return get_assistant_service()
 
@@ -339,6 +347,93 @@ async def submit_test(test_id: int, payload: TestSubmitRequest, db: Session = De
 		"total": len(questions),
 		"feedback": feedback,
 		"submission_id": sub.id,
+	}
+
+
+@router.get("/tests/{test_id}/submissions", response_model=List[Dict[str, Any]])
+async def list_test_submissions(test_id: int, db: Session = Depends(get_db)):
+	if not has_db() or db is None:
+		raise HTTPException(status_code=503, detail="Database is not configured")
+	test = db.get(Test, test_id)
+	if not test:
+		raise HTTPException(status_code=404, detail="Test not found")
+
+	stmt = select(TestSubmission).where(TestSubmission.test_id == test_id).order_by(TestSubmission.created_at.desc())
+	rows = db.execute(stmt).scalars().all()
+	return [
+		{
+			"id": row.id,
+			"user_id": row.user_id,
+			"score": row.score,
+			"feedback": row.feedback,
+			"created_at": row.created_at.isoformat() if row.created_at else None,
+		}
+		for row in rows
+	]
+
+
+@router.post("/tests/assign", response_model=Dict[str, Any])
+async def assign_test_to_students(payload: TestAssignRequest, db: Session = Depends(get_db)):
+	if not payload.student_ids:
+		raise HTTPException(status_code=400, detail="student_ids is required")
+
+	assignment_type = (payload.assignment_type or "homework").lower()
+	if assignment_type not in {"homework", "control", "quiz"}:
+		raise HTTPException(status_code=400, detail="assignment_type must be one of: homework, control, quiz")
+
+	if not has_db() or db is None:
+		raise HTTPException(status_code=503, detail="Database is not configured")
+
+	test = db.get(Test, payload.test_id)
+	if not test:
+		raise HTTPException(status_code=404, detail="Test not found")
+
+	from models.homework import Homework
+
+	created_homeworks: List[Homework] = []
+	metadata = {
+		"kind": "test_assignment",
+		"test_id": test.id,
+		"assignment_type": assignment_type,
+	}
+	description_prefix = "__TEST_ASSIGNMENT__"
+	description_payload = description_prefix + json.dumps(metadata, ensure_ascii=False)
+	assignment_label_map = {
+		"homework": "ДЗ",
+		"control": "КР",
+		"quiz": "Проверочная",
+	}
+	assignment_label = assignment_label_map.get(assignment_type, "ДЗ")
+
+	for student_id in payload.student_ids:
+		hw = Homework(
+			title=f"{assignment_label}: {test.title}",
+			description=description_payload,
+			subject=test.topic or "Тест",
+			due_date=payload.due_date,
+			status="new",
+			assigned_to=student_id,
+			created_by=payload.created_by or test.creator_id,
+		)
+		db.add(hw)
+		created_homeworks.append(hw)
+
+	db.commit()
+	for hw in created_homeworks:
+		db.refresh(hw)
+
+	return {
+		"success": True,
+		"assigned_count": len(created_homeworks),
+		"homeworks": [
+			{
+				"id": hw.id,
+				"assigned_to": hw.assigned_to,
+				"title": hw.title,
+				"due_date": hw.due_date.isoformat() if hw.due_date else None,
+			}
+			for hw in created_homeworks
+		],
 	}
 
 
