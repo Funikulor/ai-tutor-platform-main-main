@@ -1,7 +1,11 @@
 """
 Сервис авторизации с поддержкой БД
 """
+import base64
 import hashlib
+import hmac
+import json
+import os
 import secrets
 from datetime import datetime, timedelta
 from typing import Optional, Dict, List
@@ -16,6 +20,9 @@ class AuthService:
     
     def __init__(self):
         self.sessions: Dict[str, dict] = {}  # token -> user_data
+        self.token_ttl_hours = int(os.getenv("AUTH_TOKEN_TTL_HOURS", "720"))  # 30 days
+        # В продакшене задайте AUTH_SECRET_KEY в Railway Variables.
+        self.auth_secret = os.getenv("AUTH_SECRET_KEY") or os.getenv("SECRET_KEY") or "change-me-in-production"
         self._create_default_admin()
         
     def _create_default_admin(self):
@@ -76,16 +83,35 @@ class AuthService:
     def hash_password(self, password: str) -> str:
         """Хеширует пароль"""
         return hashlib.sha256(password.encode()).hexdigest()
+
+    def _base64url_encode(self, data: bytes) -> str:
+        return base64.urlsafe_b64encode(data).decode("utf-8").rstrip("=")
+
+    def _base64url_decode(self, value: str) -> bytes:
+        padding = "=" * (-len(value) % 4)
+        return base64.urlsafe_b64decode((value + padding).encode("utf-8"))
+
+    def _sign(self, payload_b64: str) -> str:
+        digest = hmac.new(
+            self.auth_secret.encode("utf-8"),
+            payload_b64.encode("utf-8"),
+            hashlib.sha256,
+        ).digest()
+        return self._base64url_encode(digest)
     
     def generate_token(self, user_id: str, role: UserRole) -> str:
-        """Генерирует токен доступа"""
-        token = secrets.token_urlsafe(32)
-        self.sessions[token] = {
+        """Генерирует подписанный stateless токен доступа"""
+        role_value = role.value if hasattr(role, "value") else str(role)
+        payload = {
             "user_id": user_id,
-            "role": role.value,
-            "created_at": datetime.now()
+            "role": role_value,
+            "iat": int(datetime.utcnow().timestamp()),
+            "exp": int((datetime.utcnow() + timedelta(hours=self.token_ttl_hours)).timestamp()),
         }
-        return token
+        payload_json = json.dumps(payload, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+        payload_b64 = self._base64url_encode(payload_json)
+        signature_b64 = self._sign(payload_b64)
+        return f"{payload_b64}.{signature_b64}"
     
     def register_user(self, email: str, password: str, full_name: str, 
                      role: UserRole, class_id: Optional[str] = None,
@@ -209,11 +235,34 @@ class AuthService:
     
     def get_user_from_token(self, token: str) -> Optional[Dict]:
         """Получает информацию о пользователе из токена"""
-        if token not in self.sessions:
-            return None
-        
-        session = self.sessions[token]
-        user_id = session["user_id"]
+        user_id = None
+
+        # Backward compatibility: старые in-memory токены
+        if token in self.sessions:
+            user_id = self.sessions[token]["user_id"]
+        else:
+            # Новый stateless формат: payload.signature
+            try:
+                payload_b64, signature_b64 = token.split(".", 1)
+            except ValueError:
+                return None
+
+            expected_signature = self._sign(payload_b64)
+            if not hmac.compare_digest(signature_b64, expected_signature):
+                return None
+
+            try:
+                payload_raw = self._base64url_decode(payload_b64)
+                payload = json.loads(payload_raw.decode("utf-8"))
+            except Exception:
+                return None
+
+            exp = payload.get("exp")
+            user_id = payload.get("user_id")
+            if not user_id or not isinstance(exp, int):
+                return None
+            if exp < int(datetime.utcnow().timestamp()):
+                return None
         
         # Пробуем получить из БД
         if has_db():

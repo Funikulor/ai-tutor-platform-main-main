@@ -1,40 +1,245 @@
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import { Users, TrendingDown, AlertCircle, Download, Filter, BarChart3, FileText } from 'lucide-react';
 import { TestCreator } from './TestCreator';
+import api from '../services/api';
+import { createHomework } from '../services/homework';
+import { toast } from 'sonner';
+
+type StudentStatus = 'excellent' | 'good' | 'average' | 'needs-help';
+
+interface StudentRow {
+  student: string;
+  score: number;
+  topics: number;
+  errors: number;
+  status: StudentStatus;
+  user_id: string;
+}
+
+interface CommonErrorRow {
+  topic: string;
+  students: number;
+  errorType: string;
+  frequency: number;
+}
+
+interface TopicPerformanceRow {
+  topic: string;
+  avgScore: number;
+  completion: number;
+}
+
+interface ClassAnalyticsResponse {
+  classData?: StudentRow[];
+  commonErrors?: CommonErrorRow[];
+  topicPerformance?: TopicPerformanceRow[];
+  totalStudents?: number;
+  averageScore?: number;
+  needsHelpCount?: number;
+}
+
+interface UserRow {
+  user_id: string;
+  role: string;
+  class_id?: string | null;
+  full_name?: string;
+  email?: string;
+  phone?: string | null;
+}
+
+interface ParentContact {
+  full_name: string;
+  phone: string;
+}
 
 export function TeacherDashboard() {
   const [selectedClass, setSelectedClass] = useState('9А');
   const [currentView, setCurrentView] = useState<'analytics' | 'tests'>('analytics');
+  const [classData, setClassData] = useState<StudentRow[]>([]);
+  const [commonErrors, setCommonErrors] = useState<CommonErrorRow[]>([]);
+  const [topicPerformance, setTopicPerformance] = useState<TopicPerformanceRow[]>([]);
+  const [availableClasses, setAvailableClasses] = useState<string[]>([]);
+  const [parentContactsByStudentId, setParentContactsByStudentId] = useState<Record<string, ParentContact>>({});
+  const [loading, setLoading] = useState(false);
+  const [assigningStudentId, setAssigningStudentId] = useState<string | null>(null);
 
-  // Class performance data
-  const classData = [
-    { student: 'Иванов А.', score: 92, topics: 18, errors: 5, status: 'excellent' },
-    { student: 'Петрова М.', score: 88, topics: 17, errors: 8, status: 'good' },
-    { student: 'Сидоров П.', score: 75, topics: 15, errors: 12, status: 'average' },
-    { student: 'Козлова Е.', score: 65, topics: 14, errors: 18, status: 'needs-help' },
-    { student: 'Новиков Д.', score: 58, topics: 12, errors: 25, status: 'needs-help' },
-    { student: 'Федорова А.', score: 85, topics: 16, errors: 9, status: 'good' },
-    { student: 'Смирнов И.', score: 79, topics: 15, errors: 11, status: 'average' },
-    { student: 'Морозова К.', score: 91, topics: 18, errors: 6, status: 'excellent' }
-  ];
+  const averageScore = useMemo(() => {
+    if (classData.length === 0) return 0;
+    return Math.round(classData.reduce((acc, s) => acc + s.score, 0) / classData.length);
+  }, [classData]);
 
-  // Common errors across class
-  const commonErrors = [
-    { topic: 'Теорема Пифагора', students: 12, errorType: 'Концептуальная', frequency: 85 },
-    { topic: 'Квадратные уравнения', students: 8, errorType: 'Вычислительная', frequency: 62 },
-    { topic: 'Тригонометрия', students: 15, errorType: 'Концептуальная', frequency: 95 },
-    { topic: 'Проценты', students: 5, errorType: 'Опечатки', frequency: 38 }
-  ];
+  const needsHelpCount = useMemo(
+    () => classData.filter((s) => s.status === 'needs-help').length,
+    [classData]
+  );
 
-  // Topic performance
-  const topicPerformance = [
-    { topic: 'Линейные уравнения', avgScore: 88, completion: 95 },
-    { topic: 'Квадратные уравнения', avgScore: 75, completion: 80 },
-    { topic: 'Теорема Пифагора', avgScore: 62, completion: 70 },
-    { topic: 'Тригонометрия', avgScore: 55, completion: 60 },
-    { topic: 'Проценты', avgScore: 82, completion: 90 }
-  ];
+  useEffect(() => {
+    const loadAnalytics = async () => {
+      setLoading(true);
+      try {
+        const [analyticsResponse, usersResponse] = await Promise.all([
+          api.get<ClassAnalyticsResponse>('/teacher/class-analytics', {
+            params: selectedClass ? { class_id: selectedClass } : undefined,
+          }),
+          api.get<UserRow[]>('/all'),
+        ]);
+
+        const users = Array.isArray(usersResponse.data) ? usersResponse.data : [];
+        const students = users.filter((u) => u.role === 'student');
+        const parents = users.filter((u) => u.role === 'parent');
+
+        const classes = Array.from(
+          new Set(students.map((s) => s.class_id).filter((v): v is string => !!v))
+        ).sort((a, b) => a.localeCompare(b, 'ru'));
+        if (classes.length > 0) {
+          setAvailableClasses(classes);
+          if (!classes.includes(selectedClass)) {
+            setSelectedClass(classes[0]);
+          }
+        }
+
+        const studentClassById: Record<string, string> = {};
+        students.forEach((student) => {
+          if (student.user_id && student.class_id) {
+            studentClassById[student.user_id] = student.class_id;
+          }
+        });
+
+        const parentsByClass: Record<string, ParentContact[]> = {};
+        parents.forEach((parent) => {
+          const classId = parent.class_id || '';
+          if (!classId) return;
+          if (!parentsByClass[classId]) {
+            parentsByClass[classId] = [];
+          }
+          if (parent.phone) {
+            parentsByClass[classId].push({
+              full_name: parent.full_name || parent.email || parent.user_id,
+              phone: parent.phone,
+            });
+          }
+        });
+
+        const allParents = Object.values(parentsByClass).flat();
+        const analytics = analyticsResponse.data || {};
+        const nextClassData = (analytics.classData || []).map((student) => {
+          const status = student.status || (
+            student.score >= 85 ? 'excellent' :
+            student.score >= 70 ? 'good' :
+            student.score >= 60 ? 'average' :
+            'needs-help'
+          );
+          return {
+            ...student,
+            status,
+          };
+        });
+
+        const contacts: Record<string, ParentContact> = {};
+        nextClassData.forEach((student) => {
+          const classId = studentClassById[student.user_id];
+          const byClass = classId ? parentsByClass[classId] : [];
+          const contact = byClass?.[0] || allParents[0];
+          if (contact && student.user_id) {
+            contacts[student.user_id] = contact;
+          }
+        });
+
+        setParentContactsByStudentId(contacts);
+        setClassData(nextClassData);
+        setCommonErrors(analytics.commonErrors || []);
+        setTopicPerformance(analytics.topicPerformance || []);
+      } catch (error: any) {
+        const message = error?.response?.data?.detail || 'Не удалось загрузить аналитику класса';
+        toast.error(message);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    if (currentView === 'analytics') {
+      loadAnalytics();
+    }
+  }, [selectedClass, currentView]);
+
+  const handleExport = () => {
+    if (classData.length === 0) {
+      toast.info('Нет данных для экспорта');
+      return;
+    }
+
+    const rows = classData.map((student) => {
+      const contact = parentContactsByStudentId[student.user_id];
+      return [
+        student.student,
+        student.score,
+        student.topics,
+        student.errors,
+        student.status,
+        contact?.full_name || '',
+        contact?.phone || '',
+      ];
+    });
+
+    const csvHeader = [
+      'Ученик',
+      'Средний балл',
+      'Изучено тем',
+      'Ошибок',
+      'Статус',
+      'Родитель',
+      'Телефон родителя',
+    ];
+    const csvContent = [csvHeader, ...rows]
+      .map((row) => row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(','))
+      .join('\n');
+
+    const blob = new Blob(['\uFEFF' + csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `analytics_${selectedClass}_${new Date().toISOString().slice(0, 10)}.csv`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+    toast.success('Экспорт аналитики завершен');
+  };
+
+  const handleAssignBeforeLesson = async (student: StudentRow) => {
+    setAssigningStudentId(student.user_id);
+    try {
+      const dueDate = new Date();
+      dueDate.setDate(dueDate.getDate() + 1);
+      dueDate.setHours(18, 0, 0, 0);
+
+      const focusTopic = commonErrors[0]?.topic || 'Базовые темы';
+      await createHomework({
+        title: `Подготовка до занятия: ${focusTopic}`,
+        description: `Индивидуальное задание для ${student.student}. Цель: подтянуть тему "${focusTopic}" до следующего урока.`,
+        subject: 'Математика',
+        due_date: dueDate.toISOString(),
+        assigned_to: student.user_id,
+        created_by: localStorage.getItem('user_id') || undefined,
+      });
+      toast.success(`Задание назначено ученику ${student.student}`);
+    } catch (error: any) {
+      const message = error?.response?.data?.detail || 'Не удалось назначить задание';
+      toast.error(message);
+    } finally {
+      setAssigningStudentId(null);
+    }
+  };
+
+  const handleShowParentContact = (student: StudentRow) => {
+    const contact = parentContactsByStudentId[student.user_id];
+    if (!contact) {
+      toast.error(`Контакт родителя для ${student.student} не найден`);
+      return;
+    }
+    toast.info(`Родитель: ${contact.full_name} • ${contact.phone}`);
+  };
 
   const getStatusBadge = (status: string) => {
     const styles = {
@@ -103,15 +308,20 @@ export function TeacherDashboard() {
               onChange={(e) => setSelectedClass(e.target.value)}
               className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
             >
-              <option value="9А">Класс 9А</option>
-              <option value="9Б">Класс 9Б</option>
-              <option value="10А">Класс 10А</option>
+              {(availableClasses.length > 0 ? availableClasses : ['9А', '9Б', '10А']).map((classId) => (
+                <option key={classId} value={classId}>
+                  Класс {classId}
+                </option>
+              ))}
             </select>
             <button className="flex items-center gap-2 px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors">
               <Filter className="w-4 h-4" />
               Фильтры
             </button>
-            <button className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors">
+            <button
+              onClick={handleExport}
+              className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+            >
               <Download className="w-4 h-4" />
               Экспорт
             </button>
@@ -136,7 +346,7 @@ export function TeacherDashboard() {
             <div>
               <p className="text-gray-600 text-sm">Средний балл</p>
               <p className="text-3xl text-gray-900 mt-1">
-                {Math.round(classData.reduce((acc, s) => acc + s.score, 0) / classData.length)}%
+                {averageScore}%
               </p>
             </div>
             <TrendingDown className="w-10 h-10 text-green-500" />
@@ -148,7 +358,7 @@ export function TeacherDashboard() {
             <div>
               <p className="text-gray-600 text-sm">Нужна помощь</p>
               <p className="text-3xl text-gray-900 mt-1">
-                {classData.filter(s => s.status === 'needs-help').length}
+                {needsHelpCount}
               </p>
             </div>
             <AlertCircle className="w-10 h-10 text-red-500" />
@@ -160,7 +370,9 @@ export function TeacherDashboard() {
             <div>
               <p className="text-gray-600 text-sm">Завершено тем</p>
               <p className="text-3xl text-gray-900 mt-1">
-                {Math.round(classData.reduce((acc, s) => acc + s.topics, 0) / classData.length)}
+                {classData.length > 0
+                  ? Math.round(classData.reduce((acc, s) => acc + s.topics, 0) / classData.length)
+                  : 0}
               </p>
             </div>
             <div className="w-10 h-10 bg-purple-100 rounded-full flex items-center justify-center text-purple-600 text-xl">
@@ -186,8 +398,8 @@ export function TeacherDashboard() {
               </tr>
             </thead>
             <tbody>
-              {classData.map((student, index) => (
-                <tr key={index} className="border-b border-gray-100 hover:bg-gray-50 transition-colors">
+              {classData.map((student) => (
+                <tr key={student.user_id} className="border-b border-gray-100 hover:bg-gray-50 transition-colors">
                   <td className="py-4 px-4">
                     <div className="flex items-center gap-3">
                       <div className="w-10 h-10 bg-gradient-to-br from-blue-400 to-purple-500 rounded-full flex items-center justify-center text-white">
@@ -225,7 +437,14 @@ export function TeacherDashboard() {
                     </button>
                   </td>
                 </tr>
-              ))}
+            ))}
+            {!loading && classData.length === 0 && (
+              <tr>
+                <td className="py-6 px-4 text-gray-500" colSpan={6}>
+                  Данные по классу пока отсутствуют
+                </td>
+              </tr>
+            )}
             </tbody>
           </table>
         </div>
@@ -261,6 +480,9 @@ export function TeacherDashboard() {
                 </div>
               </div>
             ))}
+            {!loading && commonErrors.length === 0 && (
+              <p className="text-sm text-gray-500">Частые ошибки пока не выявлены.</p>
+            )}
           </div>
           <button className="mt-4 w-full py-2 px-4 bg-blue-50 text-blue-600 rounded-lg hover:bg-blue-100 transition-colors text-sm">
             Создать групповое занятие по проблемным темам
@@ -294,6 +516,9 @@ export function TeacherDashboard() {
               <Bar dataKey="completion" fill="#8b5cf6" name="Завершение %" radius={[8, 8, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>
+          {!loading && topicPerformance.length === 0 && (
+            <p className="mt-3 text-sm text-gray-500">Недостаточно данных для графика тем.</p>
+          )}
         </div>
       </div>
 
@@ -320,12 +545,24 @@ export function TeacherDashboard() {
                   </div>
                 </div>
                 <div className="space-y-2">
-                  <button className="w-full py-2 px-3 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors text-sm">
-                    Назначить дополнительные занятия
+                  <button
+                    onClick={() => handleAssignBeforeLesson(student)}
+                    disabled={assigningStudentId === student.user_id}
+                    className="w-full py-2 px-3 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors text-sm disabled:opacity-60"
+                  >
+                    {assigningStudentId === student.user_id ? 'Назначаем...' : 'Назначить до занятия'}
                   </button>
-                  <button className="w-full py-2 px-3 bg-white text-red-600 border border-red-300 rounded-lg hover:bg-red-50 transition-colors text-sm">
+                  <button
+                    onClick={() => handleShowParentContact(student)}
+                    className="w-full py-2 px-3 bg-white text-red-600 border border-red-300 rounded-lg hover:bg-red-50 transition-colors text-sm"
+                  >
                     Связаться с родителями
                   </button>
+                  {parentContactsByStudentId[student.user_id] && (
+                    <p className="text-xs text-red-700">
+                      {parentContactsByStudentId[student.user_id].full_name} • {parentContactsByStudentId[student.user_id].phone}
+                    </p>
+                  )}
                 </div>
               </div>
             ))}
