@@ -1,10 +1,20 @@
 import { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { AICharacter } from './AICharacter';
-import { Send, Sparkles, X, Minimize2 } from 'lucide-react';
+import { Send, Sparkles, Minimize2, Plus, Pencil, Trash2 } from 'lucide-react';
 import api from '../services/api';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import {
+  ChatMessage as PersistedChatMessage,
+  ChatSessionSummary,
+  createChatSession,
+  deleteChatSession,
+  getChatSession,
+  listChatSessions,
+  renameChatSession,
+  saveChatSessionMessages,
+} from '../services/chatSessions';
 
 interface Message {
   id: number;
@@ -21,41 +31,154 @@ interface AIChatPanelProps {
 }
 
 export function AIChatPanel({ isMinimized = false, onToggleMinimize, fullscreen = false }: AIChatPanelProps) {
-  // Загружаем сообщения из localStorage при инициализации
+  const userId = localStorage.getItem('user_id') || '';
+
+  const getInitialMessage = (): Message => ({
+    id: 1,
+    text: 'Привет! Я твой AI-помощник 🌟 Готов помочь тебе с учебой! О чем хочешь поговорить?',
+    sender: 'ai',
+    timestamp: new Date(),
+    emotion: 'happy',
+  });
+
+  // Fallback only when user_id is missing.
   const loadMessagesFromStorage = (): Message[] => {
     try {
       const saved = localStorage.getItem('ai_chat_messages');
       if (saved) {
         const parsed = JSON.parse(saved);
-        // Преобразуем timestamp обратно в Date объекты
         return parsed.map((msg: any) => ({
           ...msg,
-          timestamp: new Date(msg.timestamp)
+          timestamp: new Date(msg.timestamp),
         }));
       }
     } catch (e) {
       console.error('Error loading messages from storage:', e);
     }
-    // Возвращаем начальное сообщение, если нет сохраненных
-    return [
-      {
-        id: 1,
-        text: 'Привет! Я твой AI-помощник 🌟 Готов помочь тебе с учебой! О чем хочешь поговорить?',
-        sender: 'ai',
-        timestamp: new Date(),
-        emotion: 'happy'
-      }
-    ];
+    return [getInitialMessage()];
   };
 
   const [messages, setMessages] = useState<Message[]>(loadMessagesFromStorage);
+  const [chatSessions, setChatSessions] = useState<ChatSessionSummary[]>([]);
+  const [activeChatId, setActiveChatId] = useState<string | null>(null);
+  const [loadingChats, setLoadingChats] = useState(false);
   const [inputValue, setInputValue] = useState('');
   const [isTyping, setIsTyping] = useState(false);
   const [currentEmotion, setCurrentEmotion] = useState<'happy' | 'thinking' | 'excited' | 'encouraging' | 'surprised'>('happy');
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
 
-  // Сохраняем сообщения в localStorage при каждом изменении
+  const toPersisted = (nextMessages: Message[]): PersistedChatMessage[] =>
+    nextMessages.map((m) => ({
+      id: m.id,
+      text: m.text,
+      sender: m.sender,
+      timestamp: m.timestamp.toISOString(),
+      emotion: m.emotion,
+    }));
+
+  const fromPersisted = (saved: PersistedChatMessage[]): Message[] =>
+    saved.map((m) => ({
+      ...m,
+      timestamp: new Date(m.timestamp),
+    }));
+
+  const persistCurrentChat = async (nextMessages: Message[]) => {
+    if (!userId || !activeChatId) return;
+    try {
+      await saveChatSessionMessages(userId, activeChatId, toPersisted(nextMessages));
+      const sessions = await listChatSessions(userId);
+      setChatSessions(sessions);
+    } catch (e) {
+      console.error('Error saving chat session messages:', e);
+    }
+  };
+
+  const openChat = async (chatId: string) => {
+    if (!userId) return;
+    try {
+      const chat = await getChatSession(userId, chatId);
+      const nextMessages = chat.messages?.length ? fromPersisted(chat.messages) : [getInitialMessage()];
+      setActiveChatId(chatId);
+      setMessages(nextMessages);
+    } catch (e) {
+      console.error('Error opening chat:', e);
+    }
+  };
+
+  const handleCreateChat = async () => {
+    if (!userId) {
+      setMessages([getInitialMessage()]);
+      return;
+    }
+    try {
+      const created = await createChatSession(userId, 'Новый чат');
+      const sessions = await listChatSessions(userId);
+      setChatSessions(sessions);
+      setActiveChatId(created.id);
+      setMessages([getInitialMessage()]);
+      await persistCurrentChat([getInitialMessage()]);
+    } catch (e) {
+      console.error('Error creating chat:', e);
+    }
+  };
+
+  const handleRenameChat = async () => {
+    if (!userId || !activeChatId) return;
+    const current = chatSessions.find((c) => c.id === activeChatId);
+    const nextTitle = prompt('Новое название чата', current?.title || 'Новый чат');
+    if (!nextTitle || !nextTitle.trim()) return;
+    try {
+      await renameChatSession(userId, activeChatId, nextTitle.trim());
+      setChatSessions(await listChatSessions(userId));
+    } catch (e) {
+      console.error('Error renaming chat:', e);
+    }
+  };
+
+  const handleDeleteChat = async () => {
+    if (!userId || !activeChatId) return;
+    if (!confirm('Удалить этот чат?')) return;
+    try {
+      await deleteChatSession(userId, activeChatId);
+      const sessions = await listChatSessions(userId);
+      setChatSessions(sessions);
+      if (sessions.length > 0) {
+        await openChat(sessions[0].id);
+      } else {
+        await handleCreateChat();
+      }
+    } catch (e) {
+      console.error('Error deleting chat:', e);
+    }
+  };
+
+  useEffect(() => {
+    const init = async () => {
+      if (!userId) return;
+      setLoadingChats(true);
+      try {
+        let sessions = await listChatSessions(userId);
+        if (sessions.length === 0) {
+          const created = await createChatSession(userId, 'Новый чат');
+          sessions = await listChatSessions(userId);
+          setActiveChatId(created.id);
+          setMessages([getInitialMessage()]);
+          await saveChatSessionMessages(userId, created.id, toPersisted([getInitialMessage()]));
+        } else {
+          await openChat(sessions[0].id);
+        }
+        setChatSessions(sessions);
+      } catch (e) {
+        console.error('Error initializing chat sessions:', e);
+      } finally {
+        setLoadingChats(false);
+      }
+    };
+    init();
+  }, [userId]);
+
+  // Сохраняем активный чат в localStorage для совместимости со старыми метриками.
   useEffect(() => {
     try {
       localStorage.setItem('ai_chat_messages', JSON.stringify(messages));
@@ -64,18 +187,6 @@ export function AIChatPanel({ isMinimized = false, onToggleMinimize, fullscreen 
       console.error('Error saving messages to storage:', e);
     }
   }, [messages]);
-
-  // Функция для очистки чата (опционально, можно добавить кнопку)
-  const clearChat = () => {
-    const initialMessage: Message = {
-      id: 1,
-      text: 'Привет! Я твой AI-помощник 🌟 Готов помочь тебе с учебой! О чем хочешь поговорить?',
-      sender: 'ai',
-      timestamp: new Date(),
-      emotion: 'happy'
-    };
-    setMessages([initialMessage]);
-  };
 
   const starterQuestions = [
     { text: 'Расскажи про дроби', icon: '🔢' },
@@ -119,7 +230,9 @@ export function AIChatPanel({ isMinimized = false, onToggleMinimize, fullscreen 
       sender: 'user',
       timestamp: new Date()
     };
-    setMessages(prev => [...prev, userMessage]);
+    const nextWithUser = [...messages, userMessage];
+    setMessages(nextWithUser);
+    await persistCurrentChat(nextWithUser);
     setInputValue('');
 
     // Show typing indicator
@@ -129,7 +242,7 @@ export function AIChatPanel({ isMinimized = false, onToggleMinimize, fullscreen 
     try {
       // Формируем историю сообщений для API
       const userName = localStorage.getItem('full_name') || undefined;
-      const messageHistory = [...messages, userMessage].map(msg => ({
+      const messageHistory = nextWithUser.map(msg => ({
         role: msg.sender === 'user' ? 'user' : 'assistant',
         content: msg.text
       }));
@@ -155,7 +268,9 @@ export function AIChatPanel({ isMinimized = false, onToggleMinimize, fullscreen 
         emotion: emotion
       };
 
-      setMessages(prev => [...prev, aiMessage]);
+      const nextWithAi = [...nextWithUser, aiMessage];
+      setMessages(nextWithAi);
+      await persistCurrentChat(nextWithAi);
       setCurrentEmotion(emotion);
     } catch (error: any) {
       console.error('Chat error:', error);
@@ -166,7 +281,9 @@ export function AIChatPanel({ isMinimized = false, onToggleMinimize, fullscreen 
         timestamp: new Date(),
         emotion: 'thinking'
       };
-      setMessages(prev => [...prev, errorMessage]);
+      const nextWithError = [...nextWithUser, errorMessage];
+      setMessages(nextWithError);
+      await persistCurrentChat(nextWithError);
       setCurrentEmotion('thinking');
     } finally {
       setIsTyping(false);
@@ -220,20 +337,63 @@ export function AIChatPanel({ isMinimized = false, onToggleMinimize, fullscreen 
           <AICharacter size="small" emotion={currentEmotion} isSpeaking={isTyping} />
           <div className="text-white">
             <h3 className="text-white">AI Помощник</h3>
-            <p className="text-xs text-purple-100">Всегда готов помочь!</p>
+            <p className="text-xs text-purple-100">
+              {loadingChats
+                ? 'Загрузка чатов...'
+                : chatSessions.find((c) => c.id === activeChatId)?.title || 'Всегда готов помочь!'}
+            </p>
           </div>
         </div>
-        {!fullscreen && (
-          <div className="flex gap-2">
+        <div className="flex gap-2">
+          <button
+            onClick={handleCreateChat}
+            className="w-8 h-8 rounded-lg bg-white/20 hover:bg-white/30 transition-colors flex items-center justify-center text-white"
+            title="Новый чат"
+          >
+            <Plus className="w-4 h-4" />
+          </button>
+          <button
+            onClick={handleRenameChat}
+            disabled={!activeChatId}
+            className="w-8 h-8 rounded-lg bg-white/20 hover:bg-white/30 transition-colors flex items-center justify-center text-white disabled:opacity-50"
+            title="Переименовать чат"
+          >
+            <Pencil className="w-4 h-4" />
+          </button>
+          <button
+            onClick={handleDeleteChat}
+            disabled={!activeChatId}
+            className="w-8 h-8 rounded-lg bg-white/20 hover:bg-white/30 transition-colors flex items-center justify-center text-white disabled:opacity-50"
+            title="Удалить чат"
+          >
+            <Trash2 className="w-4 h-4" />
+          </button>
+          {!fullscreen && (
             <button
               onClick={onToggleMinimize}
               className="w-8 h-8 rounded-lg bg-white/20 hover:bg-white/30 transition-colors flex items-center justify-center text-white"
             >
               <Minimize2 className="w-4 h-4" />
             </button>
-          </div>
-        )}
+          )}
+        </div>
       </div>
+
+      {chatSessions.length > 0 && (
+        <div className="px-4 py-2 bg-purple-50 border-b border-purple-100">
+          <select
+            value={activeChatId || ''}
+            onChange={(e) => openChat(e.target.value)}
+            className="w-full px-3 py-2 border border-purple-200 rounded-lg bg-white text-sm"
+          >
+            {chatSessions.map((session) => (
+              <option key={session.id} value={session.id}>
+                {session.title}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
 
       {/* Messages Area */}
       <div 

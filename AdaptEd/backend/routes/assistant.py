@@ -1,9 +1,14 @@
 from fastapi import APIRouter, HTTPException, UploadFile, File
 from pydantic import BaseModel
 from typing import List, Optional, Dict, Any
+from datetime import datetime
+from uuid import uuid4
+import json
 
 from services.assistant import get_assistant_service
 from services.student_analytics import get_analytics_service
+from utils.persistent_storage import persistent_storage
+from utils.db import has_db, get_db
 
 router = APIRouter()
 
@@ -52,6 +57,430 @@ class TaskAttemptRequest(BaseModel):
 	is_correct: bool
 	error_type: Optional[str] = None
 	time_spent_seconds: Optional[float] = None
+
+
+class ChatSessionCreateRequest(BaseModel):
+	user_id: str
+	title: Optional[str] = None
+
+
+class ChatSessionRenameRequest(BaseModel):
+	title: str
+
+
+class ChatSessionMessagesUpdateRequest(BaseModel):
+	messages: List[Dict[str, Any]]
+
+
+def _parse_iso_dt(value: Any) -> datetime:
+	if isinstance(value, datetime):
+		return value
+	if isinstance(value, str) and value.strip():
+		raw = value.strip()
+		try:
+			parsed = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+			if parsed.tzinfo is not None:
+				return parsed.replace(tzinfo=None)
+			return parsed
+		except Exception:
+			pass
+	return datetime.utcnow()
+
+
+def _safe_parse_messages(raw: Any) -> List[Dict[str, Any]]:
+	if isinstance(raw, list):
+		return raw
+	if isinstance(raw, str):
+		try:
+			parsed = json.loads(raw)
+			return parsed if isinstance(parsed, list) else []
+		except Exception:
+			return []
+	return []
+
+
+def _db_get_user_chats(user_id: str) -> Optional[List[Dict[str, Any]]]:
+	if not has_db():
+		return None
+	sess = get_db()
+	if sess is None:
+		return None
+	try:
+		from models.chat import ChatSession  # type: ignore
+		rows = (
+			sess.query(ChatSession)
+			.filter(ChatSession.user_id == user_id)
+			.order_by(ChatSession.updated_at.desc())
+			.all()
+		)
+		return [
+			{
+				"id": row.id,
+				"title": row.title or "Новый чат",
+				"created_at": row.created_at.isoformat() if row.created_at else None,
+				"updated_at": row.updated_at.isoformat() if row.updated_at else None,
+				"messages": _safe_parse_messages(row.messages_json),
+			}
+			for row in rows
+		]
+	finally:
+		try:
+			sess.close()
+		except Exception:
+			pass
+
+
+def _db_migrate_user_chats_from_storage(user_id: str):
+	"""
+	One-time migration for a user:
+	- if DB has no chats for user and persistent_storage has chats, copy them to DB
+	- then remove migrated user chats from persistent_storage
+	"""
+	if not has_db():
+		return
+	store = _chat_store()
+	legacy_chats = store.get(user_id, [])
+	if not isinstance(legacy_chats, list) or len(legacy_chats) == 0:
+		return
+
+	sess = get_db()
+	if sess is None:
+		return
+	try:
+		from models.chat import ChatSession  # type: ignore
+		db_count = sess.query(ChatSession).filter(ChatSession.user_id == user_id).count()
+		if db_count > 0:
+			return
+
+		for chat in legacy_chats:
+			row = ChatSession(
+				id=str(chat.get("id") or str(uuid4())),
+				user_id=user_id,
+				title=str(chat.get("title") or "Новый чат"),
+				messages_json=json.dumps(_safe_parse_messages(chat.get("messages")), ensure_ascii=False),
+				created_at=_parse_iso_dt(chat.get("created_at")),
+				updated_at=_parse_iso_dt(chat.get("updated_at")),
+			)
+			sess.add(row)
+		sess.commit()
+
+		# Remove migrated user chats from JSON storage to avoid split-brain state.
+		store.pop(user_id, None)
+		_save_chat_store(store)
+	except Exception:
+		sess.rollback()
+	finally:
+		try:
+			sess.close()
+		except Exception:
+			pass
+
+
+def _db_create_chat(user_id: str, chat_id: str, title: str) -> Optional[Dict[str, Any]]:
+	if not has_db():
+		return None
+	sess = get_db()
+	if sess is None:
+		return None
+	try:
+		from models.chat import ChatSession  # type: ignore
+		now = datetime.utcnow()
+		row = ChatSession(
+			id=chat_id,
+			user_id=user_id,
+			title=title,
+			messages_json="[]",
+			created_at=now,
+			updated_at=now,
+		)
+		sess.add(row)
+		sess.commit()
+		return {
+			"id": row.id,
+			"title": row.title,
+			"created_at": row.created_at.isoformat() if row.created_at else None,
+			"updated_at": row.updated_at.isoformat() if row.updated_at else None,
+			"messages": [],
+		}
+	except Exception:
+		sess.rollback()
+		return None
+	finally:
+		try:
+			sess.close()
+		except Exception:
+			pass
+
+
+def _db_update_chat_title(user_id: str, chat_id: str, title: str) -> Optional[Dict[str, Any]]:
+	if not has_db():
+		return None
+	sess = get_db()
+	if sess is None:
+		return None
+	try:
+		from models.chat import ChatSession  # type: ignore
+		row = sess.query(ChatSession).filter(ChatSession.user_id == user_id, ChatSession.id == chat_id).first()
+		if not row:
+			return None
+		row.title = title
+		row.updated_at = datetime.utcnow()
+		sess.commit()
+		return {
+			"id": row.id,
+			"title": row.title,
+			"created_at": row.created_at.isoformat() if row.created_at else None,
+			"updated_at": row.updated_at.isoformat() if row.updated_at else None,
+			"messages": _safe_parse_messages(row.messages_json),
+		}
+	except Exception:
+		sess.rollback()
+		return None
+	finally:
+		try:
+			sess.close()
+		except Exception:
+			pass
+
+
+def _db_delete_chat(user_id: str, chat_id: str) -> Optional[bool]:
+	if not has_db():
+		return None
+	sess = get_db()
+	if sess is None:
+		return None
+	try:
+		from models.chat import ChatSession  # type: ignore
+		row = sess.query(ChatSession).filter(ChatSession.user_id == user_id, ChatSession.id == chat_id).first()
+		if not row:
+			return False
+		sess.delete(row)
+		sess.commit()
+		return True
+	except Exception:
+		sess.rollback()
+		return False
+	finally:
+		try:
+			sess.close()
+		except Exception:
+			pass
+
+
+def _db_save_chat_messages(user_id: str, chat_id: str, messages: List[Dict[str, Any]], generated_title: Optional[str]) -> Optional[Dict[str, Any]]:
+	if not has_db():
+		return None
+	sess = get_db()
+	if sess is None:
+		return None
+	try:
+		from models.chat import ChatSession  # type: ignore
+		row = sess.query(ChatSession).filter(ChatSession.user_id == user_id, ChatSession.id == chat_id).first()
+		if not row:
+			return None
+		row.messages_json = json.dumps(messages, ensure_ascii=False)
+		if generated_title and (row.title in (None, "", "Новый чат")):
+			row.title = generated_title
+		row.updated_at = datetime.utcnow()
+		sess.commit()
+		return {
+			"id": row.id,
+			"title": row.title,
+			"created_at": row.created_at.isoformat() if row.created_at else None,
+			"updated_at": row.updated_at.isoformat() if row.updated_at else None,
+			"messages": messages,
+		}
+	except Exception:
+		sess.rollback()
+		return None
+	finally:
+		try:
+			sess.close()
+		except Exception:
+			pass
+
+
+def _chat_store() -> Dict[str, List[Dict[str, Any]]]:
+	store = persistent_storage.get("chat_sessions", {})
+	if not isinstance(store, dict):
+		store = {}
+	return store
+
+
+def _save_chat_store(store: Dict[str, List[Dict[str, Any]]]):
+	persistent_storage.set("chat_sessions", store)
+
+
+def _get_user_chats(user_id: str) -> List[Dict[str, Any]]:
+	_db_migrate_user_chats_from_storage(user_id)
+	db_chats = _db_get_user_chats(user_id)
+	if db_chats is not None:
+		return db_chats
+	store = _chat_store()
+	chats = store.get(user_id, [])
+	if not isinstance(chats, list):
+		return []
+	return chats
+
+
+def _find_chat(user_id: str, chat_id: str) -> Optional[Dict[str, Any]]:
+	chats = _get_user_chats(user_id)
+	for chat in chats:
+		if chat.get("id") == chat_id:
+			return chat
+	return None
+
+
+def _generate_chat_title(first_message: str) -> str:
+	text = (first_message or "").strip()
+	if not text:
+		return "Новый чат"
+	try:
+		assistant_service = get_assistant_service()
+		prompt = (
+			"Сгенерируй короткое название чата (2-6 слов) по сообщению ученика. "
+			"Верни только название без кавычек и без точки.\n"
+			f"Сообщение: {text}"
+		)
+		raw = assistant_service._generate(prompt, max_new_tokens=32).strip()
+		candidate = raw.split("\n")[0].strip().strip('"').strip("'")
+		if candidate:
+			return candidate[:80]
+	except Exception:
+		pass
+	return text[:60] + ("..." if len(text) > 60 else "")
+
+
+@router.get("/assistant/chats/{user_id}", response_model=List[Dict[str, Any]])
+async def list_chats(user_id: str):
+	try:
+		chats = _get_user_chats(user_id)
+		ordered = sorted(chats, key=lambda c: c.get("updated_at", ""), reverse=True)
+		return [
+			{
+				"id": chat.get("id"),
+				"title": chat.get("title", "Новый чат"),
+				"created_at": chat.get("created_at"),
+				"updated_at": chat.get("updated_at"),
+				"message_count": len(chat.get("messages", [])),
+			}
+			for chat in ordered
+		]
+	except Exception as e:
+		raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/assistant/chats", response_model=Dict[str, Any])
+async def create_chat(req: ChatSessionCreateRequest):
+	try:
+		chat_id = str(uuid4())
+		db_chat = _db_create_chat(req.user_id, chat_id, req.title or "Новый чат")
+		if db_chat is not None:
+			return db_chat
+
+		store = _chat_store()
+		if req.user_id not in store:
+			store[req.user_id] = []
+		now = datetime.utcnow().isoformat()
+		chat = {
+			"id": chat_id,
+			"title": req.title or "Новый чат",
+			"created_at": now,
+			"updated_at": now,
+			"messages": [],
+		}
+		store[req.user_id].append(chat)
+		_save_chat_store(store)
+		return chat
+	except Exception as e:
+		raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/assistant/chats/{user_id}/{chat_id}", response_model=Dict[str, Any])
+async def get_chat(user_id: str, chat_id: str):
+	try:
+		chat = _find_chat(user_id, chat_id)
+		if not chat:
+			raise HTTPException(status_code=404, detail="Chat not found")
+		return chat
+	except HTTPException:
+		raise
+	except Exception as e:
+		raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.put("/assistant/chats/{user_id}/{chat_id}", response_model=Dict[str, Any])
+async def rename_chat(user_id: str, chat_id: str, req: ChatSessionRenameRequest):
+	try:
+		db_chat = _db_update_chat_title(user_id, chat_id, req.title.strip() or "Новый чат")
+		if db_chat is not None:
+			return db_chat
+
+		store = _chat_store()
+		chats = store.get(user_id, [])
+		for chat in chats:
+			if chat.get("id") == chat_id:
+				chat["title"] = req.title.strip() or "Новый чат"
+				chat["updated_at"] = datetime.utcnow().isoformat()
+				_save_chat_store(store)
+				return chat
+		raise HTTPException(status_code=404, detail="Chat not found")
+	except HTTPException:
+		raise
+	except Exception as e:
+		raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.delete("/assistant/chats/{user_id}/{chat_id}", response_model=Dict[str, Any])
+async def delete_chat(user_id: str, chat_id: str):
+	try:
+		db_result = _db_delete_chat(user_id, chat_id)
+		if db_result is True:
+			return {"ok": True}
+		if db_result is False:
+			raise HTTPException(status_code=404, detail="Chat not found")
+
+		store = _chat_store()
+		chats = store.get(user_id, [])
+		next_chats = [chat for chat in chats if chat.get("id") != chat_id]
+		if len(next_chats) == len(chats):
+			raise HTTPException(status_code=404, detail="Chat not found")
+		store[user_id] = next_chats
+		_save_chat_store(store)
+		return {"ok": True}
+	except HTTPException:
+		raise
+	except Exception as e:
+		raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.put("/assistant/chats/{user_id}/{chat_id}/messages", response_model=Dict[str, Any])
+async def save_chat_messages(user_id: str, chat_id: str, req: ChatSessionMessagesUpdateRequest):
+	try:
+		generated_title = None
+		first_user = next((m for m in req.messages if m.get("sender") == "user"), None)
+		if first_user and first_user.get("text"):
+			generated_title = _generate_chat_title(str(first_user.get("text")))
+
+		db_chat = _db_save_chat_messages(user_id, chat_id, req.messages, generated_title)
+		if db_chat is not None:
+			return db_chat
+
+		store = _chat_store()
+		chats = store.get(user_id, [])
+		for chat in chats:
+			if chat.get("id") == chat_id:
+				chat["messages"] = req.messages
+				chat["updated_at"] = datetime.utcnow().isoformat()
+				if chat.get("title") in (None, "", "Новый чат") and generated_title:
+					chat["title"] = generated_title
+				_save_chat_store(store)
+				return chat
+		raise HTTPException(status_code=404, detail="Chat not found")
+	except HTTPException:
+		raise
+	except Exception as e:
+		raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.post("/assistant/chat", response_model=Dict[str, Any])

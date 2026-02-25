@@ -64,6 +64,7 @@ def init_db():
 	# import models to register metadata (only when SQLAlchemy is available)
 	try:
 		from models.document import Document  # noqa: F401
+		from models.chat import ChatSession  # noqa: F401
 		from models.homework import Homework, HomeworkSubmission  # noqa: F401
 		from models.test import Test, TestQuestion, TestSubmission  # noqa: F401
 		from models.user_db import User  # noqa: F401
