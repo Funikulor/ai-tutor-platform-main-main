@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, type ReactElement } from 'react';
-import { ArrowLeft, BookOpen, Video, FileText, Clock, Star, Download, Share2, CheckCircle, Target, Lightbulb, AlertCircle, Zap } from 'lucide-react';
+import { ArrowLeft, BookOpen, Video, FileText, Star, Download, Share2, CheckCircle, Target, Lightbulb, AlertCircle, Zap } from 'lucide-react';
 import { motion } from 'motion/react';
 import type { Material } from './LibraryTab';
 import api from '../services/api';
@@ -192,6 +192,7 @@ export function MaterialViewer({ material, onBack, onStudyComplete }: MaterialVi
   const [isMarking, setIsMarking] = useState(false);
   const startTimeRef = useRef<number>(Date.now());
   const contentRef = useRef<HTMLDivElement>(null);
+  const autoMarkedRef = useRef(false);
   
   // Отслеживаем время изучения
   useEffect(() => {
@@ -263,11 +264,12 @@ export function MaterialViewer({ material, onBack, onStudyComplete }: MaterialVi
     }
   };
   
-  const formatTime = (seconds: number) => {
-    const mins = Math.floor(seconds / 60);
-    const secs = seconds % 60;
-    return `${mins}:${secs.toString().padStart(2, '0')}`;
-  };
+  useEffect(() => {
+    if (scrollProgress >= 95 && !isStudied && !isMarking && !autoMarkedRef.current) {
+      autoMarkedRef.current = true;
+      handleMarkAsStudied();
+    }
+  }, [scrollProgress, isStudied, isMarking]);
 
   const handleShare = async () => {
     const shareData = {
@@ -622,8 +624,8 @@ export function MaterialViewer({ material, onBack, onStudyComplete }: MaterialVi
                 {material.topic}
               </span>
             </div>
-            <h1 className="text-white text-3xl mb-3">{material.title}</h1>
-            <p className="text-white/90 text-lg mb-4">{material.description}</p>
+            <h1 className="text-white text-2xl mb-3">{material.title}</h1>
+            <p className="text-white/90 mb-4">{material.description}</p>
             
             <div className="flex items-center gap-6">
               <div className="flex items-center gap-2">
@@ -658,104 +660,59 @@ export function MaterialViewer({ material, onBack, onStudyComplete }: MaterialVi
         </div>
       </div>
 
-      {/* Study Progress Bar */}
-      <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
-        <div className="flex items-center justify-between mb-2">
-          <div className="flex items-center gap-4">
-            <div className="flex items-center gap-2 text-gray-600">
-              <Clock className="w-4 h-4" />
-              <span className="text-sm">Время изучения: {formatTime(timeSpent)}</span>
-            </div>
-            <div className="flex items-center gap-2 text-gray-600">
-              <Target className="w-4 h-4" />
-              <span className="text-sm">Прогресс: {Math.round(scrollProgress)}%</span>
-            </div>
+      <div className="grid grid-cols-1 xl:grid-cols-3 gap-6 items-start">
+        <div className="xl:col-span-2 space-y-6">
+          {/* Content */}
+          <div 
+            ref={contentRef}
+            className="bg-white rounded-2xl shadow-sm border border-gray-200 p-8 max-h-[600px] overflow-y-auto"
+          >
+            {renderContent()}
           </div>
-          {isStudied ? (
-            <div className="flex items-center gap-2 text-green-600">
-              <CheckCircle className="w-5 h-5" />
-              <span className="text-sm font-semibold">Изучено</span>
+
+          {/* Practice Section (показываем в конце материала) */}
+          {(scrollProgress >= 95 || isStudied) && (
+            <div className="bg-gradient-to-br from-green-50 to-emerald-50 rounded-2xl p-6 border-2 border-green-200">
+              <div className="flex items-center justify-between gap-4">
+                <div>
+                  <h3 className="text-gray-900 mb-2">Готов проверить знания?</h3>
+                  <p className="text-gray-600">
+                    {isStudied
+                      ? 'Отлично! Теперь закрепи материал, решив адаптивные задания по этой теме'
+                      : 'Материал дочитан. Можно переходить к практике.'}
+                  </p>
+                </div>
+                <button 
+                  onClick={() => {
+                    // Переходим к адаптивным заданиям с выбранной темой
+                    const event = new CustomEvent('navigateToTasks', { detail: { topic: material.topic } });
+                    window.dispatchEvent(event);
+                  }}
+                  className="px-6 py-3 bg-green-600 text-white rounded-xl hover:bg-green-700 transition-colors flex items-center gap-2"
+                >
+                  <Target className="w-5 h-5" />
+                  Практиковаться
+                </button>
+              </div>
             </div>
-          ) : (
-            <button
-              onClick={handleMarkAsStudied}
-              disabled={isMarking || scrollProgress < 50}
-              className="px-6 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
-            >
-              {isMarking ? (
-                <>
-                  <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                  Сохранение...
-                </>
-              ) : (
-                <>
-                  <CheckCircle className="w-4 h-4" />
-                  Отметить как изученное
-                </>
-              )}
-            </button>
           )}
         </div>
-        <div className="h-2 bg-gray-200 rounded-full overflow-hidden">
-          <div
-            className="h-full bg-gradient-to-r from-blue-500 to-purple-600 transition-all duration-300"
-            style={{ width: `${scrollProgress}%` }}
-          />
-        </div>
-        {scrollProgress < 50 && !isStudied && (
-          <p className="text-xs text-gray-500 mt-2">
-            Прокрутите материал до конца, чтобы отметить его как изученный (минимум 50%)
-          </p>
-        )}
-      </div>
 
-      {/* Content */}
-      <div 
-        ref={contentRef}
-        className="bg-white rounded-2xl shadow-sm border border-gray-200 p-8 max-h-[600px] overflow-y-auto"
-      >
-        {renderContent()}
-      </div>
-
-      {/* Related Materials */}
-      <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6">
-        <h3 className="text-gray-900 mb-4">Связанные материалы</h3>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          {[1, 2, 3].map((i) => (
-            <div key={i} className="p-4 border border-gray-200 rounded-lg hover:border-blue-400 transition-colors cursor-pointer">
-              <div className="flex items-center gap-3 mb-2">
-                <BookOpen className="w-5 h-5 text-blue-600" />
-                <span className="text-sm text-gray-900">Связанная тема {i}</span>
+        {/* Related Materials */}
+        <aside className="xl:col-span-1 bg-white rounded-2xl shadow-sm border border-gray-200 p-6">
+          <h3 className="text-gray-900 mb-4">Связанные материалы</h3>
+          <div className="space-y-3">
+            {[1, 2, 3].map((i) => (
+              <div key={i} className="p-4 border border-gray-200 rounded-lg hover:border-blue-400 transition-colors cursor-pointer">
+                <div className="flex items-center gap-3 mb-2">
+                  <BookOpen className="w-5 h-5 text-blue-600" />
+                  <span className="text-sm text-gray-900">Связанная тема {i}</span>
+                </div>
+                <p className="text-xs text-gray-500">Дополнительный материал для углубленного изучения</p>
               </div>
-              <p className="text-xs text-gray-500">Дополнительный материал для углубленного изучения</p>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      {/* Practice Section */}
-      <div className="bg-gradient-to-br from-green-50 to-emerald-50 rounded-2xl p-6 border-2 border-green-200">
-        <div className="flex items-center justify-between">
-          <div>
-            <h3 className="text-gray-900 mb-2">Готов проверить знания?</h3>
-            <p className="text-gray-600">
-              {isStudied 
-                ? "Отлично! Теперь закрепи материал, решив адаптивные задания по этой теме"
-                : "После изучения материала перейди к адаптивным заданиям для закрепления"}
-            </p>
+            ))}
           </div>
-          <button 
-            onClick={() => {
-              // Переходим к адаптивным заданиям с выбранной темой
-              const event = new CustomEvent('navigateToTasks', { detail: { topic: material.topic } });
-              window.dispatchEvent(event);
-            }}
-            className="px-6 py-3 bg-green-600 text-white rounded-xl hover:bg-green-700 transition-colors flex items-center gap-2"
-          >
-            <Target className="w-5 h-5" />
-            Практиковаться
-          </button>
-        </div>
+        </aside>
       </div>
     </motion.div>
   );

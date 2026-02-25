@@ -886,21 +886,6 @@ x₁,₂ = (-b ± √D) / 2a
                 </div>
               </div>
               
-              {/* Progress Bar for Topic */}
-              {getTopicMastery(material.topic) > 0 && (
-                <div className="mt-2 pt-2 border-t border-gray-100">
-                  <div className="flex items-center justify-between mb-1">
-                    <span className="text-xs text-gray-600">Прогресс по теме "{material.topic}"</span>
-                    <span className="text-xs font-semibold text-blue-600">{getTopicMastery(material.topic)}%</span>
-                  </div>
-                  <div className="h-1.5 bg-gray-200 rounded-full overflow-hidden">
-                    <div
-                      className="h-full bg-gradient-to-r from-blue-500 to-purple-600 transition-all"
-                      style={{ width: `${getTopicMastery(material.topic)}%` }}
-                    />
-                  </div>
-                </div>
-              )}
             </div>
           </motion.div>
         ))}
