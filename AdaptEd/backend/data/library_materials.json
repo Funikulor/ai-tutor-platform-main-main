@@ -1,0 +1,74 @@
+[
+  {
+    "id": "math-algebra-basics",
+    "type": "article",
+    "title": "Основы алгебры: полное руководство",
+    "description": "Систематизация базовых знаний по алгебре: уравнения, неравенства, функции",
+    "subject": "Математика",
+    "topic": "Алгебра",
+    "difficulty": "beginner",
+    "duration": "15 мин",
+    "rating": 4.8,
+    "content": "# Основы алгебры\n\nАлгебра помогает находить неизвестные величины и строить модели.\n\n## Линейные уравнения\n\nФорма: ax + b = 0.\n\n## Квадратные уравнения\n\nФорма: ax^2 + bx + c = 0.\n\nДискриминант: D = b^2 - 4ac.\n"
+  },
+  {
+    "id": "math-pythagorean",
+    "type": "article",
+    "title": "Теорема Пифагора: теория и примеры",
+    "description": "Подробное объяснение теоремы с практическими примерами",
+    "subject": "Математика",
+    "topic": "Геометрия",
+    "difficulty": "intermediate",
+    "duration": "20 мин",
+    "rating": 4.9,
+    "content": "# Теорема Пифагора\n\nВ прямоугольном треугольнике c^2 = a^2 + b^2.\n\n## Пример\n\nЕсли катеты 3 и 4, то гипотенуза 5.\n"
+  },
+  {
+    "id": "math-advanced-problems",
+    "type": "video",
+    "title": "Решение задач повышенной сложности",
+    "description": "Видеокурс с пошаговым разбором сложных задач",
+    "subject": "Математика",
+    "topic": "Смешанные темы",
+    "difficulty": "advanced",
+    "duration": "45 мин",
+    "rating": 4.7,
+    "videoUrl": "https://example.com/video"
+  },
+  {
+    "id": "math-fractions-pdf",
+    "type": "pdf",
+    "title": "Дроби: от простого к сложному",
+    "description": "Справочник по обыкновенным и десятичным дробям",
+    "subject": "Математика",
+    "topic": "Арифметика",
+    "difficulty": "beginner",
+    "duration": "30 мин",
+    "rating": 4.9,
+    "pdfUrl": "/materials/fractions.pdf"
+  },
+  {
+    "id": "physics-kinematics",
+    "type": "article",
+    "title": "Основы кинематики",
+    "description": "Движение, скорость, ускорение — базовые понятия механики",
+    "subject": "Физика",
+    "topic": "Механика",
+    "difficulty": "beginner",
+    "duration": "20 мин",
+    "rating": 4.5,
+    "content": "# Основы кинематики\n\nКинематика изучает движение без учета причин.\n\nСкорость: v = s / t.\n"
+  },
+  {
+    "id": "russian-punctuation",
+    "type": "article",
+    "title": "Пунктуация: запятые в сложных предложениях",
+    "description": "Правила постановки запятых, разбор сложных случаев",
+    "subject": "Русский язык",
+    "topic": "Пунктуация",
+    "difficulty": "intermediate",
+    "duration": "15 мин",
+    "rating": 4.4,
+    "content": "# Пунктуация\n\nЗапятые в сложносочиненных предложениях зависят от союза и структуры частей.\n"
+  }
+]
