@@ -53,7 +53,7 @@ interface ParentContact {
 }
 
 export function TeacherDashboard() {
-  const [selectedClass, setSelectedClass] = useState('9А');
+  const [selectedClass, setSelectedClass] = useState('all');
   const [currentView, setCurrentView] = useState<'analytics' | 'tests'>('analytics');
   const [classData, setClassData] = useState<StudentRow[]>([]);
   const [commonErrors, setCommonErrors] = useState<CommonErrorRow[]>([]);
@@ -62,15 +62,26 @@ export function TeacherDashboard() {
   const [parentContactsByStudentId, setParentContactsByStudentId] = useState<Record<string, ParentContact>>({});
   const [loading, setLoading] = useState(false);
   const [assigningStudentId, setAssigningStudentId] = useState<string | null>(null);
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const [statusFilter, setStatusFilter] = useState<'all' | StudentStatus>('all');
+  const [minScoreFilter, setMinScoreFilter] = useState(0);
+
+  const visibleStudents = useMemo(() => {
+    return classData.filter((student) => {
+      const statusOk = statusFilter === 'all' || student.status === statusFilter;
+      const scoreOk = student.score >= minScoreFilter;
+      return statusOk && scoreOk;
+    });
+  }, [classData, statusFilter, minScoreFilter]);
 
   const averageScore = useMemo(() => {
-    if (classData.length === 0) return 0;
-    return Math.round(classData.reduce((acc, s) => acc + s.score, 0) / classData.length);
-  }, [classData]);
+    if (visibleStudents.length === 0) return 0;
+    return Math.round(visibleStudents.reduce((acc, s) => acc + s.score, 0) / visibleStudents.length);
+  }, [visibleStudents]);
 
   const needsHelpCount = useMemo(
-    () => classData.filter((s) => s.status === 'needs-help').length,
-    [classData]
+    () => visibleStudents.filter((s) => s.status === 'needs-help').length,
+    [visibleStudents]
   );
 
   useEffect(() => {
@@ -79,7 +90,7 @@ export function TeacherDashboard() {
       try {
         const [analyticsResponse, usersResponse] = await Promise.all([
           api.get<ClassAnalyticsResponse>('/teacher/class-analytics', {
-            params: selectedClass ? { class_id: selectedClass } : undefined,
+            params: selectedClass && selectedClass !== 'all' ? { class_id: selectedClass } : undefined,
           }),
           api.get<UserRow[]>('/all'),
         ]);
@@ -93,7 +104,7 @@ export function TeacherDashboard() {
         ).sort((a, b) => a.localeCompare(b, 'ru'));
         if (classes.length > 0) {
           setAvailableClasses(classes);
-          if (!classes.includes(selectedClass)) {
+          if (selectedClass !== 'all' && !classes.includes(selectedClass)) {
             setSelectedClass(classes[0]);
           }
         }
@@ -289,13 +300,17 @@ export function TeacherDashboard() {
               onChange={(e) => setSelectedClass(e.target.value)}
               className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
             >
-              {(availableClasses.length > 0 ? availableClasses : ['9А', '9Б', '10А']).map((classId) => (
+              <option value="all">Все классы</option>
+              {availableClasses.map((classId) => (
                 <option key={classId} value={classId}>
                   Класс {classId}
                 </option>
               ))}
             </select>
-            <button className="flex items-center gap-2 px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors">
+            <button
+              onClick={() => setFiltersOpen((v) => !v)}
+              className="flex items-center gap-2 px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+            >
               <Filter className="w-4 h-4" />
               Фильтры
             </button>
@@ -308,6 +323,30 @@ export function TeacherDashboard() {
             </button>
           </div>
         </div>
+        {filtersOpen && (
+          <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-3">
+            <select
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value as 'all' | StudentStatus)}
+              className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            >
+              <option value="all">Все статусы</option>
+              <option value="excellent">Отлично</option>
+              <option value="good">Хорошо</option>
+              <option value="average">Средне</option>
+              <option value="needs-help">Нужна помощь</option>
+            </select>
+            <input
+              type="number"
+              min={0}
+              max={100}
+              value={minScoreFilter}
+              onChange={(e) => setMinScoreFilter(Math.max(0, Math.min(100, Number(e.target.value) || 0)))}
+              placeholder="Мин. средний балл"
+              className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            />
+          </div>
+        )}
       </div>
 
       {/* Quick Stats */}
@@ -316,7 +355,7 @@ export function TeacherDashboard() {
           <div className="flex items-center justify-between">
             <div>
               <p className="text-gray-600 text-sm">Всего учеников</p>
-              <p className="text-3xl text-gray-900 mt-1">{classData.length}</p>
+              <p className="text-3xl text-gray-900 mt-1">{visibleStudents.length}</p>
             </div>
             <Users className="w-10 h-10 text-blue-500" />
           </div>
@@ -351,8 +390,8 @@ export function TeacherDashboard() {
             <div>
               <p className="text-gray-600 text-sm">Завершено тем</p>
               <p className="text-3xl text-gray-900 mt-1">
-                {classData.length > 0
-                  ? Math.round(classData.reduce((acc, s) => acc + s.topics, 0) / classData.length)
+                {visibleStudents.length > 0
+                  ? Math.round(visibleStudents.reduce((acc, s) => acc + s.topics, 0) / visibleStudents.length)
                   : 0}
               </p>
             </div>
@@ -379,7 +418,7 @@ export function TeacherDashboard() {
               </tr>
             </thead>
             <tbody>
-              {classData.map((student) => (
+              {visibleStudents.map((student) => (
                 <tr key={student.user_id} className="border-b border-gray-100 hover:bg-gray-50 transition-colors">
                   <td className="py-4 px-4">
                     <div className="flex items-center gap-3">
@@ -419,7 +458,7 @@ export function TeacherDashboard() {
                   </td>
                 </tr>
             ))}
-            {!loading && classData.length === 0 && (
+            {!loading && visibleStudents.length === 0 && (
               <tr>
                 <td className="py-6 px-4 text-gray-500" colSpan={6}>
                   Данные по классу пока отсутствуют
@@ -510,7 +549,7 @@ export function TeacherDashboard() {
           <h3 className="text-gray-900">Группа риска - требуется внимание</h3>
         </div>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {classData
+          {visibleStudents
             .filter(s => s.status === 'needs-help')
             .map((student, index) => (
               <div key={index} className="p-4 bg-red-50 rounded-lg border border-red-200">

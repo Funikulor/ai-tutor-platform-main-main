@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, type ReactElement } from 'react';
-import { ArrowLeft, BookOpen, Video, FileText, Star, Download, Share2, CheckCircle, Target, Lightbulb, AlertCircle, Zap } from 'lucide-react';
+import { ArrowLeft, BookOpen, Video, FileText, Clock, Star, Download, Share2, CheckCircle, Target, Lightbulb, AlertCircle, Zap } from 'lucide-react';
 import { motion } from 'motion/react';
 import type { Material } from './LibraryTab';
 import api from '../services/api';
