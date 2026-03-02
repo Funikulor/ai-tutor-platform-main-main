@@ -9,6 +9,7 @@ from .task_generator_agent import TaskGeneratorAgent
 from .mentor_agent import MentorAgent
 from .teacher_analytics_agent import TeacherAnalyticsAgent
 from models.cognitive_profile import TaskAttempt, ErrorTag
+from utils.answer_parse import numeric_answers_equal
 
 
 class AgentOrchestrator:
@@ -35,18 +36,12 @@ class AgentOrchestrator:
         - mentor_message: сообщение от наставника
         - updated_profile: обновленный профиль
         """
-        # Проверяем ответ (с учетом разных типов: строки, числа, уравнения)
-        # Нормализуем ответы для сравнения
+        # Проверяем ответ: дроби (27/8) и десятичные (3.375) считаем эквивалентными
         user_ans_normalized = str(user_answer).strip().lower()
         correct_ans_normalized = str(correct_answer).strip().lower()
-        
-        # Для числовых ответов сравниваем как числа
-        try:
-            user_num = float(user_ans_normalized)
-            correct_num = float(correct_ans_normalized)
-            is_correct = abs(user_num - correct_num) < 0.01  # Допуск для числовых ответов
-        except (ValueError, TypeError):
-            # Для текстовых ответов сравниваем строки
+        if numeric_answers_equal(user_answer, correct_answer, tolerance=0.001):
+            is_correct = True
+        else:
             is_correct = user_ans_normalized == correct_ans_normalized
         
         # Создаем попытку выполнения

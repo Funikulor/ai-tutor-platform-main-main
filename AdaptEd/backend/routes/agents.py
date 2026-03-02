@@ -13,25 +13,7 @@ router = APIRouter()
 orchestrator = AgentOrchestrator()
 
 
-def _parse_numeric_answer(s: str) -> Optional[float]:
-    """Парсит число из строки: десятичное (0.5) или дробь (1/2, 3/4)."""
-    if not s or not isinstance(s, str):
-        return None
-    s = s.strip().replace(",", ".")
-    # Дробь вида a/b
-    if "/" in s:
-        parts = s.split("/", 1)
-        if len(parts) == 2:
-            try:
-                a, b = float(parts[0].strip()), float(parts[1].strip())
-                if b != 0:
-                    return a / b
-            except (ValueError, TypeError):
-                pass
-    try:
-        return float(s)
-    except (ValueError, TypeError):
-        return None
+from utils.answer_parse import parse_numeric_answer as _parse_numeric_answer
 
 
 class TaskSubmission(BaseModel):
@@ -203,14 +185,17 @@ async def generate_adaptive_task(request: Dict[str, Any]):
 Правила: БЕЗ LaTeX. Дроби со скобками: (3x-5)/2, (2x+3)/4. Степени: x^2. Корни: √(x+1).
 Ответ — только JSON, без текста до/после.
 
+КРИТИЧНО для correctAnswer: указывай ТОЧНЫЙ ответ. Если ответ не целое число — пиши дробь (например 27/8) или десятичное (3.375). НИКОГДА не округляй до целого (3 вместо 27/8 — неверно).
+В объяснении тоже пиши точный ответ (27/8 или 3.375), не «округлим до 3».
+
 {{
   "topic": "{target_topic}",
   "difficulty": 3,
   "type": "numeric",
   "question": "текст вопроса без LaTeX",
   "options": [],
-  "correctAnswer": "число или краткий ответ",
-  "explanation": "Краткое пошаговое объяснение (2-4 предложения, без LaTeX и markdown)"
+  "correctAnswer": "точное число: целое, дробь (27/8) или десятичное (3.375)",
+  "explanation": "Краткое пошаговое объяснение с точным ответом (без округления до целого), без LaTeX и markdown"
 }}"""
         
         assistant = get_assistant_service()
