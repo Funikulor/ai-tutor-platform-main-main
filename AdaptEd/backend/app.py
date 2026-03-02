@@ -16,6 +16,15 @@ try:
 	print(f"[App] ASSISTANT_PROVIDER={os.getenv('ASSISTANT_PROVIDER', 'не установлен')}")
 	print(f"[App] OPENAI_MODEL={os.getenv('OPENAI_MODEL', 'не установлен')}")
 	print(f"[App] OPENAI_API_KEY={'установлен' if os.getenv('OPENAI_API_KEY') else 'не установлен'}")
+	provider = os.getenv('ASSISTANT_PROVIDER', 'openai')
+	openai_set = bool(os.getenv('OPENAI_API_KEY'))
+	proxy_set = bool(os.getenv('PROXYAPI_KEY'))
+	if provider == 'openai' and not openai_set:
+		print("[App] ВНИМАНИЕ: ASSISTANT_PROVIDER=openai, но OPENAI_API_KEY не задан. Добавьте ключ в .env (локально) или в Railway → Variables.")
+	if provider == 'proxyapi' and not proxy_set:
+		print("[App] ВНИМАНИЕ: ASSISTANT_PROVIDER=proxyapi, но PROXYAPI_KEY не задан. Добавьте ключ в .env (локально) или в Railway → Variables.")
+	if provider in ('openai', 'proxyapi') and not openai_set and not proxy_set:
+		print("[App] ВНИМАНИЕ: Ни OPENAI_API_KEY, ни PROXYAPI_KEY не заданы. Генерация заданий и чат будут возвращать ошибку. Задайте переменные в .env (локально) или в Railway → Variables.")
 except Exception as e:
 	print(f"[App] Ошибка загрузки .env: {e}")
 	def load_dotenv():

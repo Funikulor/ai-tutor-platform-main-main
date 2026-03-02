@@ -257,6 +257,13 @@ async def generate_adaptive_task(request: Dict[str, Any]):
         assistant = get_assistant_service()
         raw_response = assistant._generate(prompt, max_new_tokens=1200)
         
+        # Если модель недоступна (нет API ключа или провайдер недоступен) — возвращаем понятную ошибку
+        if raw_response and "модель временно недоступна" in raw_response:
+            raise HTTPException(
+                status_code=503,
+                detail=raw_response.strip()
+            )
+        
         # Логируем ответ для отладки
         print(f"[AdaptiveTask] Raw AI response length: {len(raw_response)}")
         print(f"[AdaptiveTask] Raw AI response preview: {raw_response[:300]}")

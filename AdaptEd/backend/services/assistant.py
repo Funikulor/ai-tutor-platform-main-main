@@ -482,7 +482,7 @@ class AssistantService:
 			except Exception:
 				pass
 		
-		return "Извините, модель временно недоступна. Убедитесь, что API ключ установлен в .env файле (OPENAI_API_KEY или PROXYAPI_KEY) или проверьте настройки провайдера."
+		return "Извините, модель временно недоступна. Убедитесь, что API ключ задан: локально — в .env (OPENAI_API_KEY или PROXYAPI_KEY), на Railway — в разделе Variables. Также проверьте настройки провайдера (ASSISTANT_PROVIDER)."
 
 	def _get_homeworks_context(self, user_id: str) -> str:
 		"""Краткий контекст по активным ДЗ ученика (из БД, если доступно)."""

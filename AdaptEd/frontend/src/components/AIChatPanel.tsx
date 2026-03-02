@@ -234,21 +234,26 @@ export function AIChatPanel({ isMinimized = false, onToggleMinimize, fullscreen 
   const handleSendMessage = async (text: string) => {
     if (!text.trim()) return;
 
+    const trimmed = text.trim();
+    // Сразу очищаем поле ввода, чтобы текст не оставался до отправки
+    setInputValue('');
+
     // Add user message
     const userMessage: Message = {
       id: messages.length + 1,
-      text: text.trim(),
+      text: trimmed,
       sender: 'user',
       timestamp: new Date()
     };
     const nextWithUser = [...messages, userMessage];
     setMessages(nextWithUser);
-    await persistCurrentChat(nextWithUser);
-    setInputValue('');
 
-    // Show typing indicator
+    // Show typing indicator сразу после добавления сообщения
     setIsTyping(true);
     setCurrentEmotion('thinking');
+
+    // Сохранение чата в фоне, не блокируем UI
+    persistCurrentChat(nextWithUser).catch((e) => console.error('Error saving chat:', e));
 
     try {
       // Формируем историю сообщений для API
@@ -281,23 +286,24 @@ export function AIChatPanel({ isMinimized = false, onToggleMinimize, fullscreen 
 
       const nextWithAi = [...nextWithUser, aiMessage];
       setMessages(nextWithAi);
-      await persistCurrentChat(nextWithAi);
       setCurrentEmotion(emotion);
+      // Убираем индикатор загрузки сразу после ответа; сохранение — в фоне
+      setIsTyping(false);
+      persistCurrentChat(nextWithAi).catch((e) => console.error('Error saving chat:', e));
     } catch (error: any) {
       console.error('Chat error:', error);
       const errorMessage: Message = {
         id: messages.length + 2,
-        text: error.response?.data?.detail || 'Произошла ошибка при отправке сообщения. Убедитесь, что backend запущен и OPENAI_API_KEY установлен в .env файле.',
+        text: error.response?.data?.detail || 'Произошла ошибка при отправке сообщения. Убедитесь, что backend запущен и API ключ задан (локально: .env; Railway: Variables).',
         sender: 'ai',
         timestamp: new Date(),
         emotion: 'thinking'
       };
       const nextWithError = [...nextWithUser, errorMessage];
       setMessages(nextWithError);
-      await persistCurrentChat(nextWithError);
       setCurrentEmotion('thinking');
-    } finally {
       setIsTyping(false);
+      persistCurrentChat(nextWithError).catch((e) => console.error('Error saving chat:', e));
     }
   };
 
