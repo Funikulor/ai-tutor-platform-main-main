@@ -7,6 +7,7 @@ from typing import List, Optional, Dict, Any
 from datetime import datetime
 import json
 import re
+import random
 from agents.orchestrator import AgentOrchestrator
 
 router = APIRouter()
@@ -178,15 +179,27 @@ async def generate_adaptive_task(request: Dict[str, Any]):
             interests_str = ", ".join(interests)
             student_context += f". Интересы ученика: {interests_str}. Используй примеры из этих областей (например, если ученик любит футбол, создай задачу про футбол)."
         
-        # Компактный промпт — быстрее обработка и ответ
+        # Разнообразие: случайный тип задачи, чтобы не повторялось одно и то же
+        problem_types = [
+            "уравнение с неизвестным в знаменателе (например 2/(x-1) + 1 = 3)",
+            "квадратное уравнение вида ax^2 + bx + c = 0",
+            "неравенство (линейное или квадратное)",
+            "уравнение с корнем, например √(2x+1) = 5",
+            "задача на проценты или пропорции (составь уравнение по условию)",
+            "линейное уравнение с другой структурой: не (3x-5)/2 + (2x+3)/4, а например одна дробь или три слагаемых",
+            "упростить выражение и найти значение при заданном x",
+            "уравнение с модулем |x - 3| = 7",
+        ]
+        type_hint = random.choice(problem_types)
         thematic_hint = " Тематика по интересам ученика (футбол, игры и т.д.)." if use_thematic else ""
         prompt = f"""Учитель математики. Одно задание по теме "{target_topic}" для 9 класса. {student_context}.{thematic_hint}
 
-Правила: БЕЗ LaTeX. Дроби со скобками: (3x-5)/2, (2x+3)/4. Степени: x^2. Корни: √(x+1).
+РАЗНООБРАЗИЕ: Создай задание, отличное от шаблона «(3x-5)/2 + (2x+3)/4 = число». Используй такой тип: {type_hint}.
+
+Правила: БЕЗ LaTeX. Дроби со скобками: (3x-5)/2. Степени: x^2. Корни: √(x+1).
 Ответ — только JSON, без текста до/после.
 
-КРИТИЧНО для correctAnswer: указывай ТОЧНЫЙ ответ. Если ответ не целое число — пиши дробь (например 27/8) или десятичное (3.375). НИКОГДА не округляй до целого (3 вместо 27/8 — неверно).
-В объяснении тоже пиши точный ответ (27/8 или 3.375), не «округлим до 3».
+КРИТИЧНО для correctAnswer: указывай ТОЧНЫЙ ответ (дробь 27/8 или десятичное 3.375). НИКОГДА не округляй до целого. В объяснении тоже точный ответ.
 
 {{
   "topic": "{target_topic}",
@@ -195,7 +208,7 @@ async def generate_adaptive_task(request: Dict[str, Any]):
   "question": "текст вопроса без LaTeX",
   "options": [],
   "correctAnswer": "точное число: целое, дробь (27/8) или десятичное (3.375)",
-  "explanation": "Краткое пошаговое объяснение с точным ответом (без округления до целого), без LaTeX и markdown"
+  "explanation": "Краткое пошаговое объяснение с точным ответом, без LaTeX и markdown"
 }}"""
         
         assistant = get_assistant_service()
@@ -298,6 +311,28 @@ async def generate_adaptive_task(request: Dict[str, Any]):
             explanation = explanation.replace('**', '').replace('###', '').replace('---', '').replace('#', '')
             explanation = re.sub(r'\n{3,}', '\n\n', explanation)  # Убираем лишние пустые строки
             task_data["explanation"] = explanation.strip()
+        
+        # Если модель подставила округлённый/неверный правильный ответ — берём точный из объяснения
+        stored = (task_data.get("correctAnswer") or "").strip()
+        expl = task_data.get("explanation") or ""
+        # Ищем в объяснении финальный ответ: x = 27/8, Ответ: 27/8, разделим на 8: x = 27/8
+        for pattern in [
+            r'[xX]\s*=\s*(\d+/\d+|\d+[.,]\d+)',
+            r'[Оо]твет[:\s]+(\d+/\d+|\d+[.,]\d+)',
+            r'[Рр]азделим[^:]*:\s*[xX]?\s*=\s*(\d+/\d+|\d+[.,]\d+)',
+            r'[равно|=]\s*(\d+/\d+|\d+[.,]\d+)\s*[.\s]',
+            r'\b(\d+/\d+)\s*[.,)]',
+        ]:
+            match = re.search(pattern, expl, re.IGNORECASE)
+            if match:
+                extracted = match.group(1).replace(",", ".")
+                stored_num = _parse_numeric_answer(stored)
+                extracted_num = _parse_numeric_answer(extracted)
+                if extracted_num is not None and stored_num is not None:
+                    if abs(extracted_num - stored_num) > 0.001:
+                        task_data["correctAnswer"] = extracted if "/" in match.group(1) else str(extracted_num)
+                        print(f"[AdaptiveTask] Исправлен correctAnswer: было '{stored}', стало '{task_data['correctAnswer']}' по объяснению")
+                break
         
         # Устанавливаем значения по умолчанию
         if "topic" not in task_data:
