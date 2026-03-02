@@ -2,6 +2,7 @@
 API маршруты для домашних заданий
 """
 from fastapi import APIRouter, HTTPException, Depends
+from routes.auth import get_current_user
 from pydantic import BaseModel
 from typing import List, Optional, Dict, Any
 from datetime import datetime, timedelta
@@ -1631,6 +1632,27 @@ async def update_admin_user(user_id: str, updates: Dict[str, Any], db: Session =
         raise
     except Exception as e:
         print(f"Error in update_admin_user: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.put("/admin/users/{user_id}/password", response_model=Dict[str, Any])
+async def set_user_password_admin(user_id: str, body: Dict[str, Any], current_user: dict = Depends(get_current_user)):
+    """Сменить пароль пользователя (только админ; админ может менять и свой пароль)."""
+    if current_user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Только администратор может менять пароли")
+    try:
+        new_password = (body.get("new_password") or "").strip()
+        if len(new_password) < 6:
+            raise HTTPException(status_code=400, detail="Пароль должен быть не короче 6 символов")
+        from utils.auth_service import auth_service
+        ok = auth_service.set_user_password(user_id, new_password)
+        if not ok:
+            raise HTTPException(status_code=404, detail="Пользователь не найден")
+        return {"message": "Пароль успешно изменён"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Error in set_user_password_admin: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

@@ -560,12 +560,12 @@ class AssistantService:
 			# Контекст по ДЗ
 			if homeworks_ctx:
 				formatted_messages.append({"role": "system", "content": homeworks_ctx})
-			return self._generate("", max_new_tokens=2048, messages=formatted_messages)
+			return self._generate("", max_new_tokens=1024, messages=formatted_messages)
 		else:
 			# Для других провайдеров используем старый формат
 			history = "\n".join([f"{m.get('role','user')}: {m.get('content','')}" for m in messages[-5:]])
 			prompt = f"{base_system}{personality_context}\n{homeworks_ctx}\n{history}\nassistant:"
-			return self._generate(prompt, max_new_tokens=2048)
+			return self._generate(prompt, max_new_tokens=1024)
 
 	def hint(self, task_text: str, student_level: Optional[str] = None) -> str:
 		policy = (

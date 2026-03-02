@@ -131,6 +131,7 @@ export function AdminPanel() {
   const handleUpdateUser = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const formData = new FormData(e.currentTarget);
+    const newPassword = (formData.get('new_password') as string)?.trim();
     try {
       await api.put(`/admin/users/${editingUser.id}`, {
         full_name: formData.get('full_name'),
@@ -140,7 +141,12 @@ export function AdminPanel() {
         phone: formData.get('phone') || null,
         is_active: formData.get('is_active') === 'true'
       });
-      toast.success('Пользователь успешно обновлен');
+      if (newPassword && newPassword.length >= 6) {
+        await api.put(`/admin/users/${editingUser.id}/password`, { new_password: newPassword });
+        toast.success('Пользователь и пароль успешно обновлены');
+      } else {
+        toast.success('Пользователь успешно обновлен');
+      }
       setShowEditUserModal(false);
       setEditingUser(null);
       loadAdminData();
@@ -937,6 +943,11 @@ export function AdminPanel() {
             <div>
               <label className="block text-gray-700 mb-2">Email</label>
               <input type="email" name="email" defaultValue={editingUser.email} required className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500" />
+            </div>
+            <div>
+              <label className="block text-gray-700 mb-2">Новый пароль</label>
+              <input type="password" name="new_password" minLength={6} placeholder="Оставьте пустым, чтобы не менять" className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500" />
+              <p className="text-xs text-gray-500 mt-1">Минимум 6 символов. Админ может менять пароль любого пользователя, включая свой.</p>
             </div>
             <div>
               <label className="block text-gray-700 mb-2">Роль</label>

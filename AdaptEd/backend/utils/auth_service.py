@@ -23,31 +23,34 @@ class AuthService:
         self.token_ttl_hours = int(os.getenv("AUTH_TOKEN_TTL_HOURS", "720"))  # 30 days
         # В продакшене задайте AUTH_SECRET_KEY в Railway Variables.
         self.auth_secret = os.getenv("AUTH_SECRET_KEY") or os.getenv("SECRET_KEY") or "change-me-in-production"
-        self._create_default_admin()
-        
-    def _create_default_admin(self):
-        """Создает предустановленного администратора"""
+        self._ensure_admin_from_env()
+    
+    def _ensure_admin_from_env(self):
+        """Создаёт администратора только из переменных окружения (Railway / .env), если админов ещё нет."""
+        admin_email = os.getenv("ADMIN_EMAIL", "").strip()
+        admin_password = os.getenv("ADMIN_PASSWORD", "").strip()
+        if not admin_email or not admin_password:
+            return
+        hashed = self.hash_password(admin_password)
         admin_id = "admin_001"
-        admin_email = "admin@adapted.ru"
-        admin_password = "admin123"  # В продакшене должен быть сложный пароль
-        hashed_password = self.hash_password(admin_password)
-        
-        # Пробуем создать в БД
+        # Проверяем, есть ли уже хотя бы один админ
         if has_db():
             db = get_db()
             if db:
                 try:
-                    # Проверяем, не существует ли уже админ
+                    existing_admin = db.query(UserDB).filter(UserDB.role == "admin", UserDB.is_active == True).first()
+                    if existing_admin:
+                        db.close()
+                        return
                     existing = db.query(UserDB).filter(
                         (UserDB.user_id == admin_id) | (UserDB.email == admin_email)
                     ).first()
-                    
                     if not existing:
                         admin = UserDB(
                             user_id=admin_id,
                             email=admin_email,
-                            password_hash=hashed_password,
-                            full_name="Системный Администратор",
+                            password_hash=hashed,
+                            full_name=os.getenv("ADMIN_FULL_NAME", "Администратор"),
                             role="admin",
                             class_id=None,
                             phone=None,
@@ -55,30 +58,30 @@ class AuthService:
                         )
                         db.add(admin)
                         db.commit()
-                        print(f"[Auth] Создан администратор: {admin_email}")
+                        print(f"[Auth] Создан администратор из env: {admin_email}")
                 except Exception as e:
-                    print(f"[Auth] Ошибка создания админа в БД: {e}")
+                    print(f"[Auth] Ошибка создания админа из env: {e}")
                 finally:
                     db.close()
                 return
-        
-        # Fallback на persistent_storage
-        if admin_id not in persistent_storage.get("users", {}):
-            admin_data = {
+        users = persistent_storage.get("users", {})
+        has_admin = any(u.get("role") == "admin" for u in users.values())
+        if has_admin:
+            return
+        if admin_id not in users:
+            users[admin_id] = {
                 "user_id": admin_id,
                 "email": admin_email,
-                "full_name": "Системный Администратор",
+                "full_name": os.getenv("ADMIN_FULL_NAME", "Администратор"),
                 "role": "admin",
                 "class_id": None,
                 "phone": None,
                 "created_at": datetime.now(),
                 "is_active": True,
-                "password": hashed_password
+                "password": hashed
             }
-            
-            existing_users = persistent_storage.get("users", {})
-            existing_users[admin_id] = admin_data
-            persistent_storage.set("users", existing_users)
+            persistent_storage.set("users", users)
+            print(f"[Auth] Создан администратор из env (storage): {admin_email}")
     
     def hash_password(self, password: str) -> str:
         """Хеширует пароль"""
@@ -369,6 +372,34 @@ class AuthService:
             return {k: v for k, v in user_data.items() if k != "password"}
         
         return None
+
+    def set_user_password(self, user_id: str, new_password: str) -> bool:
+        """Устанавливает новый пароль пользователю (для админа или смены своего)."""
+        if not new_password or len(new_password) < 6:
+            return False
+        hashed = self.hash_password(new_password)
+        if has_db():
+            db = get_db()
+            if db:
+                try:
+                    user_db = db.query(UserDB).filter(UserDB.user_id == user_id).first()
+                    if not user_db:
+                        return False
+                    user_db.password_hash = hashed
+                    db.commit()
+                    return True
+                except Exception as e:
+                    print(f"[Auth] Ошибка смены пароля в БД: {e}")
+                    db.rollback()
+                    return False
+                finally:
+                    db.close()
+        users = persistent_storage.get("users", {})
+        if user_id not in users:
+            return False
+        users[user_id]["password"] = hashed
+        persistent_storage.set("users", users)
+        return True
 
 
 # Создаем глобальный экземпляр
