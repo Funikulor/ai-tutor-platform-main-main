@@ -153,6 +153,7 @@ export function UserProfile({ userId, onClose }: UserProfileProps) {
               <button
                 onClick={handleSave}
                 className="p-2 bg-green-500 text-white rounded-lg hover:bg-green-600 transition-colors"
+                title="Сохранить"
               >
                 <Save className="w-5 h-5" />
               </button>
@@ -162,25 +163,30 @@ export function UserProfile({ userId, onClose }: UserProfileProps) {
                   setEditData(profile);
                 }}
                 className="p-2 bg-gray-500 text-white rounded-lg hover:bg-gray-600 transition-colors"
+                title="Отмена"
               >
                 <X className="w-5 h-5" />
               </button>
             </>
           ) : (
-            <button
-              onClick={() => setEditing(true)}
-              className="p-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors"
-            >
-              <Edit2 className="w-5 h-5" />
-            </button>
-          )}
-          {onClose && (
-            <button
-              onClick={onClose}
-              className="p-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors"
-            >
-              <X className="w-5 h-5" />
-            </button>
+            <>
+              <button
+                onClick={() => setEditing(true)}
+                className="p-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors"
+                title="Редактировать"
+              >
+                <Edit2 className="w-5 h-5" />
+              </button>
+              {onClose && (
+                <button
+                  onClick={onClose}
+                  className="p-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors"
+                  title="Закрыть"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              )}
+            </>
           )}
         </div>
       </div>

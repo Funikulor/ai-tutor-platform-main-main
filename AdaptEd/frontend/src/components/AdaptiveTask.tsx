@@ -301,6 +301,10 @@ const formatExplanation = (text: string): React.ReactElement[] => {
     cleaned = cleaned.replace(/(🔹\s*)?Шаг\s*(\d+)[:.]\s*/gi, '\n🔹 Шаг $2: ');
   }
   
+  // Убираем вопросики-заглушки и лишние "?" в начале строк (артефакты генерации)
+  cleaned = cleaned
+    .replace(/^\s*\?\s*$/gm, '')
+    .replace(/^\s*\?\s+/gm, '');
   // Разбиваем на строки
   const lines = cleaned.split('\n').filter(line => line.trim());
   
@@ -327,7 +331,7 @@ const formatExplanation = (text: string): React.ReactElement[] => {
         // Если нет эмодзи, но есть "Шаг N", используем дефолтный
         emoji = '🔹';
       }
-      let stepText = stepMatch[2].trim();
+      let stepText = stepMatch[2].trim().replace(/^\?\s*/, '');
       
       // Убираем технические переменные из текста шага
       stepText = stepText
@@ -694,13 +698,16 @@ export function AdaptiveTask({ onComplete }: { onComplete: (result: any) => void
           {(currentTask.type === 'numeric' || currentTask.type === 'text') && !submitted && (
             <form onSubmit={handleSubmit} className="space-y-4">
               {currentTask.type === 'numeric' ? (
-                <input
-                  type="text"
-                  value={userAnswer}
-                  onChange={(e) => setUserAnswer(e.target.value)}
-                  placeholder="Введите ответ (число)"
-                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                />
+                <div className="space-y-1">
+                  <input
+                    type="text"
+                    value={userAnswer}
+                    onChange={(e) => setUserAnswer(e.target.value)}
+                    placeholder="Число или дробь (например 0.5 или 1/2)"
+                    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  />
+                  <p className="text-xs text-gray-500">Можно ввести десятичное число (0.5) или дробь (1/2, 3/4).</p>
+                </div>
               ) : (
                 <textarea
                   value={userAnswer}
@@ -731,6 +738,15 @@ export function AdaptiveTask({ onComplete }: { onComplete: (result: any) => void
                     {result.correct ? 'Правильно!' : 'Неправильно'}
                   </h4>
                   
+                  {!result.correct && currentTask?.correctAnswer && (
+                    <p className="mb-2 text-sm text-gray-700">
+                      <strong>Правильный ответ:</strong>{' '}
+                      <span className="font-mono bg-gray-100 px-2 py-0.5 rounded">
+                        {currentTask.correctAnswer}
+                      </span>
+                      <span className="text-gray-500 ml-1">(можно ввести как число или дробь, например 1/2)</span>
+                    </p>
+                  )}
                   {!result.correct && result.errorAnalysis && (
                     <div className="mb-4 p-4 bg-white rounded-lg border border-red-200">
                       <p className="text-red-900 mb-2">

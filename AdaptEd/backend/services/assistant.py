@@ -36,11 +36,11 @@ class AssistantService:
 		self.hf_model = os.getenv("HF_MODEL", model_name or "microsoft/DialoGPT-medium")
 		self.hf_token = os.getenv("HF_API_TOKEN", "")
 		self.openai_api_key = os.getenv("OPENAI_API_KEY", "")
-		self.openai_model = os.getenv("OPENAI_MODEL", "gpt-4o-mini")  # gpt-4o-mini (рекомендуется), gpt-3.5-turbo, gpt-4o, etc.
+		self.openai_model = os.getenv("OPENAI_MODEL", "gpt-4o")  # gpt-4o (рекомендуется), gpt-4o-mini, gpt-3.5-turbo; при появлении — gpt-5
 		self.proxyapi_key = os.getenv("PROXYAPI_KEY", "")
 		# PROXYAPI URL: https://api.proxyapi.ru/openai/v1/chat/completions
 		self.proxyapi_url = os.getenv("PROXYAPI_URL", "https://api.proxyapi.ru/openai/v1/chat/completions")
-		self.proxyapi_model = os.getenv("PROXYAPI_MODEL", "gpt-4o-mini")  # Модель для PROXYAPI (gpt-4o-mini, gpt-4o, gpt-3.5-turbo и т.д.)
+		self.proxyapi_model = os.getenv("PROXYAPI_MODEL", "gpt-4o")  # Модель для PROXYAPI: gpt-4o (рекомендуется), gpt-4o-mini и т.д.
 		self._openai_client = None
 		if openai_available and self.openai_api_key:
 			try:
@@ -156,7 +156,7 @@ class AssistantService:
 		"""
 		Генерация через OpenAI API с обработкой rate limits
 		
-		Лимиты для gpt-4o-mini (рекомендуется):
+		Лимиты для gpt-4o / gpt-4o-mini:
 		- 60,000 TPM (токенов в минуту)
 		- 3 RPM (запросов в минуту)
 		- 200 RPD (запросов в день)
@@ -218,7 +218,7 @@ class AssistantService:
 					print(f"[OpenAI] Rate limit превышен. Ожидание {wait_time:.1f} секунд перед повтором...")
 					time.sleep(wait_time)
 				else:
-					print(f"[OpenAI] Rate limit превышен после {max_retries} попыток. Лимиты: 3 RPM, 60,000 TPM для gpt-4o-mini")
+					print(f"[OpenAI] Rate limit превышен после {max_retries} попыток. Лимиты: 3 RPM, 60,000 TPM для {self.openai_model}")
 					return "Извините, превышен лимит запросов к OpenAI API. Пожалуйста, подождите немного и попробуйте снова. Лимиты: 3 запроса в минуту, 60,000 токенов в минуту."
 					
 			except APIConnectionError as e:

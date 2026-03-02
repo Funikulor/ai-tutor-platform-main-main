@@ -254,9 +254,12 @@ export function HomeworkTab() {
                         Отправить тест
                       </button>
                       {(hw.status === 'submitted' || hw.status === 'checked') && (
-                        <div className="flex items-center gap-1 text-green-600 text-sm">
-                          <CheckCircle className="w-4 h-4" />
-                          Отправлено
+                        <div className="flex flex-col gap-1">
+                          <div className="flex items-center gap-1 text-green-600 text-sm">
+                            <CheckCircle className="w-4 h-4" />
+                            Отправлено
+                          </div>
+                          <p className="text-xs text-gray-500">Ответы видны учителю в разделе «Проверка работ».</p>
                         </div>
                       )}
                     </div>
@@ -279,7 +282,7 @@ export function HomeworkTab() {
                   <div className="flex items-center justify-between">
                     <button
                       onClick={() => handleSubmit(hw)}
-                      disabled={submitLoading === hw.id || !answers[hw.id]?.trim()}
+                      disabled={submitLoading === hw.id || hw.status === 'submitted' || hw.status === 'checked' || !answers[hw.id]?.trim()}
                       className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white text-sm rounded-lg disabled:opacity-50 hover:bg-blue-700 transition"
                     >
                       {submitLoading === hw.id ? (
@@ -289,10 +292,13 @@ export function HomeworkTab() {
                       )}
                       Отправить
                     </button>
-                    {hw.status === 'submitted' && (
-                      <div className="flex items-center gap-1 text-green-600 text-sm">
-                        <CheckCircle className="w-4 h-4" />
-                        Отправлено
+                    {(hw.status === 'submitted' || hw.status === 'checked') && (
+                      <div className="flex flex-col gap-1">
+                        <div className="flex items-center gap-1 text-green-600 text-sm">
+                          <CheckCircle className="w-4 h-4" />
+                          Отправлено
+                        </div>
+                        <p className="text-xs text-gray-500">Ответы видны учителю в разделе «Проверка работ».</p>
                       </div>
                     )}
                   </div>

@@ -5,6 +5,9 @@ import { Send, Sparkles, Minimize2, Plus, Pencil, Trash2 } from 'lucide-react';
 import api from '../services/api';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import remarkMath from 'remark-math';
+import rehypeKatex from 'rehype-katex';
+import 'katex/dist/katex.min.css';
 import {
   ChatMessage as PersistedChatMessage,
   ChatSessionSummary,
@@ -22,6 +25,14 @@ interface Message {
   sender: 'user' | 'ai';
   timestamp: Date;
   emotion?: 'happy' | 'thinking' | 'excited' | 'encouraging' | 'surprised';
+}
+
+/** Приводит LaTeX в формате \( \) и \[ \] к виду $ $ и $$ $$ для remark-math */
+function normalizeLatexForMarkdown(text: string): string {
+  if (!text) return text;
+  return text
+    .replace(/\\\[([\s\S]*?)\\\]/g, '$$$1$$')
+    .replace(/\\\(([\s\S]*?)\\\)/g, '$$1$$');
 }
 
 interface AIChatPanelProps {
@@ -444,14 +455,15 @@ export function AIChatPanel({ isMinimized = false, onToggleMinimize, fullscreen 
               >
                 <div className="prose prose-sm max-w-none break-words overflow-wrap-anywhere">
                   <ReactMarkdown 
-                    remarkPlugins={[remarkGfm]}
+                    remarkPlugins={[remarkGfm, remarkMath]}
+                    rehypePlugins={[rehypeKatex]}
                     components={{
                       p: ({node, ...props}) => <p className="break-words overflow-wrap-anywhere" {...props} />,
                       code: ({node, ...props}) => <code className="break-words overflow-wrap-anywhere whitespace-pre-wrap" {...props} />,
                       pre: ({node, ...props}) => <pre className="break-words overflow-wrap-anywhere whitespace-pre-wrap max-w-full overflow-x-auto" {...props} />
                     }}
                   >
-                    {message.text}
+                    {normalizeLatexForMarkdown(message.text)}
                   </ReactMarkdown>
                 </div>
                 <p className={`text-xs mt-1 ${message.sender === 'user' ? 'text-blue-100' : 'text-gray-400'

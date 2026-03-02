@@ -13,6 +13,27 @@ router = APIRouter()
 orchestrator = AgentOrchestrator()
 
 
+def _parse_numeric_answer(s: str) -> Optional[float]:
+    """Парсит число из строки: десятичное (0.5) или дробь (1/2, 3/4)."""
+    if not s or not isinstance(s, str):
+        return None
+    s = s.strip().replace(",", ".")
+    # Дробь вида a/b
+    if "/" in s:
+        parts = s.split("/", 1)
+        if len(parts) == 2:
+            try:
+                a, b = float(parts[0].strip()), float(parts[1].strip())
+                if b != 0:
+                    return a / b
+            except (ValueError, TypeError):
+                pass
+    try:
+        return float(s)
+    except (ValueError, TypeError):
+        return None
+
+
 class TaskSubmission(BaseModel):
     """Модель для отправки задания"""
     user_id: str
@@ -53,14 +74,12 @@ async def submit_task(submission: TaskSubmission):
     try:
         # Определяем правильность ответа (с учетом разных типов заданий)
         is_correct = submission.user_answer.lower().strip() == submission.correct_answer.lower().strip()
-        
-        # Если числовые ответы, сравниваем как числа
-        try:
-            user_num = float(submission.user_answer)
-            correct_num = float(submission.correct_answer)
-            is_correct = abs(user_num - correct_num) < 0.01  # Допуск для числовых ответов
-        except (ValueError, TypeError):
-            pass  # Используем строковое сравнение
+
+        # Числовые ответы: поддерживаем дроби (1/2, 3/4) и десятичные (0.5)
+        user_num = _parse_numeric_answer(submission.user_answer)
+        correct_num = _parse_numeric_answer(submission.correct_answer)
+        if user_num is not None and correct_num is not None:
+            is_correct = abs(user_num - correct_num) < 0.001  # Допуск для числовых ответов
         
         # Обрабатываем через orchestrator
         result = orchestrator.process_task_submission(
