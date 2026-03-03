@@ -10,13 +10,12 @@ interface AuthProps {
 export function Auth({ onSuccess }: AuthProps) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [backendStatus, setBackendStatus] = useState<'checking' | 'online' | 'offline'>('checking');
+  const [backendStatus, setBackendStatus] = useState<'checking' | 'online' | 'offline'>('online');
 
   const [loginEmail, setLoginEmail] = useState('');
   const [loginPassword, setLoginPassword] = useState('');
 
   const checkBackend = useCallback(async () => {
-    setBackendStatus('checking');
     try {
       // Логируем для отладки
       const baseURL = (api.defaults.baseURL || '') as string;
@@ -150,16 +149,6 @@ export function Auth({ onSuccess }: AuthProps) {
                   Проверить снова
                 </button>
               </div>
-            </div>
-          </div>
-        )}
-        {backendStatus === 'checking' && (
-          <div className="mb-4 p-4 bg-yellow-50 border-2 border-yellow-200 rounded-lg">
-            <div className="flex items-center gap-3">
-              <div className="w-5 h-5 border-2 border-yellow-600 border-t-transparent rounded-full animate-spin"></div>
-              <p className="text-sm font-medium text-yellow-800">
-                Проверка подключения к бэкенду...
-              </p>
             </div>
           </div>
         )}

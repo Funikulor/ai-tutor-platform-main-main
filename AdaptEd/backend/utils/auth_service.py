@@ -27,26 +27,30 @@ class AuthService:
         self._ensure_admin_from_env()
     
     def _ensure_admin_from_env(self):
-        """Создаёт администратора только из переменных окружения (Railway / .env), если админов ещё нет."""
+        """Создаёт или обновляет администратора из переменных окружения (Railway / .env)."""
         admin_email = os.getenv("ADMIN_EMAIL", "").strip()
         admin_password = os.getenv("ADMIN_PASSWORD", "").strip()
         if not admin_email or not admin_password:
             return
         hashed = self.hash_password(admin_password)
         admin_id = "admin_001"
-        # Проверяем, есть ли уже хотя бы один админ
         if has_db():
             db = get_db()
             if db:
                 try:
-                    existing_admin = db.query(UserDB).filter(UserDB.role == "admin", UserDB.is_active == True).first()
-                    if existing_admin:
-                        db.close()
-                        return
                     existing = db.query(UserDB).filter(
                         (UserDB.user_id == admin_id) | (UserDB.email == admin_email)
                     ).first()
-                    if not existing:
+                    if existing:
+                        # Обновляем пароль и email/имя из env при каждом старте — чтобы войти с текущими Variables
+                        existing.password_hash = hashed
+                        existing.email = admin_email
+                        existing.full_name = os.getenv("ADMIN_FULL_NAME", "Администратор") or existing.full_name
+                        existing.is_active = True
+                        db.commit()
+                        print(f"[Auth] Обновлён администратор из env: {admin_email}")
+                    else:
+                        # Нет админа с таким email/id — создаём
                         admin = UserDB(
                             user_id=admin_id,
                             email=admin_email,
@@ -61,15 +65,28 @@ class AuthService:
                         db.commit()
                         print(f"[Auth] Создан администратор из env: {admin_email}")
                 except Exception as e:
-                    print(f"[Auth] Ошибка создания админа из env: {e}")
+                    print(f"[Auth] Ошибка создания/обновления админа из env: {e}")
                 finally:
                     db.close()
                 return
         users = persistent_storage.get("users", {})
-        has_admin = any(u.get("role") == "admin" for u in users.values())
-        if has_admin:
-            return
-        if admin_id not in users:
+        key = admin_id if admin_id in users else next((k for k, v in users.items() if v.get("email") == admin_email), None)
+        if key is not None:
+            users[key] = {
+                **(users.get(key) or {}),
+                "user_id": key,
+                "email": admin_email,
+                "full_name": os.getenv("ADMIN_FULL_NAME", "Администратор"),
+                "role": "admin",
+                "class_id": None,
+                "phone": None,
+                "created_at": (users.get(key) or {}).get("created_at") or datetime.now(),
+                "is_active": True,
+                "password": hashed
+            }
+            persistent_storage.set("users", users)
+            print(f"[Auth] Обновлён администратор из env (storage): {admin_email}")
+        else:
             users[admin_id] = {
                 "user_id": admin_id,
                 "email": admin_email,
