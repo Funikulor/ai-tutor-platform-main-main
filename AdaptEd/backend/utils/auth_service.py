@@ -515,6 +515,66 @@ class AuthService:
                 return u.get("email")
         return None
 
+    def recreate_admin_by_secret(self, secret: str) -> Optional[str]:
+        """
+        Удаляет всех админов и создаёт нового из env (ADMIN_EMAIL, ADMIN_PASSWORD).
+        Секрет: ADMIN_RESET_SECRET. Возвращает email нового админа или None.
+        """
+        expected = os.getenv("ADMIN_RESET_SECRET", "").strip()
+        secret = (secret or "").strip()
+        if not expected or secret != expected:
+            return None
+        admin_email = os.getenv("ADMIN_EMAIL", "").strip()
+        admin_password = os.getenv("ADMIN_PASSWORD", "").strip()
+        if not admin_email or not admin_password:
+            return None
+        hashed = self.hash_password(admin_password)
+        admin_id = "admin_001"
+        if has_db():
+            db = get_db()
+            if db:
+                try:
+                    db.query(UserDB).filter(UserDB.role == "admin").delete()
+                    db.commit()
+                    admin = UserDB(
+                        user_id=admin_id,
+                        email=admin_email,
+                        password_hash=hashed,
+                        full_name=os.getenv("ADMIN_FULL_NAME", "Администратор"),
+                        role="admin",
+                        class_id=None,
+                        phone=None,
+                        is_active=True,
+                    )
+                    db.add(admin)
+                    db.commit()
+                    print(f"[Auth] Старый админ удалён, создан новый: {admin_email}")
+                    return admin_email
+                except Exception as e:
+                    print(f"[Auth] Ошибка recreate_admin: {e}")
+                    db.rollback()
+                finally:
+                    db.close()
+            return None
+        users = persistent_storage.get("users", {})
+        to_remove = [uid for uid, u in users.items() if u.get("role") == "admin"]
+        for uid in to_remove:
+            del users[uid]
+        users[admin_id] = {
+            "user_id": admin_id,
+            "email": admin_email,
+            "full_name": os.getenv("ADMIN_FULL_NAME", "Администратор"),
+            "role": "admin",
+            "class_id": None,
+            "phone": None,
+            "created_at": datetime.now(),
+            "is_active": True,
+            "password": hashed,
+        }
+        persistent_storage.set("users", users)
+        print(f"[Auth] Старый админ удалён, создан новый (storage): {admin_email}")
+        return admin_email
+
 
 # Создаем глобальный экземпляр
 auth_service = AuthService()
