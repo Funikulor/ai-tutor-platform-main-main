@@ -14,22 +14,6 @@ class ProfileUpdate(BaseModel):
     avatar_seed: Optional[str] = None
 
 
-class ResetAdminPassword(BaseModel):
-    secret: str
-    new_password: str
-
-
-class RecreateAdminBody(BaseModel):
-    secret: str
-
-
-class CreateAdminBody(BaseModel):
-    secret: str
-    email: str
-    password: str
-    full_name: Optional[str] = "Администратор"
-
-
 router = APIRouter()
 
 
@@ -110,84 +94,6 @@ async def login(login_data: UserLogin):
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-
-
-@router.post("/auth/create-admin")
-async def create_admin(body: CreateAdminBody):
-    """
-    Создать нового админа (без удаления существующих).
-    В Railway Variables задайте ADMIN_RESET_SECRET. Тело: secret, email, password, full_name (опционально).
-    """
-    import os
-    expected = (os.getenv("ADMIN_RESET_SECRET") or "").strip()
-    secret = (body.secret or "").strip()
-    if not expected or secret != expected:
-        raise HTTPException(status_code=400, detail="Неверный секрет. Задайте ADMIN_RESET_SECRET в Variables.")
-    if len(body.password) < 6:
-        raise HTTPException(status_code=400, detail="Пароль не короче 6 символов.")
-    user = auth_service.register_user(
-        email=body.email,
-        password=body.password,
-        full_name=body.full_name or "Администратор",
-        role=UserRole.ADMIN,
-        class_id=None,
-        phone=None,
-    )
-    if not user:
-        raise HTTPException(status_code=400, detail="Пользователь с таким email уже существует.")
-    return {
-        "message": "Админ создан. Войдите с указанным email и паролем.",
-        "email": user.email,
-    }
-
-
-@router.post("/auth/recreate-admin")
-async def recreate_admin(body: RecreateAdminBody):
-    """
-    Удаляет всех админов и создаёт одного нового из переменных окружения.
-    В Railway Variables задайте: ADMIN_RESET_SECRET, ADMIN_EMAIL, ADMIN_PASSWORD.
-    Вызовите с телом {"secret": "ваш_ADMIN_RESET_SECRET"} — старый админ будет удалён,
-    новый создан. Войдите с ADMIN_EMAIL и ADMIN_PASSWORD.
-    """
-    email = auth_service.recreate_admin_by_secret(body.secret)
-    if not email:
-        raise HTTPException(
-            status_code=400,
-            detail="Неверный секрет или не заданы ADMIN_EMAIL/ADMIN_PASSWORD в Variables.",
-        )
-    return {
-        "message": "Админ пересоздан. Войдите с указанным email и паролем из ADMIN_PASSWORD.",
-        "email": email,
-    }
-
-
-@router.get("/auth/check-reset-secret")
-async def check_reset_secret():
-    """
-    Проверка: задана ли переменная ADMIN_RESET_SECRET в окружении (без раскрытия значения).
-    Помогает убедиться, что Variables подхватились после редеплоя.
-    """
-    import os
-    return {"set": bool((os.getenv("ADMIN_RESET_SECRET") or "").strip())}
-
-
-@router.post("/auth/reset-admin-password")
-async def reset_admin_password(body: ResetAdminPassword):
-    """
-    Сброс пароля администратора по секрету из env.
-    В Railway Variables добавьте ADMIN_RESET_SECRET=ваш_секрет, вызовите этот endpoint
-    с тем же secret и new_password, затем удалите переменную.
-    """
-    email = auth_service.reset_admin_password_by_secret(body.secret, body.new_password)
-    if not email:
-        raise HTTPException(
-            status_code=400,
-            detail="Неверный секрет или пароль короче 6 символов. Убедитесь, что ADMIN_RESET_SECRET задан в Variables и совпадает с secret в запросе."
-        )
-    return {
-        "message": "Пароль сброшен. Войдите с указанным email и новым паролем.",
-        "email": email,
-    }
 
 
 @router.post("/auth/logout")
