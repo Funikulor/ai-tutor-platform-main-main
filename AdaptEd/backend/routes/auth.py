@@ -41,7 +41,9 @@ async def register(user_data: UserRegistration):
             full_name=user_data.full_name,
             role=user_data.role,
             class_id=user_data.class_id,
-            phone=user_data.phone
+            phone=user_data.phone,
+            parent_fio=user_data.parent_fio,
+            parent_phone=user_data.parent_phone
         )
         
         if not user:

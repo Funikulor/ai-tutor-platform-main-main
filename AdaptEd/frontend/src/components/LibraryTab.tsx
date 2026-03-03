@@ -18,6 +18,7 @@ export interface Material {
   content?: string;
   videoUrl?: string;
   pdfUrl?: string;
+  related_ids?: string[];
 }
 
 interface LibraryTabProps {
@@ -150,6 +151,8 @@ export function LibraryTab({ selectedMaterialId, onStudyComplete }: LibraryTabPr
         material={selectedMaterial} 
         onBack={() => setSelectedMaterial(null)}
         onStudyComplete={handleStudyComplete}
+        allMaterials={materials}
+        onSelectRelated={(m) => setSelectedMaterial(m)}
       />
     );
   }

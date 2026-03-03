@@ -20,6 +20,8 @@ class UserUpdate(BaseModel):
 	role: Optional[str] = None
 	class_id: Optional[str] = None
 	phone: Optional[str] = None
+	parent_fio: Optional[str] = None
+	parent_phone: Optional[str] = None
 	is_active: Optional[bool] = None
 
 # In-memory storage for user data
@@ -63,6 +65,10 @@ async def update_user(user_id: str, updates: UserUpdate):
 			user["class_id"] = v
 		elif k == "phone":
 			user["phone"] = v
+		elif k == "parent_fio":
+			user["parent_fio"] = v
+		elif k == "parent_phone":
+			user["parent_phone"] = v
 		elif k == "is_active" and v is not None:
 			user["is_active"] = v
 	users[user_id] = user

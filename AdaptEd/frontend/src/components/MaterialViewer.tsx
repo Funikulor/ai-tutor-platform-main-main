@@ -183,9 +183,11 @@ interface MaterialViewerProps {
   material: Material;
   onBack: () => void;
   onStudyComplete?: (topic: string) => void;
+  allMaterials?: Material[];
+  onSelectRelated?: (material: Material) => void;
 }
 
-export function MaterialViewer({ material, onBack, onStudyComplete }: MaterialViewerProps) {
+export function MaterialViewer({ material, onBack, onStudyComplete, allMaterials = [], onSelectRelated }: MaterialViewerProps) {
   const [timeSpent, setTimeSpent] = useState(0);
   const [scrollProgress, setScrollProgress] = useState(0);
   const [isStudied, setIsStudied] = useState(false);
@@ -702,15 +704,28 @@ export function MaterialViewer({ material, onBack, onStudyComplete }: MaterialVi
         <aside className="xl:col-span-1 bg-white rounded-2xl shadow-sm border border-gray-200 p-6">
           <h3 className="text-gray-900 mb-4">Связанные материалы</h3>
           <div className="space-y-3">
-            {[1, 2, 3].map((i) => (
-              <div key={i} className="p-4 border border-gray-200 rounded-lg hover:border-blue-400 transition-colors cursor-pointer">
+            {(material.related_ids && material.related_ids.length > 0
+              ? material.related_ids
+                  .map((id) => allMaterials.find((m) => m.id === id))
+                  .filter((m): m is Material => Boolean(m))
+              : []
+            ).map((related) => (
+              <button
+                key={related.id}
+                type="button"
+                onClick={() => onSelectRelated?.(related)}
+                className="w-full text-left p-4 border border-gray-200 rounded-lg hover:border-blue-400 hover:bg-blue-50/50 transition-colors cursor-pointer"
+              >
                 <div className="flex items-center gap-3 mb-2">
-                  <BookOpen className="w-5 h-5 text-blue-600" />
-                  <span className="text-sm text-gray-900">Связанная тема {i}</span>
+                  <BookOpen className="w-5 h-5 text-blue-600 shrink-0" />
+                  <span className="text-sm font-medium text-gray-900">{related.title}</span>
                 </div>
-                <p className="text-xs text-gray-500">Дополнительный материал для углубленного изучения</p>
-              </div>
+                <p className="text-xs text-gray-500">{related.description || related.topic}</p>
+              </button>
             ))}
+            {(!material.related_ids || material.related_ids.length === 0) && (
+              <p className="text-sm text-gray-500">Нет связанных материалов</p>
+            )}
           </div>
         </aside>
       </div>

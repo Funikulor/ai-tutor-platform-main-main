@@ -118,7 +118,9 @@ class AuthService:
     
     def register_user(self, email: str, password: str, full_name: str, 
                      role: UserRole, class_id: Optional[str] = None,
-                     phone: Optional[str] = None) -> Optional[User]:
+                     phone: Optional[str] = None,
+                     parent_fio: Optional[str] = None,
+                     parent_phone: Optional[str] = None) -> Optional[User]:
         """Регистрирует нового пользователя"""
         hashed_password = self.hash_password(password)
         
@@ -145,6 +147,8 @@ class AuthService:
                         role=role.value,
                         class_id=class_id,
                         phone=phone,
+                        parent_fio=parent_fio,
+                        parent_phone=parent_phone,
                         is_active=True
                     )
                     db.add(user_db)
@@ -158,6 +162,8 @@ class AuthService:
                         role=role,
                         class_id=class_id,
                         phone=phone,
+                        parent_fio=parent_fio,
+                        parent_phone=parent_phone,
                         created_at=user_db.created_at,
                         is_active=True
                     )
@@ -183,13 +189,15 @@ class AuthService:
             role=role,
             class_id=class_id,
             phone=phone,
+            parent_fio=parent_fio,
+            parent_phone=parent_phone,
             created_at=datetime.now(),
             is_active=True
         )
         
         users[user_id] = {
             **user.dict(),
-            "password": hashed_password
+            "password": hashed_password,
         }
         persistent_storage.set("users", users)
         
@@ -280,7 +288,9 @@ class AuthService:
                             "full_name": user_db.full_name,
                             "role": user_db.role,
                             "class_id": user_db.class_id,
-                            "phone": user_db.phone
+                            "phone": user_db.phone,
+                            "parent_fio": getattr(user_db, 'parent_fio', None),
+                            "parent_phone": getattr(user_db, 'parent_phone', None),
                         }
                 except Exception as e:
                     print(f"[Auth] Ошибка получения пользователя из БД: {e}")
@@ -296,7 +306,9 @@ class AuthService:
                 "full_name": user_data.get("full_name"),
                 "role": user_data.get("role"),
                 "class_id": user_data.get("class_id"),
-                "phone": user_data.get("phone")
+                "phone": user_data.get("phone"),
+                "parent_fio": user_data.get("parent_fio"),
+                "parent_phone": user_data.get("parent_phone"),
             }
         
         return None
@@ -324,6 +336,8 @@ class AuthService:
                             "role": user_db.role,
                             "class_id": user_db.class_id,
                             "phone": user_db.phone,
+                            "parent_fio": getattr(user_db, 'parent_fio', None),
+                            "parent_phone": getattr(user_db, 'parent_phone', None),
                             "is_active": user_db.is_active,
                             "created_at": user_db.created_at.isoformat() if user_db.created_at else None
                         })
@@ -357,6 +371,8 @@ class AuthService:
                             "role": user_db.role,
                             "class_id": user_db.class_id,
                             "phone": user_db.phone,
+                            "parent_fio": getattr(user_db, 'parent_fio', None),
+                            "parent_phone": getattr(user_db, 'parent_phone', None),
                             "is_active": user_db.is_active,
                             "created_at": user_db.created_at.isoformat() if user_db.created_at else None
                         }

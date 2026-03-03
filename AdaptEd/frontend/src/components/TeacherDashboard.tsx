@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
-import { Users, TrendingDown, AlertCircle, Download, Filter, BarChart3, FileText } from 'lucide-react';
+import { Users, TrendingDown, AlertCircle, Download, Filter, BarChart3, FileText, X } from 'lucide-react';
 import { TeacherTestsTab } from './TeacherTestsTab';
 import api from '../services/api';
 import { toast } from 'sonner';
@@ -45,6 +45,8 @@ interface UserRow {
   full_name?: string;
   email?: string;
   phone?: string | null;
+  parent_fio?: string | null;
+  parent_phone?: string | null;
 }
 
 interface ParentContact {
@@ -65,6 +67,7 @@ export function TeacherDashboard() {
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [statusFilter, setStatusFilter] = useState<'all' | StudentStatus>('all');
   const [minScoreFilter, setMinScoreFilter] = useState(0);
+  const [detailStudent, setDetailStudent] = useState<StudentRow | null>(null);
 
   const visibleStudents = useMemo(() => {
     return classData.filter((student) => {
@@ -147,7 +150,17 @@ export function TeacherDashboard() {
         });
 
         const contacts: Record<string, ParentContact> = {};
+        const usersById: Record<string, UserRow> = {};
+        users.forEach((u) => { if (u.user_id) usersById[u.user_id] = u; });
         nextClassData.forEach((student) => {
+          const user = usersById[student.user_id];
+          if (user?.parent_fio || user?.parent_phone) {
+            contacts[student.user_id] = {
+              full_name: user.parent_fio || '',
+              phone: user.parent_phone || ''
+            };
+            return;
+          }
           const classId = studentClassById[student.user_id];
           const byClass = classId ? parentsByClass[classId] : [];
           const contact = byClass?.[0] || allParents[0];
@@ -452,7 +465,11 @@ export function TeacherDashboard() {
                     {getStatusBadge(student.status)}
                   </td>
                   <td className="text-right py-4 px-4">
-                    <button className="text-blue-600 hover:text-blue-700 text-sm">
+                    <button
+                      type="button"
+                      onClick={() => setDetailStudent(student)}
+                      className="text-blue-600 hover:text-blue-700 text-sm"
+                    >
                       Подробнее →
                     </button>
                   </td>
@@ -541,6 +558,35 @@ export function TeacherDashboard() {
           )}
         </div>
       </div>
+
+      {/* Modal: Подробнее об ученике */}
+      {detailStudent && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={() => setDetailStudent(null)}>
+          <div className="bg-white rounded-xl shadow-xl max-w-md w-full mx-4 p-6" onClick={(e) => e.stopPropagation()}>
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-lg font-semibold text-gray-900">Подробнее: {detailStudent.student}</h3>
+              <button type="button" onClick={() => setDetailStudent(null)} className="p-1 text-gray-500 hover:text-gray-700">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="space-y-3 text-sm">
+              <p><span className="text-gray-600">Успеваемость:</span> <strong>{detailStudent.score}%</strong></p>
+              <p><span className="text-gray-600">Изучено тем:</span> <strong>{detailStudent.topics}</strong></p>
+              <p><span className="text-gray-600">Количество ошибок:</span> <strong>{detailStudent.errors}</strong></p>
+              <p><span className="text-gray-600">Статус:</span> <span className={detailStudent.status === 'excellent' ? 'text-green-600' : detailStudent.status === 'good' ? 'text-blue-600' : detailStudent.status === 'average' ? 'text-yellow-600' : 'text-red-600'}>
+                {detailStudent.status === 'excellent' ? 'Отлично' : detailStudent.status === 'good' ? 'Хорошо' : detailStudent.status === 'average' ? 'Удовлетворительно' : 'Требуется внимание'}
+              </span></p>
+              {parentContactsByStudentId[detailStudent.user_id] && (
+                <div className="mt-4 pt-4 border-t border-gray-200">
+                  <p className="text-gray-600 font-medium mb-1">Контакт родителя</p>
+                  <p>{parentContactsByStudentId[detailStudent.user_id].full_name}</p>
+                  <p><a href={`tel:${parentContactsByStudentId[detailStudent.user_id].phone}`} className="text-blue-600 hover:underline">{parentContactsByStudentId[detailStudent.user_id].phone}</a></p>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Students Needing Help */}
       <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">

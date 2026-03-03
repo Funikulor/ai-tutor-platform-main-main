@@ -879,7 +879,11 @@ async def get_admin_users(db: Session = Depends(get_db)):
                 "name": user.get('full_name', user.get('email', 'Неизвестно')),
                 "email": user.get('email', ''),
                 "role": user.get('role', 'student'),
-                "status": "active" if user.get('is_active', True) else "inactive"
+                "status": "active" if user.get('is_active', True) else "inactive",
+                "class_id": user.get('class_id'),
+                "phone": user.get('phone'),
+                "parent_fio": user.get('parent_fio'),
+                "parent_phone": user.get('parent_phone'),
             })
         
         return formatted_users
@@ -1518,6 +1522,113 @@ class UserCreateRequest(BaseModel):
     role: str  # student, teacher, admin
     class_id: Optional[str] = None
     phone: Optional[str] = None
+    parent_fio: Optional[str] = None
+    parent_phone: Optional[str] = None
+
+
+# Данные для сидирования БД (то же, что в scripts/seed_db.py)
+_SEED_STUDENT_NAMES = [
+    "Иванов Алексей", "Петрова Мария", "Сидоров Дмитрий", "Козлова Анна",
+    "Новиков Иван", "Морозова Елена", "Волков Павел", "Соколова Ольга",
+    "Лебедев Сергей", "Кузнецова Татьяна", "Попов Николай", "Васильева Ирина",
+    "Федоров Андрей", "Михайлова Наталья", "Андреев Александр", "Егорова Светлана",
+]
+_SEED_PARENT_NAMES = [
+    "Иванов Иван Петрович", "Петрова Ольга Сергеевна", "Сидоров Петр Иванович",
+    "Козлова Елена Викторовна", "Новиков Дмитрий Александрович", "Морозова Анна Дмитриевна",
+    "Волков Сергей Николаевич", "Соколова Мария Павловна", "Лебедев Андрей Иванович",
+    "Кузнецова Татьяна Сергеевна", "Попов Николай Владимирович", "Васильева Ирина Андреевна",
+    "Федоров Александр Петрович", "Михайлова Наталья Олеговна", "Андреев Павел Сергеевич",
+    "Егорова Светлана Дмитриевна",
+]
+_SEED_PHONES = [
+    "+7 916 111-22-33", "+7 926 222-33-44", "+7 903 333-44-55", "+7 905 444-55-66",
+    "+7 495 555-66-77", "+7 499 666-77-88", "+7 916 777-88-99", "+7 926 888-99-00",
+    "+7 903 999-00-11", "+7 905 100-11-22", "+7 495 200-22-33", "+7 499 300-33-44",
+    "+7 916 400-44-55", "+7 926 500-55-66", "+7 903 600-66-77", "+7 905 700-77-88",
+]
+_SEED_CLASSES = ["10А", "10Б", "11А", "9А", "9Б"]
+_SEED_TEACHER_NAMES = [
+    "Смирнова Елена Викторовна", "Кузнецов Михаил Сергеевич", "Павлова Анна Александровна",
+    "Семенов Игорь Николаевич", "Голубева Ольга Дмитриевна",
+]
+
+
+@router.post("/admin/seed", response_model=Dict[str, Any])
+async def admin_seed_db(current_user: dict = Depends(get_current_user)):
+    """
+    Заполнить БД тестовыми учениками и учителями (только для админа).
+    Вызывайте этот endpoint один раз после деплоя на Railway — пользователи создадутся
+    в вашей Railway Postgres. В ответе вернётся список email и паролей.
+    """
+    if current_user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Доступ только для администратора")
+    import random
+    import string
+    from utils.auth_service import auth_service
+    from models.auth import UserRole
+
+    def _random_password():
+        return "".join(random.choices(string.ascii_letters + string.digits, k=10))
+
+    credentials = []
+    base_student = 100
+    base_teacher = 50
+
+    for i, name in enumerate(_SEED_STUDENT_NAMES):
+        email = f"student{base_student + i + 1}@adapted.local"
+        password = _random_password()
+        class_id = _SEED_CLASSES[i % len(_SEED_CLASSES)]
+        parent_fio = _SEED_PARENT_NAMES[i % len(_SEED_PARENT_NAMES)]
+        parent_phone = _SEED_PHONES[i % len(_SEED_PHONES)]
+        user = auth_service.register_user(
+            email=email,
+            password=password,
+            full_name=name,
+            role=UserRole.STUDENT,
+            class_id=class_id,
+            phone=_SEED_PHONES[(i + 1) % len(_SEED_PHONES)],
+            parent_fio=parent_fio,
+            parent_phone=parent_phone,
+        )
+        if user:
+            credentials.append({
+                "role": "Ученик",
+                "name": name,
+                "email": email,
+                "password": password,
+                "class_id": class_id,
+                "parent_fio": parent_fio,
+                "parent_phone": parent_phone,
+            })
+
+    for i, name in enumerate(_SEED_TEACHER_NAMES):
+        email = f"teacher{base_teacher + i + 1}@adapted.local"
+        password = _random_password()
+        user = auth_service.register_user(
+            email=email,
+            password=password,
+            full_name=name,
+            role=UserRole.TEACHER,
+            class_id=None,
+            phone=_SEED_PHONES[(i + 5) % len(_SEED_PHONES)],
+        )
+        if user:
+            credentials.append({
+                "role": "Учитель",
+                "name": name,
+                "email": email,
+                "password": password,
+                "class_id": None,
+                "parent_fio": None,
+                "parent_phone": None,
+            })
+
+    return {
+        "message": "База заполнена. Ниже список созданных учётных записей (уже существующие email пропущены).",
+        "created": len(credentials),
+        "credentials": credentials,
+    }
 
 
 @router.post("/admin/users", response_model=Dict[str, Any])
@@ -1541,7 +1652,9 @@ async def create_user(user_data: UserCreateRequest, db: Session = Depends(get_db
             full_name=user_data.full_name,
             role=role,
             class_id=user_data.class_id,
-            phone=user_data.phone
+            phone=user_data.phone,
+            parent_fio=user_data.parent_fio,
+            parent_phone=user_data.parent_phone
         )
         
         if not user:
@@ -1588,6 +1701,10 @@ async def update_admin_user(user_id: str, updates: Dict[str, Any], db: Session =
                         user_db.class_id = updates['class_id']
                     if 'phone' in updates:
                         user_db.phone = updates['phone']
+                    if 'parent_fio' in updates:
+                        user_db.parent_fio = updates['parent_fio']
+                    if 'parent_phone' in updates:
+                        user_db.parent_phone = updates['parent_phone']
                     if 'is_active' in updates:
                         user_db.is_active = updates['is_active']
                     
@@ -1616,7 +1733,7 @@ async def update_admin_user(user_id: str, updates: Dict[str, Any], db: Session =
         
         user = users[user_id]
         for key, value in updates.items():
-            if key in ['full_name', 'email', 'role', 'class_id', 'phone', 'is_active']:
+            if key in ['full_name', 'email', 'role', 'class_id', 'phone', 'parent_fio', 'parent_phone', 'is_active']:
                 user[key] = value
         
         persistent_storage.set("users", users)
@@ -1993,6 +2110,46 @@ async def delete_topic(topic_id: int, db: Session = Depends(get_db)):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+class TopicTaskCreate(BaseModel):
+    title: str
+    description: Optional[str] = None
+
+
+@router.post("/admin/content/topic/{topic_id}/task", response_model=Dict[str, Any])
+async def add_topic_task(topic_id: int, data: TopicTaskCreate, db: Session = Depends(get_db)):
+    """Добавить задание к теме"""
+    try:
+        from utils.persistent_storage import persistent_storage
+        
+        key = "admin_topic_tasks"
+        tasks_by_topic = persistent_storage.get(key, {})
+        topic_key = f"topic_{topic_id}"
+        tasks = list(tasks_by_topic.get(topic_key, []))
+        new_id = max([t.get("id", 0) for t in tasks], default=0) + 1
+        tasks.append({
+            "id": new_id,
+            "title": data.title,
+            "description": data.description or "",
+        })
+        tasks_by_topic[topic_key] = tasks
+        persistent_storage.set(key, tasks_by_topic)
+        
+        # Обновить счётчик заданий в структуре контента
+        content_structure = persistent_storage.get("admin_content_structure", [])
+        for subject in content_structure:
+            for section in subject.get("sections", []):
+                for topic in section.get("topics", []):
+                    if topic.get("id") == topic_id:
+                        topic["tasks"] = topic.get("tasks", 0) + 1
+                        break
+        persistent_storage.set("admin_content_structure", content_structure)
+        
+        return {"message": "Задание добавлено", "id": new_id, "topic_id": topic_id}
+    except Exception as e:
+        print(f"Error in add_topic_task: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 # ========== ADMIN SYSTEM SETTINGS ==========
 
 class SystemSettings(BaseModel):
@@ -2035,10 +2192,19 @@ async def get_system_settings(db: Session = Depends(get_db)):
         settings = persistent_storage.get("admin_system_settings", {
             "adaptation_strategy": "balanced",
             "target_mastery_percent": 80,
-            "attempts_before_strategy_change": 3
+            "attempts_before_strategy_change": 3,
+            "gigachat_api_key": "",
+            "pinecone_api_key": "",
+            "pinecone_index": ""
         })
-        
-        return settings
+        return {**{
+            "adaptation_strategy": "balanced",
+            "target_mastery_percent": 80,
+            "attempts_before_strategy_change": 3,
+            "gigachat_api_key": "",
+            "pinecone_api_key": "",
+            "pinecone_index": ""
+        }, **settings}
     except Exception as e:
         print(f"Error in get_system_settings: {e}")
         raise HTTPException(status_code=500, detail=str(e))

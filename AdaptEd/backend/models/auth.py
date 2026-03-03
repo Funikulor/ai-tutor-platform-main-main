@@ -23,6 +23,8 @@ class UserRegistration(BaseModel):
     role: UserRole
     class_id: Optional[str] = None  # Для учеников
     phone: Optional[str] = None
+    parent_fio: Optional[str] = None  # ФИО родителя (для учеников)
+    parent_phone: Optional[str] = None  # Телефон родителя (для учеников)
 
 
 class UserLogin(BaseModel):
@@ -39,6 +41,8 @@ class User(BaseModel):
     role: UserRole
     class_id: Optional[str] = None
     phone: Optional[str] = None
+    parent_fio: Optional[str] = None
+    parent_phone: Optional[str] = None
     created_at: datetime
     is_active: bool = True
     

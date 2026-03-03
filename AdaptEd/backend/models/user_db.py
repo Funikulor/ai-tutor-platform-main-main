@@ -29,6 +29,8 @@ class User(Base):  # type: ignore
     role = Column(SQLEnum(UserRoleEnum), nullable=False, index=True)  # Роль: student, teacher, parent, admin
     class_id = Column(String(50), nullable=True)  # ID класса (для учеников)
     phone = Column(String(20), nullable=True)  # Телефон (опционально)
+    parent_fio = Column(String(255), nullable=True)  # ФИО родителя (для учеников)
+    parent_phone = Column(String(20), nullable=True)  # Телефон родителя (для учеников)
     is_active = Column(Boolean, default=True, nullable=False)  # Активен ли пользователь
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)  # Дата создания
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)  # Дата обновления

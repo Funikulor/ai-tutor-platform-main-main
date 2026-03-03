@@ -47,6 +47,10 @@ export function AdminPanel() {
   const [showEditSubjectModal, setShowEditSubjectModal] = useState(false);
   const [showEditSectionModal, setShowEditSectionModal] = useState(false);
   const [showEditTopicModal, setShowEditTopicModal] = useState(false);
+  const [showAddTaskModal, setShowAddTaskModal] = useState(false);
+  const [addTaskTopic, setAddTaskTopic] = useState<{ id: number; name: string; sectionId: number } | null>(null);
+  const [seedLoading, setSeedLoading] = useState(false);
+  const [seedResult, setSeedResult] = useState<{ created: number; credentials: Array<{ role: string; name: string; email: string; password: string; class_id?: string | null; parent_fio?: string | null; parent_phone?: string | null }> } | null>(null);
 
   // Form states
   const [editingUser, setEditingUser] = useState<any>(null);
@@ -113,7 +117,9 @@ export function AdminPanel() {
         full_name: formData.get('full_name'),
         role: formData.get('role'),
         class_id: formData.get('class_id') || null,
-        phone: formData.get('phone') || null
+        phone: formData.get('phone') || null,
+        parent_fio: formData.get('parent_fio') || null,
+        parent_phone: formData.get('parent_phone') || null
       });
       toast.success('Пользователь успешно создан');
       setShowUserModal(false);
@@ -139,6 +145,8 @@ export function AdminPanel() {
         role: formData.get('role'),
         class_id: formData.get('class_id') || null,
         phone: formData.get('phone') || null,
+        parent_fio: formData.get('parent_fio') || null,
+        parent_phone: formData.get('parent_phone') || null,
         is_active: formData.get('is_active') === 'true'
       });
       if (newPassword && newPassword.length >= 6) {
@@ -288,6 +296,44 @@ export function AdminPanel() {
     setShowEditTopicModal(true);
   };
 
+  const handleAddTask = (topic: any, sectionId: number) => {
+    setAddTaskTopic({ id: topic.id, name: topic.name, sectionId });
+    setShowAddTaskModal(true);
+  };
+
+  const handleSeedDb = async () => {
+    setSeedLoading(true);
+    setSeedResult(null);
+    try {
+      const { data } = await api.post<{ message: string; created: number; credentials: Array<{ role: string; name: string; email: string; password: string; class_id?: string | null; parent_fio?: string | null; parent_phone?: string | null }> }>('/admin/seed');
+      setSeedResult({ created: data.created, credentials: data.credentials || [] });
+      toast.success(data.message || `Создано пользователей: ${data.created}`);
+      loadAdminData();
+    } catch (err: any) {
+      toast.error(err.response?.data?.detail || 'Ошибка при заполнении БД');
+    } finally {
+      setSeedLoading(false);
+    }
+  };
+
+  const handleCreateTask = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    if (!addTaskTopic) return;
+    const formData = new FormData(e.currentTarget);
+    try {
+      await api.post(`/admin/content/topic/${addTaskTopic.id}/task`, {
+        title: formData.get('task_title'),
+        description: formData.get('task_description') || null
+      });
+      toast.success('Задание добавлено');
+      setShowAddTaskModal(false);
+      setAddTaskTopic(null);
+      loadAdminData();
+    } catch (err: any) {
+      toast.error(err.response?.data?.detail || 'Ошибка при добавлении задания');
+    }
+  };
+
   const handleUpdateTopic = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const formData = new FormData(e.currentTarget);
@@ -339,15 +385,30 @@ export function AdminPanel() {
   const handleSaveSettings = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const formData = new FormData(e.currentTarget);
+    const raw = (name: string) => formData.get(name);
+    const num = (name: string, def: number) => {
+      const v = raw(name);
+      if (v === null || v === undefined || v === '') return def;
+      const n = parseInt(String(v), 10);
+      return Number.isNaN(n) ? def : n;
+    };
+    const str = (name: string, def: string | null = null) => {
+      const v = raw(name);
+      if (v === null || v === undefined) return def;
+      const s = String(v).trim();
+      return s === '' ? def : s;
+    };
     try {
-      await api.post('/admin/settings', {
-        adaptation_strategy: formData.get('adaptation_strategy'),
-        target_mastery_percent: parseInt(formData.get('target_mastery_percent') as string),
-        attempts_before_strategy_change: parseInt(formData.get('attempts_before_strategy_change') as string),
-        gigachat_api_key: formData.get('gigachat_api_key') || null,
-        pinecone_api_key: formData.get('pinecone_api_key') || null,
-        pinecone_index: formData.get('pinecone_index') || null
-      });
+      const payload: Record<string, unknown> = {
+        ...systemSettings,
+        adaptation_strategy: str('adaptation_strategy') ?? systemSettings.adaptation_strategy,
+        target_mastery_percent: num('target_mastery_percent', systemSettings.target_mastery_percent),
+        attempts_before_strategy_change: num('attempts_before_strategy_change', systemSettings.attempts_before_strategy_change),
+        gigachat_api_key: str('gigachat_api_key') ?? systemSettings.gigachat_api_key ?? '',
+        pinecone_api_key: str('pinecone_api_key') ?? systemSettings.pinecone_api_key ?? '',
+        pinecone_index: str('pinecone_index') ?? systemSettings.pinecone_index ?? ''
+      };
+      await api.post('/admin/settings', payload);
       toast.success('Настройки успешно сохранены');
       loadSystemSettings();
     } catch (err: any) {
@@ -589,7 +650,8 @@ export function AdminPanel() {
                                   Редактировать
                                 </button>
                                 <button 
-                                  onClick={() => toast.info('Функция добавления заданий будет реализована позже')}
+                                  type="button"
+                                  onClick={() => handleAddTask(topic, section.id)}
                                   className="px-3 py-1 text-sm text-green-600 hover:bg-green-50 rounded transition-colors"
                                 >
                                   + Задание
@@ -655,7 +717,8 @@ export function AdminPanel() {
                     <span className="text-green-600">94.2%</span>
                   </div>
                   <button 
-                    onClick={() => toast.info('Настройка NLP модуля будет реализована позже')}
+                    type="button"
+                    onClick={() => { setActiveTab('system'); toast.info('Перейдите в раздел «Настройки системы» для настройки интеграций'); }}
                     className="w-full py-2 bg-blue-50 text-blue-600 rounded-lg hover:bg-blue-100 transition-colors text-sm"
                   >
                     Настроить
@@ -676,7 +739,8 @@ export function AdminPanel() {
                     <span className="text-gray-900">Pinecone</span>
                   </div>
                   <button 
-                    onClick={() => toast.info('Настройка RAG модуля доступна в разделе "Настройки системы"')}
+                    type="button"
+                    onClick={() => { setActiveTab('system'); toast.info('Настройте GigaChat и Pinecone в блоке «Интеграции API» ниже'); }}
                     className="w-full py-2 bg-purple-50 text-purple-600 rounded-lg hover:bg-purple-100 transition-colors text-sm"
                   >
                     Настроить
@@ -691,15 +755,25 @@ export function AdminPanel() {
       {/* User Management */}
       {activeTab === 'users' && (
         <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-          <div className="flex items-center justify-between mb-6">
+          <div className="flex items-center justify-between mb-6 flex-wrap gap-3">
             <h3 className="text-gray-900">Управление пользователями</h3>
-            <button 
-              onClick={() => setShowUserModal(true)}
-              className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-            >
-              <Plus className="w-4 h-4" />
-              Добавить пользователя
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={handleSeedDb}
+                disabled={seedLoading}
+                className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors disabled:opacity-60"
+              >
+                {seedLoading ? 'Заполняем...' : 'Заполнить БД тестовыми данными'}
+              </button>
+              <button 
+                onClick={() => setShowUserModal(true)}
+                className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+              >
+                <Plus className="w-4 h-4" />
+                Добавить пользователя
+              </button>
+            </div>
           </div>
 
           {loading ? (
@@ -922,6 +996,14 @@ export function AdminPanel() {
             <label className="block text-gray-700 mb-2">Телефон (опционально)</label>
             <input type="text" name="phone" className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500" />
           </div>
+          <div>
+            <label className="block text-gray-700 mb-2">ФИО родителя (для ученика)</label>
+            <input type="text" name="parent_fio" className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500" placeholder="Иванова Мария Петровна" />
+          </div>
+          <div>
+            <label className="block text-gray-700 mb-2">Телефон родителя (для ученика)</label>
+            <input type="text" name="parent_phone" className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500" placeholder="+7 999 123-45-67" />
+          </div>
           <div className="flex gap-3">
             <button type="submit" className="flex-1 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">
               Создать
@@ -956,6 +1038,22 @@ export function AdminPanel() {
                 <option value="teacher">Учитель</option>
                 <option value="admin">Администратор</option>
               </select>
+            </div>
+            <div>
+              <label className="block text-gray-700 mb-2">Класс (опционально)</label>
+              <input type="text" name="class_id" defaultValue={(editingUser as any).class_id} className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500" />
+            </div>
+            <div>
+              <label className="block text-gray-700 mb-2">Телефон (опционально)</label>
+              <input type="text" name="phone" defaultValue={(editingUser as any).phone} className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500" />
+            </div>
+            <div>
+              <label className="block text-gray-700 mb-2">ФИО родителя (для ученика)</label>
+              <input type="text" name="parent_fio" defaultValue={(editingUser as any).parent_fio} className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500" />
+            </div>
+            <div>
+              <label className="block text-gray-700 mb-2">Телефон родителя (для ученика)</label>
+              <input type="text" name="parent_phone" defaultValue={(editingUser as any).parent_phone} className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500" />
             </div>
             <div>
               <label className="block text-gray-700 mb-2">Статус</label>
@@ -1090,6 +1188,50 @@ export function AdminPanel() {
             </div>
           </form>
         )}
+      </Modal>
+
+      <Modal isOpen={!!seedResult} onClose={() => setSeedResult(null)} title="Учётные записи после заполнения БД">
+        <div className="space-y-4">
+          <p className="text-sm text-gray-600">Создано пользователей: {seedResult?.created ?? 0}. Сохраните список — пароли больше не показываются.</p>
+          <pre className="bg-gray-100 p-4 rounded-lg text-xs overflow-auto max-h-96 whitespace-pre-wrap">
+            {seedResult?.credentials.map((c) => `${c.role}: ${c.name}\n  Email: ${c.email}\n  Пароль: ${c.password}${c.class_id ? `\n  Класс: ${c.class_id}` : ''}${c.parent_fio || c.parent_phone ? `\n  Родитель: ${[c.parent_fio, c.parent_phone].filter(Boolean).join(', ')}` : ''}`).join('\n\n')}
+          </pre>
+          <button
+            type="button"
+            onClick={() => {
+              const text = seedResult?.credentials.map((c) => `${c.role}: ${c.name}\n  Email: ${c.email}\n  Пароль: ${c.password}${c.class_id ? `\n  Класс: ${c.class_id}` : ''}${c.parent_fio || c.parent_phone ? `\n  Родитель: ${[c.parent_fio, c.parent_phone].filter(Boolean).join(', ')}` : ''}`).join('\n\n') ?? '';
+              navigator.clipboard.writeText(text);
+              toast.success('Список скопирован в буфер обмена');
+            }}
+            className="w-full py-2 bg-gray-200 text-gray-800 rounded-lg hover:bg-gray-300"
+          >
+            Копировать список
+          </button>
+          <button type="button" onClick={() => setSeedResult(null)} className="w-full py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">
+            Закрыть
+          </button>
+        </div>
+      </Modal>
+
+      <Modal isOpen={showAddTaskModal} onClose={() => { setShowAddTaskModal(false); setAddTaskTopic(null); }} title={addTaskTopic ? `Добавить задание: ${addTaskTopic.name}` : 'Добавить задание'}>
+        <form onSubmit={handleCreateTask} className="space-y-4">
+          <div>
+            <label className="block text-gray-700 mb-2">Название задания</label>
+            <input type="text" name="task_title" required className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500" placeholder="Например: Решить квадратное уравнение" />
+          </div>
+          <div>
+            <label className="block text-gray-700 mb-2">Описание (опционально)</label>
+            <textarea name="task_description" rows={3} className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500" placeholder="Условие или подсказка" />
+          </div>
+          <div className="flex gap-3">
+            <button type="submit" className="flex-1 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700">
+              Добавить
+            </button>
+            <button type="button" onClick={() => { setShowAddTaskModal(false); setAddTaskTopic(null); }} className="flex-1 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300">
+              Отмена
+            </button>
+          </div>
+        </form>
       </Modal>
 
       <Modal isOpen={showUploadModal} onClose={() => setShowUploadModal(false)} title="Загрузить материал">

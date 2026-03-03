@@ -69,6 +69,20 @@ def init_db():
 		from models.test import Test, TestQuestion, TestSubmission  # noqa: F401
 		from models.user_db import User  # noqa: F401
 		Base.metadata.create_all(bind=_engine)
+		# Миграция: добавить колонки parent_fio, parent_phone в users (SQLite)
+		if DATABASE_URL and "sqlite" in DATABASE_URL:
+			try:
+				from sqlalchemy import text
+				with _engine.connect() as conn:
+					r = conn.execute(text("PRAGMA table_info(users)"))
+					cols = [row[1] for row in r.fetchall()]
+					if "parent_fio" not in cols:
+						conn.execute(text("ALTER TABLE users ADD COLUMN parent_fio VARCHAR(255)"))
+					if "parent_phone" not in cols:
+						conn.execute(text("ALTER TABLE users ADD COLUMN parent_phone VARCHAR(20)"))
+					conn.commit()
+			except Exception:
+				pass
 	except Exception:
 		# Silently skip DB init if models import fails
 		return
