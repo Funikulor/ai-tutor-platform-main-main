@@ -80,6 +80,8 @@ def init_db():
 						conn.execute(text("ALTER TABLE users ADD COLUMN parent_fio VARCHAR(255)"))
 					if "parent_phone" not in cols:
 						conn.execute(text("ALTER TABLE users ADD COLUMN parent_phone VARCHAR(20)"))
+					if "avatar_seed" not in cols:
+						conn.execute(text("ALTER TABLE users ADD COLUMN avatar_seed VARCHAR(64)"))
 					conn.commit()
 			except Exception:
 				pass

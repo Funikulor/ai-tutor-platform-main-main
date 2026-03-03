@@ -6,6 +6,7 @@ import { Auth } from './components/Auth';
 import { UserProfile } from './components/UserProfile';
 import { BookOpen, Users, Settings, LogOut, User as UserIcon } from 'lucide-react';
 import { authService } from './services/auth';
+import { getAvatarUrl } from './utils/avatar';
 import { Toaster } from 'sonner';
 
 export default function App() {
@@ -153,10 +154,14 @@ export default function App() {
                 <div className="flex items-center gap-2">
                   <button
                     onClick={() => setShowProfile(!showProfile)}
-                    className="w-10 h-10 bg-gradient-to-br from-blue-400 to-purple-500 rounded-full flex items-center justify-center text-white hover:scale-105 transition-transform"
+                    className="w-10 h-10 rounded-full flex items-center justify-center overflow-hidden bg-gradient-to-br from-blue-400 to-purple-500 text-white hover:scale-105 transition-transform border-2 border-white shadow"
                     title="Профиль"
                   >
-                    {currentUser?.full_name?.charAt(0) || <UserIcon className="w-5 h-5" />}
+                    {getAvatarUrl(currentUser?.avatar_seed) ? (
+                      <img src={getAvatarUrl(currentUser?.avatar_seed)!} alt="" className="w-full h-full object-cover" />
+                    ) : (
+                      currentUser?.full_name?.charAt(0) || <UserIcon className="w-5 h-5" />
+                    )}
                   </button>
                   <button
                     onClick={handleLogout}
@@ -175,7 +180,7 @@ export default function App() {
       {/* Main Content */}
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {showProfile ? (
-          <UserProfile onClose={() => setShowProfile(false)} />
+          <UserProfile onClose={() => setShowProfile(false)} onProfileUpdated={checkAuth} />
         ) : (
           <>
             {viewingRole === 'student' && <StudentDashboard />}

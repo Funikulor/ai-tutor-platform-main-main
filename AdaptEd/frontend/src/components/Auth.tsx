@@ -87,7 +87,7 @@ export function Auth({ onSuccess }: AuthProps) {
     if (err?.code === 'ETIMEDOUT' || err?.message?.includes('timeout')) {
       return 'Превышено время ожидания ответа от сервера. Проверьте, что бэкенд запущен.';
     }
-    if (mode === 'login' && err?.response?.status === 401) {
+    if (err?.response?.status === 401) {
       return 'Неверный email или пароль. Проверьте данные и попробуйте снова.';
     }
     if (err?.response?.status === 405) {
@@ -163,19 +163,6 @@ export function Auth({ onSuccess }: AuthProps) {
             </div>
           </div>
         )}
-        {backendStatus === 'online' && (
-          <div className="mb-4 p-4 bg-green-50 border-2 border-green-200 rounded-lg">
-            <div className="flex items-center gap-3">
-              <div className="w-5 h-5 bg-green-600 rounded-full flex items-center justify-center">
-                <span className="text-white text-xs">✓</span>
-              </div>
-              <p className="text-sm font-medium text-green-800">
-                Бэкенд доступен и готов к работе
-              </p>
-            </div>
-          </div>
-        )}
-
         {/* Auth Card */}
         <div className="bg-white rounded-2xl shadow-xl p-8">
           {/* Error Message */}

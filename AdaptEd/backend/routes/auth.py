@@ -3,8 +3,15 @@ API маршруты для авторизации и регистрации
 """
 from fastapi import APIRouter, HTTPException, Depends, Header
 from typing import Optional
+from pydantic import BaseModel
 from models.auth import UserRegistration, UserLogin, Token, User, UserRole
 from utils.auth_service import auth_service
+
+
+class ProfileUpdate(BaseModel):
+    full_name: Optional[str] = None
+    phone: Optional[str] = None
+    avatar_seed: Optional[str] = None
 
 router = APIRouter()
 
@@ -140,5 +147,29 @@ async def get_profile(current_user: dict = Depends(get_current_user)):
     except Exception:
         pass  # Аналитика опциональна
     
+    return user_data
+
+
+@router.put("/auth/profile", response_model=dict)
+async def update_profile(updates: ProfileUpdate, current_user: dict = Depends(get_current_user)):
+    """Обновить профиль текущего пользователя (имя, телефон, аватар)."""
+    user_id = current_user["user_id"]
+    ok = auth_service.update_profile(
+        user_id,
+        full_name=updates.full_name,
+        phone=updates.phone,
+        avatar_seed=updates.avatar_seed,
+    )
+    if not ok:
+        raise HTTPException(status_code=500, detail="Не удалось обновить профиль")
+    user_data = auth_service.get_user_by_id(user_id)
+    if not user_data:
+        raise HTTPException(status_code=404, detail="User not found")
+    try:
+        from services.student_analytics import get_analytics_service
+        analytics_service = get_analytics_service()
+        user_data["analytics"] = analytics_service.get_analytics(user_id)
+    except Exception:
+        pass
     return user_data
 

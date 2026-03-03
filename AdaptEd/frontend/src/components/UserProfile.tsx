@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
-import { User, Mail, Phone, GraduationCap, Calendar, Shield, Edit2, Save, X } from 'lucide-react';
+import { User, Mail, Phone, GraduationCap, Calendar, Shield, Edit2, Save, X, ImagePlus } from 'lucide-react';
 import api from '../services/api';
-import { authService } from '../services/auth';
+import { getAvatarUrl, randomAvatarSeed } from '../utils/avatar';
 
 interface UserProfileData {
   user_id: string;
@@ -10,6 +10,7 @@ interface UserProfileData {
   role: string;
   class_id?: string;
   phone?: string;
+  avatar_seed?: string | null;
   is_active?: boolean;
   created_at?: string;
   analytics?: any;
@@ -18,9 +19,10 @@ interface UserProfileData {
 interface UserProfileProps {
   userId?: string;
   onClose?: () => void;
+  onProfileUpdated?: () => void;
 }
 
-export function UserProfile({ userId, onClose }: UserProfileProps) {
+export function UserProfile({ userId, onClose, onProfileUpdated }: UserProfileProps) {
   const [profile, setProfile] = useState<UserProfileData | null>(null);
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState(false);
@@ -67,17 +69,38 @@ export function UserProfile({ userId, onClose }: UserProfileProps) {
     if (!editData) return;
     
     try {
-      // Здесь можно добавить API для обновления профиля
-      // await api.put(`/users/${editData.user_id}`, editData);
+      const token = localStorage.getItem('token');
+      await api.put('/auth/profile', {
+        full_name: editData.full_name,
+        phone: editData.phone ?? '',
+        avatar_seed: editData.avatar_seed ?? null,
+      }, { headers: { Authorization: `Bearer ${token}` } });
       setProfile(editData);
       setEditing(false);
-      
-      // Обновляем localStorage
       if (editData.full_name) {
         localStorage.setItem('full_name', editData.full_name);
       }
+      onProfileUpdated?.();
     } catch (error) {
       console.error('Error saving profile:', error);
+    }
+  };
+
+  const handleChangeAvatar = () => {
+    if (!editData) return;
+    setEditData({ ...editData, avatar_seed: randomAvatarSeed() });
+  };
+
+  const handleChangeAvatarQuick = async () => {
+    const newSeed = randomAvatarSeed();
+    try {
+      const token = localStorage.getItem('token');
+      await api.put('/auth/profile', { avatar_seed: newSeed }, { headers: { Authorization: `Bearer ${token}` } });
+      setProfile((p) => (p ? { ...p, avatar_seed: newSeed } : p));
+      setEditData((e) => (e ? { ...e, avatar_seed: newSeed } : e));
+      onProfileUpdated?.();
+    } catch (error) {
+      console.error('Error updating avatar:', error);
     }
   };
 
@@ -125,8 +148,38 @@ export function UserProfile({ userId, onClose }: UserProfileProps) {
       {/* Header */}
       <div className="flex items-center justify-between border-b pb-4">
         <div className="flex items-center gap-4">
-          <div className="w-16 h-16 bg-gradient-to-br from-blue-400 to-purple-500 rounded-full flex items-center justify-center text-white text-2xl font-bold">
-            {profile.full_name.charAt(0).toUpperCase()}
+          <div className="relative">
+            {(editing ? getAvatarUrl(editData?.avatar_seed ?? undefined) : getAvatarUrl(profile.avatar_seed)) ? (
+              <img
+                src={editing ? getAvatarUrl(editData?.avatar_seed ?? undefined)! : getAvatarUrl(profile.avatar_seed)!}
+                alt=""
+                className="w-16 h-16 rounded-full object-cover border-2 border-gray-200"
+              />
+            ) : (
+              <div className="w-16 h-16 bg-gradient-to-br from-blue-400 to-purple-500 rounded-full flex items-center justify-center text-white text-2xl font-bold">
+                {profile.full_name.charAt(0).toUpperCase()}
+              </div>
+            )}
+            {editing ? (
+              <button
+                type="button"
+                onClick={handleChangeAvatar}
+                className="absolute -bottom-1 -right-1 p-1.5 bg-blue-500 text-white rounded-full shadow hover:bg-blue-600 transition-colors"
+                title="Сменить аватар"
+              >
+                <ImagePlus className="w-4 h-4" />
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={handleChangeAvatarQuick}
+                className="absolute -bottom-1 -right-1 px-2 py-1 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-full text-xs shadow transition-colors"
+                title="Сменить аватар"
+              >
+                <ImagePlus className="w-3.5 h-3.5 inline mr-0.5" />
+                Аватар
+              </button>
+            )}
           </div>
           <div>
             <h2 className="text-2xl font-bold text-gray-900">

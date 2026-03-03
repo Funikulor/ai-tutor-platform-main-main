@@ -25,6 +25,7 @@ class UserRegistration(BaseModel):
     phone: Optional[str] = None
     parent_fio: Optional[str] = None  # ФИО родителя (для учеников)
     parent_phone: Optional[str] = None  # Телефон родителя (для учеников)
+    avatar_seed: Optional[str] = None  # Строка для аватара (DiceBear)
 
 
 class UserLogin(BaseModel):
@@ -43,6 +44,7 @@ class User(BaseModel):
     phone: Optional[str] = None
     parent_fio: Optional[str] = None
     parent_phone: Optional[str] = None
+    avatar_seed: Optional[str] = None
     created_at: datetime
     is_active: bool = True
     

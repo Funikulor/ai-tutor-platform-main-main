@@ -8,6 +8,7 @@ import json
 import os
 import secrets
 from datetime import datetime, timedelta
+AVATAR_SEED_BYTES = 8  # 16 hex chars for unique avatar
 from typing import Optional, Dict, List
 from models.auth import User, UserRole
 from models.user_db import User as UserDB
@@ -134,9 +135,10 @@ class AuthService:
                     if existing:
                         return None
                     
-                    # Генерируем user_id
+                    # Генерируем user_id и случайный seed для аватара
                     count = db.query(UserDB).count()
                     user_id = f"{role.value}_{count + 1:03d}"
+                    avatar_seed = secrets.token_hex(AVATAR_SEED_BYTES)
                     
                     # Создаем пользователя
                     user_db = UserDB(
@@ -149,6 +151,7 @@ class AuthService:
                         phone=phone,
                         parent_fio=parent_fio,
                         parent_phone=parent_phone,
+                        avatar_seed=avatar_seed,
                         is_active=True
                     )
                     db.add(user_db)
@@ -164,6 +167,7 @@ class AuthService:
                         phone=phone,
                         parent_fio=parent_fio,
                         parent_phone=parent_phone,
+                        avatar_seed=avatar_seed,
                         created_at=user_db.created_at,
                         is_active=True
                     )
@@ -181,6 +185,7 @@ class AuthService:
         
         users = persistent_storage.get("users", {})
         user_id = f"{role.value}_{len(users) + 1:03d}"
+        avatar_seed = secrets.token_hex(AVATAR_SEED_BYTES)
         
         user = User(
             user_id=user_id,
@@ -191,6 +196,7 @@ class AuthService:
             phone=phone,
             parent_fio=parent_fio,
             parent_phone=parent_phone,
+            avatar_seed=avatar_seed,
             created_at=datetime.now(),
             is_active=True
         )
@@ -291,6 +297,7 @@ class AuthService:
                             "phone": user_db.phone,
                             "parent_fio": getattr(user_db, 'parent_fio', None),
                             "parent_phone": getattr(user_db, 'parent_phone', None),
+                            "avatar_seed": getattr(user_db, 'avatar_seed', None),
                         }
                 except Exception as e:
                     print(f"[Auth] Ошибка получения пользователя из БД: {e}")
@@ -309,6 +316,7 @@ class AuthService:
                 "phone": user_data.get("phone"),
                 "parent_fio": user_data.get("parent_fio"),
                 "parent_phone": user_data.get("parent_phone"),
+                "avatar_seed": user_data.get("avatar_seed"),
             }
         
         return None
@@ -338,6 +346,7 @@ class AuthService:
                             "phone": user_db.phone,
                             "parent_fio": getattr(user_db, 'parent_fio', None),
                             "parent_phone": getattr(user_db, 'parent_phone', None),
+                            "avatar_seed": getattr(user_db, 'avatar_seed', None),
                             "is_active": user_db.is_active,
                             "created_at": user_db.created_at.isoformat() if user_db.created_at else None
                         })
@@ -373,6 +382,7 @@ class AuthService:
                             "phone": user_db.phone,
                             "parent_fio": getattr(user_db, 'parent_fio', None),
                             "parent_phone": getattr(user_db, 'parent_phone', None),
+                            "avatar_seed": getattr(user_db, 'avatar_seed', None),
                             "is_active": user_db.is_active,
                             "created_at": user_db.created_at.isoformat() if user_db.created_at else None
                         }
@@ -388,6 +398,43 @@ class AuthService:
             return {k: v for k, v in user_data.items() if k != "password"}
         
         return None
+
+    def update_profile(self, user_id: str, full_name: Optional[str] = None, phone: Optional[str] = None,
+                      avatar_seed: Optional[str] = None) -> bool:
+        """Обновить профиль текущего пользователя (имя, телефон, аватар)."""
+        if has_db():
+            db = get_db()
+            if db:
+                try:
+                    user_db = db.query(UserDB).filter(UserDB.user_id == user_id).first()
+                    if not user_db:
+                        return False
+                    if full_name is not None:
+                        user_db.full_name = full_name
+                    if phone is not None:
+                        user_db.phone = phone
+                    if avatar_seed is not None:
+                        user_db.avatar_seed = avatar_seed
+                    db.commit()
+                    return True
+                except Exception as e:
+                    print(f"[Auth] Ошибка обновления профиля в БД: {e}")
+                    db.rollback()
+                    return False
+                finally:
+                    db.close()
+        users = persistent_storage.get("users", {})
+        if user_id not in users:
+            return False
+        u = users[user_id]
+        if full_name is not None:
+            u["full_name"] = full_name
+        if phone is not None:
+            u["phone"] = phone
+        if avatar_seed is not None:
+            u["avatar_seed"] = avatar_seed
+        persistent_storage.set("users", users)
+        return True
 
     def set_user_password(self, user_id: str, new_password: str) -> bool:
         """Устанавливает новый пароль пользователю (для админа или смены своего)."""
