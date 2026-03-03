@@ -13,6 +13,12 @@ class ProfileUpdate(BaseModel):
     phone: Optional[str] = None
     avatar_seed: Optional[str] = None
 
+
+class ResetAdminPassword(BaseModel):
+    secret: str
+    new_password: str
+
+
 router = APIRouter()
 
 
@@ -93,6 +99,25 @@ async def login(login_data: UserLogin):
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/auth/reset-admin-password")
+async def reset_admin_password(body: ResetAdminPassword):
+    """
+    Сброс пароля администратора по секрету из env.
+    В Railway Variables добавьте ADMIN_RESET_SECRET=ваш_секрет, вызовите этот endpoint
+    с тем же secret и new_password, затем удалите переменную.
+    """
+    email = auth_service.reset_admin_password_by_secret(body.secret, body.new_password)
+    if not email:
+        raise HTTPException(
+            status_code=400,
+            detail="Неверный секрет или пароль короче 6 символов. Убедитесь, что ADMIN_RESET_SECRET задан в Variables и совпадает с secret в запросе."
+        )
+    return {
+        "message": "Пароль сброшен. Войдите с указанным email и новым паролем.",
+        "email": email,
+    }
 
 
 @router.post("/auth/logout")

@@ -481,6 +481,37 @@ class AuthService:
         persistent_storage.set("users", users)
         return True
 
+    def reset_admin_password_by_secret(self, secret: str, new_password: str) -> Optional[str]:
+        """
+        Сброс пароля первого админа по секрету из env (ADMIN_RESET_SECRET).
+        Возвращает email админа при успехе, иначе None.
+        """
+        expected = os.getenv("ADMIN_RESET_SECRET", "").strip()
+        if not expected or secret != expected or not new_password or len(new_password) < 6:
+            return None
+        hashed = self.hash_password(new_password)
+        if has_db():
+            db = get_db()
+            if db:
+                try:
+                    admin = db.query(UserDB).filter(UserDB.role == "admin", UserDB.is_active == True).first()
+                    if admin:
+                        admin.password_hash = hashed
+                        db.commit()
+                        return admin.email
+                except Exception as e:
+                    print(f"[Auth] Ошибка сброса пароля админа: {e}")
+                    db.rollback()
+                finally:
+                    db.close()
+        users = persistent_storage.get("users", {})
+        for uid, u in users.items():
+            if u.get("role") == "admin" and u.get("is_active", True):
+                u["password"] = hashed
+                persistent_storage.set("users", users)
+                return u.get("email")
+        return None
+
 
 # Создаем глобальный экземпляр
 auth_service = AuthService()
