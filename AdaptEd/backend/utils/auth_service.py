@@ -487,7 +487,10 @@ class AuthService:
         Возвращает email админа при успехе, иначе None.
         """
         expected = os.getenv("ADMIN_RESET_SECRET", "").strip()
-        if not expected or secret != expected or not new_password or len(new_password) < 6:
+        secret = (secret or "").strip()
+        if not expected:
+            return None
+        if secret != expected or not new_password or len(new_password) < 6:
             return None
         hashed = self.hash_password(new_password)
         if has_db():

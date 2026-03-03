@@ -101,6 +101,16 @@ async def login(login_data: UserLogin):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.get("/auth/check-reset-secret")
+async def check_reset_secret():
+    """
+    Проверка: задана ли переменная ADMIN_RESET_SECRET в окружении (без раскрытия значения).
+    Помогает убедиться, что Variables подхватились после редеплоя.
+    """
+    import os
+    return {"set": bool((os.getenv("ADMIN_RESET_SECRET") or "").strip())}
+
+
 @router.post("/auth/reset-admin-password")
 async def reset_admin_password(body: ResetAdminPassword):
     """
