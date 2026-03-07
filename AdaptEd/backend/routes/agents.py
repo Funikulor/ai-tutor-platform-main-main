@@ -312,27 +312,35 @@ async def generate_adaptive_task(request: Dict[str, Any]):
             explanation = re.sub(r'\n{3,}', '\n\n', explanation)  # Убираем лишние пустые строки
             task_data["explanation"] = explanation.strip()
         
-        # Если модель подставила округлённый/неверный правильный ответ — берём точный из объяснения
+        # Если модель подставила неверный правильный ответ (например коэффициент 1.2 вместо ответа 1500) — берём из объяснения
         stored = (task_data.get("correctAnswer") or "").strip()
         expl = task_data.get("explanation") or ""
-        # Ищем в объяснении финальный ответ: x = 27/8, Ответ: 27/8, разделим на 8: x = 27/8
-        for pattern in [
-            r'[xX]\s*=\s*(\d+/\d+|\d+[.,]\d+)',
-            r'[Оо]твет[:\s]+(\d+/\d+|\d+[.,]\d+)',
-            r'[Рр]азделим[^:]*:\s*[xX]?\s*=\s*(\d+/\d+|\d+[.,]\d+)',
-            r'[равно|=]\s*(\d+/\d+|\d+[.,]\d+)\s*[.\s]',
+        # Ищем ВСЕ числа в контексте ответа (x = ..., Ответ: ..., рублей, равно ...). Берём ПОСЛЕДНЕЕ вхождение — это обычно итоговый ответ.
+        candidates = []
+        patterns = [
+            r'[xX]\s*=\s*(\d+/\d+|\d+[.,]\d+|\d+)\s*[.\s)]',  # x = 1500 или x = 27/8
+            r'[Оо]твет[:\s]+(\d+/\d+|\d+[.,]\d+|\d+)\s*[.\s]',
+            r'[равно|=]\s*(\d+/\d+|\d+[.,]\d+|\d+)\s*[.\s]',
+            r'\b(\d+)\s*руб',
+            r'[Бб]ыла[^\d]*(\d+)\s*руб',
+            r'[Цц]ена[^\d]*(\d+)\s*руб',
             r'\b(\d+/\d+)\s*[.,)]',
-        ]:
-            match = re.search(pattern, expl, re.IGNORECASE)
-            if match:
-                extracted = match.group(1).replace(",", ".")
-                stored_num = _parse_numeric_answer(stored)
-                extracted_num = _parse_numeric_answer(extracted)
-                if extracted_num is not None and stored_num is not None:
-                    if abs(extracted_num - stored_num) > 0.001:
-                        task_data["correctAnswer"] = extracted if "/" in match.group(1) else str(extracted_num)
-                        print(f"[AdaptiveTask] Исправлен correctAnswer: было '{stored}', стало '{task_data['correctAnswer']}' по объяснению")
-                break
+        ]
+        for pattern in patterns:
+            for match in re.finditer(pattern, expl, re.IGNORECASE):
+                raw = match.group(1).replace(",", ".")
+                candidates.append((match.end(), raw))  # позиция конца в тексте, значение
+        # Сортируем по позиции — последнее вхождение в тексте = финальный ответ
+        if candidates:
+            candidates.sort(key=lambda x: x[0])
+            last_raw = candidates[-1][1]
+            extracted_num = _parse_numeric_answer(last_raw)
+            stored_num = _parse_numeric_answer(stored)
+            if extracted_num is not None:
+                # Подменяем, если модель дала явно не тот ответ (например 1.2 вместо 1500)
+                if stored_num is None or abs(extracted_num - stored_num) > 0.001:
+                    task_data["correctAnswer"] = last_raw if "/" in last_raw else str(int(extracted_num) if extracted_num == int(extracted_num) else extracted_num)
+                    print(f"[AdaptiveTask] correctAnswer из объяснения: было '{stored}', стало '{task_data['correctAnswer']}'")
         
         # Устанавливаем значения по умолчанию
         if "topic" not in task_data:

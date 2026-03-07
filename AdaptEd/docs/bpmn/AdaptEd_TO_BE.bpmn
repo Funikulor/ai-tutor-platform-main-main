@@ -1,0 +1,91 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="http://www.omg.org/spec/BPMN/20100524/MODEL"
+             xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI"
+             xmlns:dc="http://www.omg.org/spec/DD/20100524/DC"
+             xmlns:di="http://www.omg.org/spec/DD/20100524/DI"
+             id="definitions_AdaptEd_TOBE"
+             targetNamespace="http://adapted.local/bpmn"
+             exporter="AdaptEd Diploma"
+             exporterVersion="1.0">
+  <process id="Process_AdaptEd_TOBE" name="AdaptEd TO-BE: Целевой процесс обучения и администрирования" isExecutable="false">
+    <documentation>Целевое состояние (TO-BE): синхронизация правильного ответа с объяснением ИИ, отображение ответа ученика, единое сидирование БД из файла, без автоматического пересоздания админа при старте. Улучшенная обратная связь и аналитика.</documentation>
+    <!-- Блок: Ученик -->
+    <startEvent id="Start_TBE" name="Старт"/>
+    <task id="TBE_Login" name="Вход в систему"/>
+    <task id="TBE_ChooseTopic" name="Выбор темы (с учётом слабых тем из профиля)"/>
+    <task id="TBE_RequestTask" name="Запрос адаптивного задания"/>
+    <exclusiveGateway id="GW_TBE_TaskOk" name="Задание получено?"/>
+    <task id="TBE_ShowTask" name="Показать задание"/>
+    <task id="TBE_EnterAnswer" name="Ученик вводит ответ"/>
+    <task id="TBE_Submit" name="Отправка ответа"/>
+    <!-- Блок: Система (улучшения TO-BE) -->
+    <task id="TBE_SyncAnswer" name="Синхронизация correctAnswer из объяснения ИИ (избежание 1.2 vs 1500)"/>
+    <task id="TBE_Check" name="Проверка ответа"/>
+    <exclusiveGateway id="GW_TBE_Correct" name="Верно?"/>
+    <task id="TBE_UpdateProfile" name="Обновление когнитивного профиля"/>
+    <task id="TBE_AnalyzeError" name="Анализ ошибки (при неверном ответе)"/>
+    <task id="TBE_ShowFeedback" name="Показать: Ваш ответ + Правильный ответ + Объяснение + Наставник"/>
+    <task id="TBE_Recommend" name="Рекомендация следующих тем/заданий по слабым местам"/>
+    <endEvent id="End_TBE" name="Конец"/>
+    <task id="TBE_ErrorHandling" name="Обработка ошибки (повтор / подсказка)"/>
+
+    <sequenceFlow id="t1" sourceRef="Start_TBE" targetRef="TBE_Login"/>
+    <sequenceFlow id="t2" sourceRef="TBE_Login" targetRef="TBE_ChooseTopic"/>
+    <sequenceFlow id="t3" sourceRef="TBE_ChooseTopic" targetRef="TBE_RequestTask"/>
+    <sequenceFlow id="t4" sourceRef="TBE_RequestTask" targetRef="GW_TBE_TaskOk"/>
+    <sequenceFlow id="t5" sourceRef="GW_TBE_TaskOk" targetRef="TBE_ShowTask" name="Да"/>
+    <sequenceFlow id="t5b" sourceRef="GW_TBE_TaskOk" targetRef="TBE_ErrorHandling" name="Нет"/>
+    <sequenceFlow id="t6" sourceRef="TBE_ErrorHandling" targetRef="End_TBE"/>
+    <sequenceFlow id="t7" sourceRef="TBE_ShowTask" targetRef="TBE_EnterAnswer"/>
+    <sequenceFlow id="t8" sourceRef="TBE_EnterAnswer" targetRef="TBE_Submit"/>
+    <sequenceFlow id="t9" sourceRef="TBE_Submit" targetRef="TBE_SyncAnswer"/>
+    <sequenceFlow id="t10" sourceRef="TBE_SyncAnswer" targetRef="TBE_Check"/>
+    <sequenceFlow id="t11" sourceRef="TBE_Check" targetRef="GW_TBE_Correct"/>
+    <sequenceFlow id="t12" sourceRef="GW_TBE_Correct" targetRef="TBE_UpdateProfile" name="Да"/>
+    <sequenceFlow id="t13" sourceRef="GW_TBE_Correct" targetRef="TBE_AnalyzeError" name="Нет"/>
+    <sequenceFlow id="t14" sourceRef="TBE_UpdateProfile" targetRef="TBE_ShowFeedback"/>
+    <sequenceFlow id="t15" sourceRef="TBE_AnalyzeError" targetRef="TBE_ShowFeedback"/>
+    <sequenceFlow id="t16" sourceRef="TBE_ShowFeedback" targetRef="TBE_Recommend"/>
+    <sequenceFlow id="t17" sourceRef="TBE_Recommend" targetRef="End_TBE"/>
+  </process>
+
+  <bpmndi:BPMNDiagram id="BPMNDiagram_TOBE">
+    <bpmndi:BPMNPlane bpmnElement="Process_AdaptEd_TOBE">
+      <bpmndi:BPMNShape bpmnElement="Start_TBE" id="Shape_Start_TBE"><dc:Bounds x="152" y="102" width="36" height="36"/></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape bpmnElement="TBE_Login" id="Shape_TBE_Login"><dc:Bounds x="240" y="80" width="100" height="80"/></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape bpmnElement="TBE_ChooseTopic" id="Shape_TBE_ChooseTopic"><dc:Bounds x="380" y="80" width="100" height="80"/></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape bpmnElement="TBE_RequestTask" id="Shape_TBE_RequestTask"><dc:Bounds x="520" y="80" width="100" height="80"/></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape bpmnElement="GW_TBE_TaskOk" id="Shape_GW_TBE_TaskOk"><dc:Bounds x="665" y="95" width="50" height="50"/></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape bpmnElement="TBE_ShowTask" id="Shape_TBE_ShowTask"><dc:Bounds x="760" y="80" width="100" height="80"/></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape bpmnElement="TBE_EnterAnswer" id="Shape_TBE_EnterAnswer"><dc:Bounds x="900" y="80" width="100" height="80"/></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape bpmnElement="TBE_Submit" id="Shape_TBE_Submit"><dc:Bounds x="1040" y="80" width="100" height="80"/></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape bpmnElement="TBE_SyncAnswer" id="Shape_TBE_SyncAnswer"><dc:Bounds x="1180" y="80" width="100" height="80"/></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape bpmnElement="TBE_Check" id="Shape_TBE_Check"><dc:Bounds x="1320" y="80" width="100" height="80"/></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape bpmnElement="GW_TBE_Correct" id="Shape_GW_TBE_Correct"><dc:Bounds x="1465" y="95" width="50" height="50"/></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape bpmnElement="TBE_UpdateProfile" id="Shape_TBE_UpdateProfile"><dc:Bounds x="1560" y="40" width="100" height="80"/></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape bpmnElement="TBE_AnalyzeError" id="Shape_TBE_AnalyzeError"><dc:Bounds x="1560" y="150" width="100" height="80"/></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape bpmnElement="TBE_ShowFeedback" id="Shape_TBE_ShowFeedback"><dc:Bounds x="1700" y="80" width="100" height="80"/></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape bpmnElement="TBE_Recommend" id="Shape_TBE_Recommend"><dc:Bounds x="1840" y="80" width="100" height="80"/></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape bpmnElement="TBE_ErrorHandling" id="Shape_TBE_ErrorHandling"><dc:Bounds x="760" y="220" width="100" height="80"/></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape bpmnElement="End_TBE" id="Shape_End_TBE"><dc:Bounds x="1982" y="102" width="36" height="36"/></bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge bpmnElement="t1" id="Edge_t1"><di:waypoint x="188" y="120"/><di:waypoint x="240" y="120"/></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge bpmnElement="t2" id="Edge_t2"><di:waypoint x="340" y="120"/><di:waypoint x="380" y="120"/></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge bpmnElement="t3" id="Edge_t3"><di:waypoint x="480" y="120"/><di:waypoint x="520" y="120"/></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge bpmnElement="t4" id="Edge_t4"><di:waypoint x="620" y="120"/><di:waypoint x="665" y="120"/></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge bpmnElement="t5" id="Edge_t5"><di:waypoint x="715" y="120"/><di:waypoint x="760" y="120"/></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge bpmnElement="t5b" id="Edge_t5b"><di:waypoint x="690" y="145"/><di:waypoint x="810" y="220"/></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge bpmnElement="t6" id="Edge_t6"><di:waypoint x="810" y="300"/><di:waypoint x="2000" y="120"/></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge bpmnElement="t7" id="Edge_t7"><di:waypoint x="860" y="120"/><di:waypoint x="900" y="120"/></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge bpmnElement="t8" id="Edge_t8"><di:waypoint x="1000" y="120"/><di:waypoint x="1040" y="120"/></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge bpmnElement="t9" id="Edge_t9"><di:waypoint x="1140" y="120"/><di:waypoint x="1180" y="120"/></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge bpmnElement="t10" id="Edge_t10"><di:waypoint x="1280" y="120"/><di:waypoint x="1320" y="120"/></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge bpmnElement="t11" id="Edge_t11"><di:waypoint x="1420" y="120"/><di:waypoint x="1465" y="120"/></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge bpmnElement="t12" id="Edge_t12"><di:waypoint x="1490" y="80"/><di:waypoint x="1560" y="80"/></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge bpmnElement="t13" id="Edge_t13"><di:waypoint x="1490" y="140"/><di:waypoint x="1560" y="190"/></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge bpmnElement="t14" id="Edge_t14"><di:waypoint x="1660" y="80"/><di:waypoint x="1700" y="120"/></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge bpmnElement="t15" id="Edge_t15"><di:waypoint x="1660" y="190"/><di:waypoint x="1700" y="160"/></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge bpmnElement="t16" id="Edge_t16"><di:waypoint x="1800" y="120"/><di:waypoint x="1840" y="120"/></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge bpmnElement="t17" id="Edge_t17"><di:waypoint x="1940" y="120"/><di:waypoint x="1982" y="120"/></bpmndi:BPMNEdge>
+    </bpmndi:BPMNPlane>
+  </bpmndi:BPMNDiagram>
+</definitions>

@@ -737,6 +737,13 @@ export function AdaptiveTask({ onComplete }: { onComplete: (result: any) => void
                   <h4 className={`text-lg mb-2 ${result.correct ? 'text-green-900' : 'text-red-900'}`}>
                     {result.correct ? 'Правильно!' : 'Неправильно'}
                   </h4>
+
+                  <p className="mb-2 text-sm text-gray-700">
+                    <strong>Ваш ответ:</strong>{' '}
+                    <span className="font-mono bg-gray-100 px-2 py-0.5 rounded">
+                      {userAnswer || '—'}
+                    </span>
+                  </p>
                   
                   {!result.correct && currentTask?.correctAnswer && (
                     <p className="mb-2 text-sm text-gray-700">
