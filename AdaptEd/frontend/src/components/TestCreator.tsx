@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Plus, Wand2, Trash2, Save, Eye, Copy, Download, Loader2 } from 'lucide-react';
-import { generateTest, createManualTest } from '../services/tests';
+import { generateTest, createManualTest, updateTest } from '../services/tests';
 import api from '../services/api';
 
 interface Question {
@@ -247,17 +247,28 @@ export function TestCreator({ onSaved }: TestCreatorProps) {
         };
       });
 
-      const testData = await createManualTest({
-        title: test.title,
-        topic: test.description || test.subject,
-        difficulty: test.difficulty,
-        creator_id: creatorId,
-        questions: apiQuestions,
-      });
-
-      setSavedTestId(testData.id);
-      onSaved?.();
-      alert(`Тест "${test.title}" успешно сохранен!\n\nВопросов: ${test.questions.length}\nОбщий балл: ${test.questions.reduce((sum, q) => sum + q.points, 0)}`);
+      if (savedTestId != null) {
+        // Обновляем уже существующий тест (например, сгенерированный или открытый для редактирования)
+        await updateTest(savedTestId, {
+          title: test.title,
+          topic: test.description || test.subject,
+          difficulty: test.difficulty,
+          questions: apiQuestions,
+        });
+        onSaved?.();
+        alert(`Изменения в тесте «${test.title}» сохранены.\n\nВопросов: ${test.questions.length}\nОбщий балл: ${test.questions.reduce((sum, q) => sum + q.points, 0)}`);
+      } else {
+        const testData = await createManualTest({
+          title: test.title,
+          topic: test.description || test.subject,
+          difficulty: test.difficulty,
+          creator_id: creatorId,
+          questions: apiQuestions,
+        });
+        setSavedTestId(testData.id);
+        onSaved?.();
+        alert(`Тест «${test.title}» создан и сохранён!\n\nВопросов: ${test.questions.length}\nОбщий балл: ${test.questions.reduce((sum, q) => sum + q.points, 0)}`);
+      }
     } catch (error: any) {
       console.error('Ошибка сохранения теста:', error);
       
@@ -773,12 +784,17 @@ export function TestCreator({ onSaved }: TestCreatorProps) {
                 <Download className="w-4 h-4" />
                 Экспорт
               </button>
+              {savedTestId != null && (
+                <span className="text-sm text-gray-500">
+                  Тест уже в списке — можно редактировать и сохранить изменения.
+                </span>
+              )}
               <button
                 onClick={saveTest}
                 className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center gap-2"
               >
                 <Save className="w-4 h-4" />
-                Сохранить тест
+                {savedTestId != null ? 'Сохранить изменения' : 'Сохранить тест'}
               </button>
             </div>
           </div>
