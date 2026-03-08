@@ -26,9 +26,10 @@ interface StudentUser {
 
 interface TeacherTestsTabProps {
   preselectedStudentId?: string | null;
+  mode?: 'create' | 'manage' | 'results';
 }
 
-export function TeacherTestsTab({ preselectedStudentId = null }: TeacherTestsTabProps) {
+export function TeacherTestsTab({ preselectedStudentId = null, mode = 'manage' }: TeacherTestsTabProps) {
   const creatorId = localStorage.getItem('user_id') || '';
 
   const [tests, setTests] = useState<TestSummary[]>([]);
@@ -260,12 +261,15 @@ export function TeacherTestsTab({ preselectedStudentId = null }: TeacherTestsTab
 
   return (
     <div className="space-y-6">
-      <TestCreator onSaved={() => loadTests()} />
+      {mode === 'create' && <TestCreator onSaved={() => loadTests()} />}
 
+      {mode !== 'create' && (
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <ListPlus className="w-5 h-5 text-blue-600" />
-          <h2 className="text-gray-900">Созданные тесты учителя</h2>
+          <h2 className="text-gray-900">
+            {mode === 'results' ? 'Результаты учеников' : 'Созданные тесты учителя'}
+          </h2>
         </div>
         <button
           onClick={loadTests}
@@ -274,10 +278,14 @@ export function TeacherTestsTab({ preselectedStudentId = null }: TeacherTestsTab
           Обновить
         </button>
       </div>
+      )}
 
+      {mode !== 'create' && (
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="bg-white border border-gray-200 rounded-xl p-4 lg:col-span-1">
-          <div className="text-sm text-gray-500 mb-3">Список тестов</div>
+          <div className="text-sm text-gray-500 mb-3">
+            {mode === 'results' ? 'Выберите тест для просмотра результатов' : 'Список тестов'}
+          </div>
           {loading && (
             <div className="text-sm text-gray-500 flex items-center gap-2">
               <Loader2 className="w-4 h-4 animate-spin" />
@@ -307,27 +315,30 @@ export function TeacherTestsTab({ preselectedStudentId = null }: TeacherTestsTab
           {!selectedTest && <div className="text-sm text-gray-500">Выберите тест слева</div>}
           {selectedTest && (
             <div className="space-y-4">
-              <div className="flex items-center justify-between">
-                <div className="text-gray-900 font-semibold">Управление тестом</div>
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={handleSave}
-                    disabled={saving}
-                    className="px-3 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 inline-flex items-center gap-2"
-                  >
-                    {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-                    Сохранить
-                  </button>
-                  <button
-                    onClick={handleDelete}
-                    className="px-3 py-2 text-sm bg-red-50 text-red-700 rounded-lg hover:bg-red-100 inline-flex items-center gap-2"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                    Удалить
-                  </button>
+              {mode === 'manage' && (
+                <div className="flex items-center justify-between">
+                  <div className="text-gray-900 font-semibold">Управление тестом</div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={handleSave}
+                      disabled={saving}
+                      className="px-3 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 inline-flex items-center gap-2"
+                    >
+                      {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                      Сохранить
+                    </button>
+                    <button
+                      onClick={handleDelete}
+                      className="px-3 py-2 text-sm bg-red-50 text-red-700 rounded-lg hover:bg-red-100 inline-flex items-center gap-2"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                      Удалить
+                    </button>
+                  </div>
                 </div>
-              </div>
+              )}
 
+              {mode === 'manage' && (
               <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
                 <input
                   value={editTitle}
@@ -348,7 +359,9 @@ export function TeacherTestsTab({ preselectedStudentId = null }: TeacherTestsTab
                   placeholder="Сложность"
                 />
               </div>
+              )}
 
+              {mode === 'manage' && (
               <div className="space-y-2">
                 <div className="flex items-center justify-between gap-3">
                   <div className="text-sm text-gray-700">Вопросы ({editQuestions.length})</div>
@@ -410,7 +423,9 @@ export function TeacherTestsTab({ preselectedStudentId = null }: TeacherTestsTab
                   </div>
                 ))}
               </div>
+              )}
 
+              {mode === 'manage' && (
               <div className="pt-4 border-t border-gray-200 space-y-3">
                 <div className="text-sm font-semibold text-gray-900">Назначить как ДЗ/КР/проверочную</div>
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
@@ -451,9 +466,12 @@ export function TeacherTestsTab({ preselectedStudentId = null }: TeacherTestsTab
                   ))}
                 </div>
               </div>
+              )}
 
               <div className="pt-4 border-t border-gray-200 space-y-2">
-                <div className="text-sm font-semibold text-gray-900">Результаты учеников</div>
+                <div className="text-sm font-semibold text-gray-900">
+                  {mode === 'results' ? 'Результаты учеников' : 'Результаты по выбранному тесту'}
+                </div>
                 {submissions.length === 0 && <div className="text-sm text-gray-500">Пока нет отправленных работ.</div>}
                 {submissions.map((s) => (
                   <div key={s.id} className="p-3 border border-gray-200 rounded-lg">
@@ -488,6 +506,7 @@ export function TeacherTestsTab({ preselectedStudentId = null }: TeacherTestsTab
           )}
         </div>
       </div>
+      )}
 
       {selectedSubmission && (
         <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4" onClick={() => setSelectedSubmission(null)}>

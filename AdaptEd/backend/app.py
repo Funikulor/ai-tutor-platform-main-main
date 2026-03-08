@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
@@ -9,7 +10,6 @@ from routes import assistant, homework, tests, materials
 
 try:
 	from dotenv import load_dotenv  # type: ignore
-	import os
 	env_path = os.path.join(os.path.dirname(__file__), '.env')
 	load_dotenv(env_path)
 	print(f"[App] Загружен .env из: {env_path}")
@@ -43,9 +43,27 @@ except Exception:
 
 app = FastAPI(redirect_slashes=False)  # Отключаем автоматический редирект слэшей
 
+
+def _get_allowed_origins() -> list[str]:
+    raw = os.getenv("CORS_ORIGINS", "")
+    env_origins = [item.strip() for item in raw.split(",") if item.strip()]
+    defaults = [
+        "http://localhost:3000",
+        "http://localhost:5173",
+        "http://127.0.0.1:3000",
+        "http://127.0.0.1:5173",
+        "https://loving-flow-production-6ddf.up.railway.app",
+        "https://ai-tutor-platform-main-main-production.up.railway.app",
+    ]
+    unique: list[str] = []
+    for origin in [*defaults, *env_origins]:
+        if origin not in unique:
+            unique.append(origin)
+    return unique
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=_get_allowed_origins(),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

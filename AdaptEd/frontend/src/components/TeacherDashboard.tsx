@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
-import { Users, TrendingDown, AlertCircle, Download, Filter, BarChart3, FileText, X } from 'lucide-react';
+import { Users, TrendingDown, AlertCircle, Download, Filter, BarChart3, FileText, PenSquare, ClipboardList, X } from 'lucide-react';
 import { TeacherTestsTab } from './TeacherTestsTab';
 import api from '../services/api';
 import { toast } from 'sonner';
@@ -56,7 +56,7 @@ interface ParentContact {
 
 export function TeacherDashboard() {
   const [selectedClass, setSelectedClass] = useState('all');
-  const [currentView, setCurrentView] = useState<'analytics' | 'tests'>('analytics');
+  const [currentView, setCurrentView] = useState<'analytics' | 'create-tests' | 'created-tests' | 'results'>('analytics');
   const [preselectedStudentId, setPreselectedStudentId] = useState<string | null>(null);
   const [classData, setClassData] = useState<StudentRow[]>([]);
   const [commonErrors, setCommonErrors] = useState<CommonErrorRow[]>([]);
@@ -234,8 +234,8 @@ export function TeacherDashboard() {
   const handleAssignBeforeLesson = async (student: StudentRow) => {
     setAssigningStudentId(student.user_id);
     setPreselectedStudentId(student.user_id);
-    setCurrentView('tests');
-    toast.info(`Выберите тест и назначьте ${student.student} во вкладке "Создание тестов"`);
+    setCurrentView('created-tests');
+    toast.info(`Выберите тест и назначьте ${student.student} во вкладке "Созданные тесты"`);
     setTimeout(() => setAssigningStudentId(null), 300);
   };
 
@@ -271,7 +271,7 @@ export function TeacherDashboard() {
   return (
     <div className="space-y-6">
       {/* Navigation Tabs */}
-      <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-1 flex">
+      <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-1 flex flex-wrap gap-1">
         <button
           onClick={() => setCurrentView('analytics')}
           className={`flex-1 py-3 px-4 rounded-lg transition-all ${
@@ -284,20 +284,43 @@ export function TeacherDashboard() {
           Аналитика класса
         </button>
         <button
-          onClick={() => setCurrentView('tests')}
+          onClick={() => setCurrentView('create-tests')}
           className={`flex-1 py-3 px-4 rounded-lg transition-all ${
-            currentView === 'tests'
+            currentView === 'create-tests'
+              ? 'bg-green-50 text-green-600'
+              : 'text-gray-600 hover:bg-gray-50'
+          }`}
+        >
+          <PenSquare className="w-5 h-5 inline mr-2" />
+          Создание тестов
+        </button>
+        <button
+          onClick={() => setCurrentView('created-tests')}
+          className={`flex-1 py-3 px-4 rounded-lg transition-all ${
+            currentView === 'created-tests'
               ? 'bg-green-50 text-green-600'
               : 'text-gray-600 hover:bg-gray-50'
           }`}
         >
           <FileText className="w-5 h-5 inline mr-2" />
-          Создание тестов
+          Созданные тесты
+        </button>
+        <button
+          onClick={() => setCurrentView('results')}
+          className={`flex-1 py-3 px-4 rounded-lg transition-all ${
+            currentView === 'results'
+              ? 'bg-purple-50 text-purple-600'
+              : 'text-gray-600 hover:bg-gray-50'
+          }`}
+        >
+          <ClipboardList className="w-5 h-5 inline mr-2" />
+          Результаты учеников
         </button>
       </div>
 
-      {/* Tests View */}
-      {currentView === 'tests' && <TeacherTestsTab preselectedStudentId={preselectedStudentId} />}
+      {currentView === 'create-tests' && <TeacherTestsTab mode="create" preselectedStudentId={preselectedStudentId} />}
+      {currentView === 'created-tests' && <TeacherTestsTab mode="manage" preselectedStudentId={preselectedStudentId} />}
+      {currentView === 'results' && <TeacherTestsTab mode="results" preselectedStudentId={preselectedStudentId} />}
 
       {/* Analytics View */}
       {currentView === 'analytics' && (
