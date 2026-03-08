@@ -1,4 +1,4 @@
-from typing import List, Dict, Optional
+from typing import Any, Dict, List, Optional
 import os
 import json
 import time
@@ -518,9 +518,90 @@ class AssistantService:
 			except Exception:
 				pass
 
+	def _get_test_context(self, context: Optional[Dict[str, Any]]) -> str:
+		"""Подмешивает в чат полный контекст конкретного теста/отправки."""
+		if not context or not has_db():
+			return ""
+		sess = get_db()
+		if sess is None:
+			return ""
+		try:
+			from models.homework import Homework, HomeworkSubmission  # type: ignore
+			from models.test import Test, TestSubmission  # type: ignore
+
+			test_id = context.get("test_id")
+			homework_id = context.get("homework_id")
+			test_submission_id = context.get("test_submission_id")
+			question_id = context.get("question_id")
+
+			if homework_id and not test_submission_id:
+				homework = sess.get(Homework, homework_id)
+				if homework is not None and not test_id:
+					test_id = getattr(homework, "test_id", None)
+				linked = (
+					sess.query(HomeworkSubmission)
+					.filter(HomeworkSubmission.homework_id == homework_id)
+					.order_by(HomeworkSubmission.created_at.desc())
+					.first()
+				)
+				if linked and getattr(linked, "test_submission_id", None):
+					test_submission_id = linked.test_submission_id
+
+			test_submission = sess.get(TestSubmission, test_submission_id) if test_submission_id else None
+			if test_submission is not None and not test_id:
+				test_id = test_submission.test_id
+			test = sess.get(Test, test_id) if test_id else None
+
+			if test is None:
+				return ""
+
+			lines = [
+				f"\nКонтекст текущего теста: {test.title}",
+				f"Тема: {test.topic or 'не указана'}",
+			]
+			questions = sorted(list(getattr(test, "questions", []) or []), key=lambda q: q.id or 0)
+			for question in questions:
+				if question_id and question.id != question_id:
+					continue
+				lines.append(f"- Вопрос #{question.id}: {question.question}")
+				options = question.options or []
+				if options:
+					for idx, option in enumerate(options):
+						lines.append(f"  {idx + 1}. {option}")
+				if question.explanation:
+					lines.append(f"  Объяснение учителя: {question.explanation}")
+
+			if test_submission is not None:
+				lines.append(
+					f"Результат ученика: {test_submission.correct_count or 0} из {test_submission.total_questions or 0}, "
+					f"{test_submission.score or 0}%."
+				)
+				for item in (test_submission.question_results or []):
+					if question_id and item.get("question_id") != question_id:
+						continue
+					lines.append(
+						f"- Ответ ученика на вопрос #{item.get('question_id')}: "
+						f"{item.get('student_answer')} | верно: {'да' if item.get('is_correct') else 'нет'}"
+					)
+					if item.get("student_explanation"):
+						lines.append(f"  Как ученик решал: {item.get('student_explanation')}")
+					if item.get("correct_answer_text"):
+						lines.append(f"  Правильный ответ: {item.get('correct_answer_text')}")
+					if item.get("question_explanation"):
+						lines.append(f"  Почему так: {item.get('question_explanation')}")
+
+			return "\n".join(lines)
+		except Exception:
+			return ""
+		finally:
+			try:
+				sess.close()
+			except Exception:
+				pass
+
 	def chat(self, messages: List[Dict[str, str]], system_prompt: Optional[str] = None, 
 	         user_id: Optional[str] = None, student_weaknesses: Optional[List[str]] = None,
-	         user_name: Optional[str] = None) -> str:
+	         user_name: Optional[str] = None, context: Optional[Dict[str, Any]] = None) -> str:
 		"""Чат с учетом личности и слабых мест ученика"""
 		# Получаем профиль личности если есть user_id
 		personality_context = ""
@@ -543,6 +624,7 @@ class AssistantService:
 		homeworks_ctx = ""
 		if user_id:
 			homeworks_ctx = self._get_homeworks_context(user_id)
+		test_ctx = self._get_test_context(context)
 
 		# Имя ученика (если есть)
 		name_text = f"\nИмя ученика: {user_name}." if user_name else ""
@@ -560,11 +642,16 @@ class AssistantService:
 			# Контекст по ДЗ
 			if homeworks_ctx:
 				formatted_messages.append({"role": "system", "content": homeworks_ctx})
+			if test_ctx:
+				formatted_messages.append({
+					"role": "system",
+					"content": test_ctx + "\nЕсли ученик просит помочь, опирайся только на этот тестовый контекст и объясняй по шагам.",
+				})
 			return self._generate("", max_new_tokens=1024, messages=formatted_messages)
 		else:
 			# Для других провайдеров используем старый формат
 			history = "\n".join([f"{m.get('role','user')}: {m.get('content','')}" for m in messages[-5:]])
-			prompt = f"{base_system}{personality_context}\n{homeworks_ctx}\n{history}\nassistant:"
+			prompt = f"{base_system}{personality_context}\n{homeworks_ctx}\n{test_ctx}\n{history}\nassistant:"
 			return self._generate(prompt, max_new_tokens=1024)
 
 	def hint(self, task_text: str, student_level: Optional[str] = None) -> str:

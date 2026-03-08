@@ -548,7 +548,8 @@ async def assistant_chat(req: ChatRequest):
 				messages=messages,
 				user_id=req.user_id,
 				user_name=req.user_name,
-				student_weaknesses=student_weaknesses
+				student_weaknesses=student_weaknesses,
+				context=req.context,
 			)
 		
 		response = {"message": text}

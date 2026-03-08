@@ -41,6 +41,14 @@ interface AIChatPanelProps {
   fullscreen?: boolean;
 }
 
+interface ChatContextPayload {
+  test_id?: number;
+  homework_id?: number;
+  test_submission_id?: number;
+  question_id?: number;
+  label?: string;
+}
+
 export function AIChatPanel({ isMinimized = false, onToggleMinimize, fullscreen = false }: AIChatPanelProps) {
   const userId = localStorage.getItem('user_id') || '';
 
@@ -76,6 +84,7 @@ export function AIChatPanel({ isMinimized = false, onToggleMinimize, fullscreen 
   const [inputValue, setInputValue] = useState('');
   const [isTyping, setIsTyping] = useState(false);
   const [currentEmotion, setCurrentEmotion] = useState<'happy' | 'thinking' | 'excited' | 'encouraging' | 'surprised'>('happy');
+  const [chatContext, setChatContext] = useState<ChatContextPayload | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
 
@@ -231,10 +240,14 @@ export function AIChatPanel({ isMinimized = false, onToggleMinimize, fullscreen 
     return 'happy';
   };
 
-  const handleSendMessage = async (text: string) => {
+  const handleSendMessage = async (text: string, contextOverride?: ChatContextPayload | null) => {
     if (!text.trim()) return;
 
     const trimmed = text.trim();
+    const effectiveContext = contextOverride === undefined ? chatContext : contextOverride;
+    if (contextOverride !== undefined) {
+      setChatContext(contextOverride);
+    }
     // Сразу очищаем поле ввода, чтобы текст не оставался до отправки
     setInputValue('');
 
@@ -267,6 +280,7 @@ export function AIChatPanel({ isMinimized = false, onToggleMinimize, fullscreen 
       const response = await api.post('/assistant/chat', {
         messages: messageHistory,
         mode: 'general',
+        context: effectiveContext || undefined,
         user_id: localStorage.getItem('user_id') || null,
         user_name: userName,
       }, {
@@ -315,9 +329,19 @@ export function AIChatPanel({ isMinimized = false, onToggleMinimize, fullscreen 
       }
     };
 
+    const handleChatContext = (event: CustomEvent<{ context?: ChatContextPayload | null; message?: string }>) => {
+      const nextContext = event.detail?.context || null;
+      setChatContext(nextContext);
+      if (event.detail?.message) {
+        handleSendMessage(event.detail.message, nextContext);
+      }
+    };
+
     window.addEventListener('chat-send-message', handleChatSendMessage as EventListener);
+    window.addEventListener('ai-chat-context', handleChatContext as EventListener);
     return () => {
       window.removeEventListener('chat-send-message', handleChatSendMessage as EventListener);
+      window.removeEventListener('ai-chat-context', handleChatContext as EventListener);
     };
   }, []); // Пустой массив, handleSendMessage использует актуальное состояние через замыкание
 
@@ -409,6 +433,21 @@ export function AIChatPanel({ isMinimized = false, onToggleMinimize, fullscreen 
               </option>
             ))}
           </select>
+        </div>
+      )}
+
+      {chatContext && (
+        <div className="px-4 py-2 bg-blue-50 border-b border-blue-100 flex items-center justify-between gap-3">
+          <p className="text-xs text-blue-700">
+            Контекст чата: {chatContext.label || 'разбор текущего теста'}
+          </p>
+          <button
+            type="button"
+            onClick={() => setChatContext(null)}
+            className="text-xs text-blue-700 hover:text-blue-900"
+          >
+            Очистить
+          </button>
         </div>
       )}
 

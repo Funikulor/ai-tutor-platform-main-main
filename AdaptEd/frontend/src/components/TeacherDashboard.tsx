@@ -57,6 +57,7 @@ interface ParentContact {
 export function TeacherDashboard() {
   const [selectedClass, setSelectedClass] = useState('all');
   const [currentView, setCurrentView] = useState<'analytics' | 'tests'>('analytics');
+  const [preselectedStudentId, setPreselectedStudentId] = useState<string | null>(null);
   const [classData, setClassData] = useState<StudentRow[]>([]);
   const [commonErrors, setCommonErrors] = useState<CommonErrorRow[]>([]);
   const [topicPerformance, setTopicPerformance] = useState<TopicPerformanceRow[]>([]);
@@ -232,6 +233,7 @@ export function TeacherDashboard() {
 
   const handleAssignBeforeLesson = async (student: StudentRow) => {
     setAssigningStudentId(student.user_id);
+    setPreselectedStudentId(student.user_id);
     setCurrentView('tests');
     toast.info(`Выберите тест и назначьте ${student.student} во вкладке "Создание тестов"`);
     setTimeout(() => setAssigningStudentId(null), 300);
@@ -295,7 +297,7 @@ export function TeacherDashboard() {
       </div>
 
       {/* Tests View */}
-      {currentView === 'tests' && <TeacherTestsTab />}
+      {currentView === 'tests' && <TeacherTestsTab preselectedStudentId={preselectedStudentId} />}
 
       {/* Analytics View */}
       {currentView === 'analytics' && (

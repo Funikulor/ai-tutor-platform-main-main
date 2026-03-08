@@ -1,16 +1,20 @@
-from typing import List, Optional, Dict, Any
 from datetime import datetime
-import re
 import json
+import re
+from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, HTTPException, Depends, Body, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
-from sqlalchemy.orm import Session
 from sqlalchemy import select
+from sqlalchemy.orm import Session
 
+from agents.orchestrator import AgentOrchestrator
+from models.homework import Homework, HomeworkSubmission
 from models.test import Test, TestQuestion, TestSubmission
-from utils.db import get_db, has_db
 from services.assistant import get_assistant_service
+from services.student_analytics import get_analytics_service
+from utils.answer_parse import numeric_answers_equal
+from utils.db import get_db, has_db
 
 router = APIRouter()
 
@@ -18,7 +22,9 @@ router = APIRouter()
 class ManualQuestion(BaseModel):
 	question: str
 	options: List[str]
-	correct_index: int
+	correct_index: int = 0
+	question_type: Optional[str] = "single"
+	correct_answer: Optional[Any] = None
 	explanation: Optional[str] = None
 
 
@@ -42,11 +48,25 @@ class GeneratedTestRequest(BaseModel):
 	difficulty: Optional[str] = "medium"
 	question_count: Optional[int] = 5
 	creator_id: Optional[str] = None
+	user_id: Optional[str] = None
+	subject: Optional[str] = None
+	grade: Optional[str] = None
+	include_explanations: Optional[bool] = True
+
+
+class SubmittedAnswer(BaseModel):
+	question_id: Optional[int] = None
+	selected_option_indexes: Optional[List[int]] = None
+	answer_text: Optional[str] = None
+	answer_number: Optional[float] = None
+	student_explanation: Optional[str] = None
 
 
 class TestSubmitRequest(BaseModel):
 	user_id: str
-	answers: List[int]  # индексы ответов по порядку вопросов
+	answers: List[SubmittedAnswer]
+	homework_id: Optional[int] = None
+	time_spent_seconds: Optional[float] = None
 
 
 class TestAssignRequest(BaseModel):
@@ -61,6 +81,59 @@ def _assistant():
 	return get_assistant_service()
 
 
+def _normalize_question_type(question_type: Optional[str]) -> str:
+	if question_type in {"single", "multiple", "text", "numeric"}:
+		return question_type
+	return "single"
+
+
+def _derive_correct_answer(question: ManualQuestion) -> Any:
+	qtype = _normalize_question_type(question.question_type)
+	if question.correct_answer is not None:
+		return question.correct_answer
+	if qtype in {"single", "multiple"}:
+		return [question.correct_index]
+	if qtype == "numeric":
+		if question.options:
+			try:
+				return float(question.options[0])
+			except Exception:
+				return question.options[0]
+		return None
+	if question.options:
+		return question.options[0]
+	return None
+
+
+def _question_correct_value(question: TestQuestion) -> Any:
+	if question.correct_answer is not None:
+		return question.correct_answer
+	qtype = _normalize_question_type(question.question_type)
+	if qtype in {"single", "multiple"}:
+		return [question.correct_index]
+	if qtype == "numeric":
+		if question.options:
+			try:
+				return float(question.options[0])
+			except Exception:
+				return question.options[0]
+		return None
+	if question.options:
+		return question.options[0]
+	return None
+
+
+def _question_correct_display(question: TestQuestion) -> str:
+	qtype = _normalize_question_type(question.question_type)
+	correct_value = _question_correct_value(question)
+	if qtype in {"single", "multiple"}:
+		indexes = correct_value if isinstance(correct_value, list) else [question.correct_index]
+		options = question.options or []
+		values = [options[idx] for idx in indexes if isinstance(idx, int) and 0 <= idx < len(options)]
+		return ", ".join(values) if values else ""
+	return str(correct_value or "")
+
+
 def _serialize_test(test: Test, include_questions: bool = False) -> Dict[str, Any]:
 	data = {
 		"id": test.id,
@@ -72,17 +145,165 @@ def _serialize_test(test: Test, include_questions: bool = False) -> Dict[str, An
 		"created_at": test.created_at.isoformat() if test.created_at else None,
 	}
 	if include_questions:
+		questions = sorted(test.questions, key=lambda q: q.id or 0)
 		data["questions"] = [
 			{
 				"id": q.id,
 				"question": q.question,
-				"options": q.options,
+				"options": q.options or [],
 				"correct_index": q.correct_index,
+				"question_type": _normalize_question_type(q.question_type),
+				"correct_answer": _question_correct_value(q),
 				"explanation": q.explanation,
 			}
-			for q in test.questions
+			for q in questions
 		]
 	return data
+
+
+def _serialize_submission(submission: TestSubmission, test: Optional[Test] = None) -> Dict[str, Any]:
+	data = {
+		"id": submission.id,
+		"test_id": submission.test_id,
+		"homework_id": submission.homework_id,
+		"user_id": submission.user_id,
+		"answers": submission.answers or [],
+		"question_results": submission.question_results or [],
+		"correct_count": submission.correct_count,
+		"total_questions": submission.total_questions,
+		"summary": submission.summary,
+		"score": submission.score,
+		"feedback": submission.feedback,
+		"created_at": submission.created_at.isoformat() if submission.created_at else None,
+	}
+	if test is not None:
+		data["test"] = _serialize_test(test, include_questions=True)
+	return data
+
+
+def _evaluate_question(question: TestQuestion, submitted: SubmittedAnswer) -> Dict[str, Any]:
+	qtype = _normalize_question_type(question.question_type)
+	options = question.options or []
+	selected_indexes = [idx for idx in (submitted.selected_option_indexes or []) if isinstance(idx, int)]
+	selected_texts = [options[idx] for idx in selected_indexes if 0 <= idx < len(options)]
+	student_text = (submitted.answer_text or "").strip()
+	student_number = submitted.answer_number
+	student_explanation = (submitted.student_explanation or "").strip()
+	correct_value = _question_correct_value(question)
+	is_correct = False
+
+	if qtype == "single":
+		correct_indexes = correct_value if isinstance(correct_value, list) else [question.correct_index]
+		is_correct = len(selected_indexes) == 1 and len(correct_indexes) == 1 and selected_indexes[0] == correct_indexes[0]
+	elif qtype == "multiple":
+		correct_indexes = correct_value if isinstance(correct_value, list) else [question.correct_index]
+		is_correct = set(selected_indexes) == set(idx for idx in correct_indexes if isinstance(idx, int))
+	elif qtype == "numeric":
+		correct_text = str(correct_value if correct_value is not None else "")
+		user_numeric_text = str(student_number) if student_number is not None else student_text
+		is_correct = numeric_answers_equal(user_numeric_text, correct_text)
+	elif qtype == "text":
+		expected = str(correct_value or "").strip().lower()
+		is_correct = bool(student_text) and student_text.strip().lower() == expected
+
+	student_answer_value: Any
+	if qtype in {"single", "multiple"}:
+		student_answer_value = selected_indexes
+	elif qtype == "numeric":
+		student_answer_value = student_number if student_number is not None else student_text
+	else:
+		student_answer_value = student_text
+
+	return {
+		"question_id": question.id,
+		"question": question.question,
+		"question_type": qtype,
+		"selected_option_indexes": selected_indexes,
+		"selected_option_texts": selected_texts,
+		"student_answer": student_answer_value,
+		"student_explanation": student_explanation,
+		"is_correct": is_correct,
+		"correct_answer": correct_value,
+		"correct_answer_text": _question_correct_display(question),
+		"question_explanation": question.explanation,
+	}
+
+
+def _build_generation_prompt(payload: GeneratedTestRequest) -> str:
+	weak_topics_text = ""
+	if payload.user_id:
+		try:
+			profile = AgentOrchestrator().profiler.get_profile(payload.user_id)
+			if profile and profile.topic_mastery:
+				weak_topics = [
+					topic
+					for topic, mastery in sorted(profile.topic_mastery.items(), key=lambda item: item[1])
+					if mastery < 0.7
+				][:5]
+				if weak_topics:
+					weak_topics_text = (
+						"\nПерсонализация: смести акцент теста на слабые темы ученика: "
+						+ ", ".join(weak_topics)
+						+ "."
+					)
+		except Exception:
+			pass
+
+	include_explanations = "да" if payload.include_explanations else "нет"
+	subject = payload.subject or "не указан"
+	grade = payload.grade or "не указан"
+	return f"""Создай тест для школьника.
+Тема: {payload.topic}.
+Предмет: {subject}.
+Класс: {grade}.
+Сложность: {payload.difficulty or 'medium'}.
+Количество вопросов: {payload.question_count or 5}.
+Нужно ли добавлять объяснения: {include_explanations}.{weak_topics_text}
+
+Верни строго JSON без пояснений:
+{{
+  "title": "...",
+  "topic": "...",
+  "difficulty": "...",
+  "questions": [
+    {{
+      "question": "...",
+      "question_type": "single",
+      "options": ["...", "...", "...", "..."],
+      "correct_index": 0,
+      "explanation": "краткое объяснение правильного ответа"
+    }}
+  ]
+}}
+Используй в основном формат single choice c 4 вариантами, чтобы тест можно было быстро назначать как домашнее задание.
+"""
+
+
+def _extract_generated_payload(raw: str) -> Dict[str, Any]:
+	json_match = re.search(r"\{.*\}", raw, re.DOTALL)
+	if not json_match:
+		raise HTTPException(status_code=500, detail="Failed to parse generated test")
+	try:
+		return json.loads(json_match.group())
+	except Exception:
+		raise HTTPException(status_code=500, detail="Failed to parse generated test JSON")
+
+
+def _create_question_record(db: Session, test_id: int, question: ManualQuestion):
+	options = question.options or []
+	if question.correct_index < 0 or (options and question.correct_index >= len(options)):
+		raise HTTPException(status_code=400, detail="correct_index is out of range")
+	db.add(
+		TestQuestion(
+			test_id=test_id,
+			question=question.question,
+			options=options,
+			correct_index=question.correct_index,
+			question_type=_normalize_question_type(question.question_type),
+			correct_answer=_derive_correct_answer(question),
+			explanation=question.explanation,
+		)
+	)
 
 
 @router.post("/tests/manual", response_model=Dict[str, Any])
@@ -103,18 +324,8 @@ async def create_manual_test(payload: ManualTestCreate, db: Session = Depends(ge
 	db.add(test)
 	db.flush()
 
-	for q in payload.questions:
-		if q.correct_index < 0 or q.correct_index >= len(q.options):
-			raise HTTPException(status_code=400, detail="correct_index is out of range")
-		db.add(
-			TestQuestion(
-				test_id=test.id,
-				question=q.question,
-				options=q.options,
-				correct_index=q.correct_index,
-				explanation=q.explanation,
-			)
-		)
+	for question in payload.questions:
+		_create_question_record(db, test.id, question)
 
 	db.commit()
 	db.refresh(test)
@@ -122,109 +333,46 @@ async def create_manual_test(payload: ManualTestCreate, db: Session = Depends(ge
 
 
 @router.post("/tests/generate", response_model=Dict[str, Any])
-async def generate_test(request: Request, db: Session = Depends(get_db)):
+async def generate_test(payload: GeneratedTestRequest, db: Session = Depends(get_db)):
 	if not has_db() or db is None:
 		raise HTTPException(status_code=503, detail="Database is not configured")
-	try:
-		payload = await request.json()
-	except Exception:
-		payload = None
-
-	if payload is None:
+	if not (payload.topic or "").strip():
 		raise HTTPException(status_code=400, detail="Укажите тему для генерации теста (topic)")
 
-	if not isinstance(payload, dict):
-		raise HTTPException(status_code=400, detail="Некорректный формат запроса")
-
-	topic = (payload.get("topic") or "").strip()
-	difficulty = payload.get("difficulty") or "medium"
-	question_count = payload.get("question_count") or 5
-	creator_id = payload.get("creator_id")
-
-	if not topic:
-		raise HTTPException(status_code=400, detail="Укажите тему для генерации теста (topic)")
-
-	assist = _assistant()
-	print(f"[Tests] generate start topic='{topic}' diff='{difficulty}' count={question_count} creator={creator_id} db={getattr(getattr(db, 'bind', None), 'url', None)}")
-	prompt = f"""Создай тест по теме "{topic}".
-Сложность: {difficulty}.
-Количество вопросов: {question_count}.
-
-Формат ответа строго JSON:
-{{
-  "title": "...",
-  "topic": "...",
-  "difficulty": "...",
-  "questions": [
-    {{
-      "question": "...",
-      "options": ["...", "...", "...", "..."],
-      "correct_index": 0,
-      "explanation": "краткое объяснение"
-    }}
-  ]
-}}
-"""
-	raw = assist._generate(prompt, max_new_tokens=800)
-	print(f"[Tests] raw response len={len(raw)}")
-
-	# Пытаемся вытащить JSON
-	json_match = re.search(r"\{.*\}", raw, re.DOTALL)
-	if not json_match:
-		print("[Tests] JSON not found in raw response")
-		raise HTTPException(status_code=500, detail="Failed to parse generated test")
-	try:
-		data = json.loads(json_match.group())
-	except Exception as e:
-		print(f"[Tests] JSON parse error: {e}")
-		raise HTTPException(status_code=500, detail="Failed to parse generated test JSON")
-
+	raw = _assistant()._generate(_build_generation_prompt(payload), max_new_tokens=1000)
+	data = _extract_generated_payload(raw)
 	questions = data.get("questions") or []
 	if not questions:
-		print("[Tests] No questions in generated test")
 		raise HTTPException(status_code=500, detail="No questions in generated test")
 
-	title = data.get("title") or f"Тест по теме {topic}"
-	topic = data.get("topic") or topic
-	diff = data.get("difficulty") or difficulty
-	print(f"[Tests] parsed title='{title}' topic='{topic}' diff='{diff}' questions={len(questions)}")
-
 	test = Test(
-		title=title,
-		topic=topic,
-		difficulty=diff,
+		title=data.get("title") or f"Тест по теме {payload.topic}",
+		topic=data.get("topic") or payload.topic,
+		difficulty=data.get("difficulty") or payload.difficulty,
 		source="ai",
-		creator_id=creator_id,
+		creator_id=payload.creator_id,
 		created_at=datetime.utcnow(),
 	)
 	db.add(test)
 	db.flush()
 
-	for q in questions:
-		opts = q.get("options") or []
-		# поддерживаем оба ключа: correct_index и correct_answer
-		correct_index = q.get("correct_index")
-		if correct_index is None:
-			correct_index = q.get("correct_answer", 0)
+	for generated_question in questions:
+		options = generated_question.get("options") or []
+		correct_index = generated_question.get("correct_index")
 		if not isinstance(correct_index, int):
 			correct_index = 0
-		db.add(
-			TestQuestion(
-				test_id=test.id,
-				question=q.get("question", ""),
-				options=opts,
-				correct_index=correct_index,
-				explanation=q.get("explanation"),
-			)
+		model = ManualQuestion(
+			question=generated_question.get("question", ""),
+			options=options,
+			correct_index=correct_index,
+			question_type=generated_question.get("question_type") or "single",
+			correct_answer=generated_question.get("correct_answer"),
+			explanation=generated_question.get("explanation"),
 		)
+		_create_question_record(db, test.id, model)
 
-	try:
-		db.commit()
-	except Exception:
-		db.rollback()
-		raise
+	db.commit()
 	db.refresh(test)
-	print(f"[Tests] saved test id={test.id} title={title} questions={len(questions)} topic={topic}")
 	return {"test": _serialize_test(test, include_questions=True)}
 
 
@@ -232,13 +380,13 @@ async def generate_test(request: Request, db: Session = Depends(get_db)):
 async def list_tests(topic: Optional[str] = None, creator_id: Optional[str] = None, db: Session = Depends(get_db)):
 	if not has_db() or db is None:
 		raise HTTPException(status_code=503, detail="Database is not configured")
-	stmt = select(Test)
+	stmt = select(Test).order_by(Test.created_at.desc())
 	if topic:
 		stmt = stmt.where(Test.topic == topic)
 	if creator_id:
 		stmt = stmt.where(Test.creator_id == creator_id)
 	rows = db.execute(stmt).scalars().all()
-	return [_serialize_test(t, include_questions=False) for t in rows]
+	return [_serialize_test(test, include_questions=False) for test in rows]
 
 
 @router.get("/tests/{test_id}", response_model=Dict[str, Any])
@@ -266,28 +414,16 @@ async def update_test(test_id: int, payload: ManualTestUpdate, db: Session = Dep
 	if payload.difficulty is not None:
 		test.difficulty = payload.difficulty
 
-	# Если переданы вопросы — перезаписываем
 	if payload.questions is not None:
-		# удалить старые
-		for q in list(test.questions):
-			db.delete(q)
+		for question in list(test.questions):
+			db.delete(question)
 		db.flush()
-		for q in payload.questions:
-			if q.correct_index < 0 or q.correct_index >= len(q.options):
-				raise HTTPException(status_code=400, detail="correct_index is out of range")
-			db.add(
-				TestQuestion(
-					test_id=test.id,
-					question=q.question,
-					options=q.options,
-					correct_index=q.correct_index,
-					explanation=q.explanation,
-				)
-			)
+		for question in payload.questions:
+			_create_question_record(db, test.id, question)
 
 	db.commit()
 	db.refresh(test)
-	return _serialize_test(test, include_questions=True)
+	return {"test": _serialize_test(test, include_questions=True)}
 
 
 @router.delete("/tests/{test_id}", response_model=Dict[str, Any])
@@ -310,44 +446,129 @@ async def submit_test(test_id: int, payload: TestSubmitRequest, db: Session = De
 	if not test:
 		raise HTTPException(status_code=404, detail="Test not found")
 
-	questions = test.questions
+	questions = sorted(test.questions, key=lambda question: question.id or 0)
 	if len(payload.answers) != len(questions):
 		raise HTTPException(status_code=400, detail="Answers count mismatch")
 
-	correct = 0
-	for ans, q in zip(payload.answers, questions):
-		if ans == q.correct_index:
-			correct += 1
-	score_pct = int(round(100 * correct / max(1, len(questions))))
+	homework: Optional[Homework] = None
+	if payload.homework_id is not None:
+		homework = db.get(Homework, payload.homework_id)
+		if not homework:
+			raise HTTPException(status_code=404, detail="Homework not found")
+		if homework.assigned_to != payload.user_id:
+			raise HTTPException(status_code=403, detail="Homework is assigned to another student")
+		if homework.test_id and homework.test_id != test_id:
+			raise HTTPException(status_code=400, detail="Homework is linked to another test")
+
+	question_results = [_evaluate_question(question, answer) for question, answer in zip(questions, payload.answers)]
+	correct_count = sum(1 for item in question_results if item.get("is_correct"))
+	total_questions = len(question_results)
+	score_pct = int(round(100 * correct_count / max(1, total_questions)))
+	wrong_results = [item for item in question_results if not item.get("is_correct")]
 
 	feedback = None
+	summary = None
 	try:
-		assist = _assistant()
-		qtext = "\n".join([f"Вопрос: {q.question}\nТвой ответ: {a}, правильный: {q.correct_index}" for q, a in zip(questions, payload.answers)])
-		prompt = f"Оцени результаты теста. Правильных ответов: {correct} из {len(questions)} ({score_pct}%). Дай 2-3 рекомендации кратко. \n{qtext}"
-		feedback = assist._generate(prompt, max_new_tokens=200)
+		assistant = _assistant()
+		wrong_lines = "\n".join(
+			f"- {item['question']} | ответ ученика: {item.get('student_answer')} | правильный: {item.get('correct_answer_text')}"
+			for item in wrong_results[:5]
+		)
+		prompt = (
+			f"Ученик выполнил тест '{test.title}'. "
+			f"Результат: {correct_count} из {total_questions} ({score_pct}%).\n"
+			"Дай короткий разбор, что получилось, что повторить и как двигаться дальше.\n"
+			f"Ошибки:\n{wrong_lines or '- Ошибок нет'}"
+		)
+		feedback = assistant._generate(prompt, max_new_tokens=220)
+		summary = feedback
 	except Exception:
 		feedback = None
+		summary = None
 
-	sub = TestSubmission(
+	submission = TestSubmission(
 		test_id=test_id,
+		homework_id=payload.homework_id,
 		user_id=payload.user_id,
-		answers=payload.answers,
+		answers=[answer.dict() for answer in payload.answers],
+		question_results=question_results,
+		correct_count=correct_count,
+		total_questions=total_questions,
+		summary=summary,
 		score=score_pct,
 		feedback=feedback,
 		created_at=datetime.utcnow(),
 	)
-	db.add(sub)
+	db.add(submission)
+	db.flush()
+
+	if homework is not None:
+		homework_submission = HomeworkSubmission(
+			homework_id=homework.id,
+			user_id=payload.user_id,
+			test_submission_id=submission.id,
+			score=float(score_pct),
+			feedback=feedback,
+			created_at=datetime.utcnow(),
+		)
+		db.add(homework_submission)
+		homework.status = "submitted"
+		db.add(homework)
+
+	try:
+		analytics_service = get_analytics_service()
+		cognitive_profile = AgentOrchestrator().profiler.get_profile(payload.user_id)
+		analytics_service.process_test_result(
+			user_id=payload.user_id,
+			test_result={
+				"subject": test.topic or test.title,
+				"accuracy": score_pct,
+				"errors": [item["question"] for item in wrong_results],
+				"time_spent_seconds": payload.time_spent_seconds,
+			},
+			cognitive_profile=cognitive_profile,
+		)
+	except Exception:
+		pass
+
+	try:
+		orchestrator = AgentOrchestrator()
+		for idx, item in enumerate(question_results):
+			orchestrator.process_task_submission(
+				user_id=payload.user_id,
+				task_id=item.get("question_id") or idx + 1,
+				question=item.get("question") or "",
+				user_answer=str(item.get("student_answer") or ""),
+				correct_answer=str(item.get("correct_answer_text") or ""),
+				topic=test.topic or test.title,
+			)
+	except Exception:
+		pass
+
 	db.commit()
-	db.refresh(sub)
+	db.refresh(submission)
 
 	return {
+		"submission_id": submission.id,
+		"homework_id": payload.homework_id,
 		"score": score_pct,
-		"correct": correct,
-		"total": len(questions),
+		"correct": correct_count,
+		"total": total_questions,
+		"summary": summary,
 		"feedback": feedback,
-		"submission_id": sub.id,
+		"question_results": question_results,
 	}
+
+
+@router.get("/tests/submissions/{submission_id}", response_model=Dict[str, Any])
+async def get_test_submission_detail(submission_id: int, db: Session = Depends(get_db)):
+	if not has_db() or db is None:
+		raise HTTPException(status_code=503, detail="Database is not configured")
+	submission = db.get(TestSubmission, submission_id)
+	if not submission:
+		raise HTTPException(status_code=404, detail="Submission not found")
+	test = db.get(Test, submission.test_id)
+	return _serialize_submission(submission, test=test)
 
 
 @router.get("/tests/{test_id}/submissions", response_model=List[Dict[str, Any]])
@@ -364,7 +585,11 @@ async def list_test_submissions(test_id: int, db: Session = Depends(get_db)):
 		{
 			"id": row.id,
 			"user_id": row.user_id,
+			"homework_id": row.homework_id,
 			"score": row.score,
+			"correct_count": row.correct_count,
+			"total_questions": row.total_questions,
+			"summary": row.summary,
 			"feedback": row.feedback,
 			"created_at": row.created_at.isoformat() if row.created_at else None,
 		}
@@ -388,16 +613,7 @@ async def assign_test_to_students(payload: TestAssignRequest, db: Session = Depe
 	if not test:
 		raise HTTPException(status_code=404, detail="Test not found")
 
-	from models.homework import Homework
-
 	created_homeworks: List[Homework] = []
-	metadata = {
-		"kind": "test_assignment",
-		"test_id": test.id,
-		"assignment_type": assignment_type,
-	}
-	description_prefix = "__TEST_ASSIGNMENT__"
-	description_payload = description_prefix + json.dumps(metadata, ensure_ascii=False)
 	assignment_label_map = {
 		"homework": "ДЗ",
 		"control": "КР",
@@ -406,33 +622,38 @@ async def assign_test_to_students(payload: TestAssignRequest, db: Session = Depe
 	assignment_label = assignment_label_map.get(assignment_type, "ДЗ")
 
 	for student_id in payload.student_ids:
-		hw = Homework(
+		homework = Homework(
 			title=f"{assignment_label}: {test.title}",
-			description=description_payload,
+			description=f"Назначенный тест по теме: {test.topic or test.title}",
 			subject=test.topic or "Тест",
 			due_date=payload.due_date,
+			kind="test",
+			test_id=test.id,
+			assignment_type=assignment_type,
 			status="new",
 			assigned_to=student_id,
 			created_by=payload.created_by or test.creator_id,
 		)
-		db.add(hw)
-		created_homeworks.append(hw)
+		db.add(homework)
+		created_homeworks.append(homework)
 
 	db.commit()
-	for hw in created_homeworks:
-		db.refresh(hw)
+	for homework in created_homeworks:
+		db.refresh(homework)
 
 	return {
 		"success": True,
 		"assigned_count": len(created_homeworks),
 		"homeworks": [
 			{
-				"id": hw.id,
-				"assigned_to": hw.assigned_to,
-				"title": hw.title,
-				"due_date": hw.due_date.isoformat() if hw.due_date else None,
+				"id": homework.id,
+				"assigned_to": homework.assigned_to,
+				"title": homework.title,
+				"test_id": homework.test_id,
+				"assignment_type": homework.assignment_type,
+				"due_date": homework.due_date.isoformat() if homework.due_date else None,
 			}
-			for hw in created_homeworks
+			for homework in created_homeworks
 		],
 	}
 

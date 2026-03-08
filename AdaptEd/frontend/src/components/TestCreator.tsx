@@ -23,7 +23,11 @@ interface Test {
   questions: Question[];
 }
 
-export function TestCreator() {
+interface TestCreatorProps {
+  onSaved?: () => void;
+}
+
+export function TestCreator({ onSaved }: TestCreatorProps) {
   const [mode, setMode] = useState<'create' | 'generate'>('create');
   const [test, setTest] = useState<Test>({
     title: '',
@@ -126,6 +130,7 @@ export function TestCreator() {
       });
       
       setSavedTestId(testData.id);
+      onSaved?.();
       alert(`Тест успешно сгенерирован! Создано ${convertedQuestions.length} вопросов.`);
     } catch (error: any) {
       console.error('Ошибка генерации теста:', error);
@@ -211,37 +216,35 @@ export function TestCreator() {
       
       // Конвертируем вопросы в формат API
       const apiQuestions = test.questions.map(q => {
-        if (q.type === 'single' || q.type === 'multiple') {
-          const options = q.options || [];
-          let correctIndex = 0;
-          if (q.type === 'single') {
-            const correctAnswer = q.correctAnswer as string;
-            correctIndex = options.findIndex(opt => opt === correctAnswer);
-            if (correctIndex === -1) correctIndex = 0;
-          } else {
-            // Для multiple берем первый правильный
-            const correctAnswers = q.correctAnswer as string[];
-            if (correctAnswers && correctAnswers.length > 0) {
-              correctIndex = options.findIndex(opt => correctAnswers.includes(opt));
-              if (correctIndex === -1) correctIndex = 0;
-            }
-          }
-          return {
-            question: q.question,
-            options: options,
-            correct_index: correctIndex,
-            explanation: q.explanation,
-          };
+        const options = q.options || [];
+        let correctIndex = 0;
+        let correctAnswer: string | number | string[] | number[] | undefined = undefined;
+
+        if (q.type === 'single') {
+          const singleAnswer = String(q.correctAnswer || '');
+          correctIndex = Math.max(0, options.findIndex(opt => opt === singleAnswer));
+          correctAnswer = [correctIndex];
+        } else if (q.type === 'multiple') {
+          const multipleAnswers = Array.isArray(q.correctAnswer) ? q.correctAnswer as string[] : [];
+          const indexes = multipleAnswers
+            .map(answer => options.findIndex(opt => opt === answer))
+            .filter(idx => idx >= 0);
+          correctIndex = indexes[0] ?? 0;
+          correctAnswer = indexes;
+        } else if (q.type === 'numeric') {
+          correctAnswer = Number(q.correctAnswer || 0);
         } else {
-          // Для text и numeric
-          const correctAnswer = String(q.correctAnswer || '');
-          return {
-            question: q.question,
-            options: [correctAnswer],
-            correct_index: 0,
-            explanation: q.explanation,
-          };
+          correctAnswer = String(q.correctAnswer || '');
         }
+
+        return {
+          question: q.question,
+          options: q.type === 'single' || q.type === 'multiple' ? options : [String(q.correctAnswer || '')],
+          correct_index: correctIndex,
+          question_type: q.type,
+          correct_answer: correctAnswer,
+          explanation: q.explanation,
+        };
       });
 
       const testData = await createManualTest({
@@ -253,6 +256,7 @@ export function TestCreator() {
       });
 
       setSavedTestId(testData.id);
+      onSaved?.();
       alert(`Тест "${test.title}" успешно сохранен!\n\nВопросов: ${test.questions.length}\nОбщий балл: ${test.questions.reduce((sum, q) => sum + q.points, 0)}`);
     } catch (error: any) {
       console.error('Ошибка сохранения теста:', error);

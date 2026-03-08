@@ -1,5 +1,4 @@
 from datetime import datetime
-from typing import Optional
 
 from sqlalchemy import Column, Integer, String, Text, DateTime, ForeignKey, JSON
 from sqlalchemy.orm import relationship
@@ -31,6 +30,7 @@ class TestQuestion(Base):  # type: ignore
 	options = Column(JSON, nullable=False)  # list of str
 	correct_index = Column(Integer, nullable=False)
 	question_type = Column(String(20), nullable=True, default="single")  # single, multiple, text, numeric
+	correct_answer = Column(JSON, nullable=True)  # str | number | list[str] | list[int]
 	explanation = Column(Text, nullable=True)
 
 	test = relationship("Test", back_populates="questions")
@@ -41,8 +41,13 @@ class TestSubmission(Base):  # type: ignore
 
 	id = Column(Integer, primary_key=True, autoincrement=True)
 	test_id = Column(Integer, ForeignKey("tests.id"), nullable=False)
+	homework_id = Column(Integer, ForeignKey("homeworks.id"), nullable=True)
 	user_id = Column(String(64), nullable=False)
-	answers = Column(JSON, nullable=False)  # list of int
+	answers = Column(JSON, nullable=False)  # structured list of submitted answers
+	question_results = Column(JSON, nullable=True)  # per-question result breakdown
+	correct_count = Column(Integer, nullable=True)
+	total_questions = Column(Integer, nullable=True)
+	summary = Column(Text, nullable=True)
 	score = Column(Integer, nullable=True)  # 0..100
 	feedback = Column(Text, nullable=True)
 	created_at = Column(DateTime, default=datetime.utcnow)

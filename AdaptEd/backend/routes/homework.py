@@ -46,6 +46,9 @@ class HomeworkCreate(BaseModel):
     description: Optional[str] = None
     subject: Optional[str] = None
     due_date: Optional[datetime] = None
+    kind: Optional[str] = "test"
+    test_id: Optional[int] = None
+    assignment_type: Optional[str] = "homework"
     assigned_to: str
     created_by: Optional[str] = None
 
@@ -56,10 +59,15 @@ class HomeworkOut(BaseModel):
     description: Optional[str]
     subject: Optional[str]
     due_date: Optional[datetime]
+    kind: Optional[str] = None
+    test_id: Optional[int] = None
+    assignment_type: Optional[str] = None
     status: str
     assigned_to: str
     created_by: Optional[str]
     created_at: datetime
+    latest_submission_id: Optional[int] = None
+    latest_test_submission_id: Optional[int] = None
 
     class Config:
         from_attributes = True
@@ -68,6 +76,7 @@ class HomeworkOut(BaseModel):
 class HomeworkSubmitDB(BaseModel):
     answer_text: Optional[str] = None
     user_id: str
+    test_submission_id: Optional[int] = None
 
 
 # ====== Новые эндпоинты на Postgres ======
@@ -81,7 +90,39 @@ async def list_homeworks(user_id: Optional[str] = None, db: Session = Depends(ge
             if user_id:
                 stmt = stmt.where(Homework.assigned_to == user_id)
             rows = db.execute(stmt).scalars().all()
-            return rows
+            result = []
+            for hw in rows:
+                latest_submission = None
+                try:
+                    latest_submission = (
+                        db.execute(
+                            select(HomeworkSubmissionORM)
+                            .where(HomeworkSubmissionORM.homework_id == hw.id)
+                            .order_by(HomeworkSubmissionORM.created_at.desc())
+                        )
+                        .scalars()
+                        .first()
+                    )
+                except Exception:
+                    latest_submission = None
+
+                result.append({
+                    "id": hw.id,
+                    "title": hw.title,
+                    "description": hw.description,
+                    "subject": hw.subject,
+                    "due_date": hw.due_date,
+                    "kind": getattr(hw, "kind", "test"),
+                    "test_id": getattr(hw, "test_id", None),
+                    "assignment_type": getattr(hw, "assignment_type", "homework"),
+                    "status": hw.status,
+                    "assigned_to": hw.assigned_to,
+                    "created_by": hw.created_by,
+                    "created_at": hw.created_at,
+                    "latest_submission_id": latest_submission.id if latest_submission else None,
+                    "latest_test_submission_id": getattr(latest_submission, "test_submission_id", None) if latest_submission else None,
+                })
+            return result
         except Exception as e:
             print(f"Error fetching homeworks from DB: {e}")
     
@@ -101,10 +142,15 @@ async def list_homeworks(user_id: Optional[str] = None, db: Session = Depends(ge
             "description": hw.get('description'),
             "subject": hw.get('subject'),
             "due_date": hw.get('due_date'),
+            "kind": hw.get('kind', 'test'),
+            "test_id": hw.get('test_id'),
+            "assignment_type": hw.get('assignment_type', 'homework'),
             "status": hw.get('status', 'new'),
             "assigned_to": hw.get('assigned_to', ''),
             "created_by": hw.get('created_by'),
-            "created_at": hw.get('created_at', datetime.now())
+            "created_at": hw.get('created_at', datetime.now()),
+            "latest_submission_id": hw.get('latest_submission_id'),
+            "latest_test_submission_id": hw.get('latest_test_submission_id'),
         })
     
     return result
@@ -120,6 +166,9 @@ async def create_homework(payload: HomeworkCreate, db: Session = Depends(get_db)
                 description=payload.description,
                 subject=payload.subject,
                 due_date=payload.due_date,
+                kind=payload.kind or "test",
+                test_id=payload.test_id,
+                assignment_type=payload.assignment_type or "homework",
                 assigned_to=payload.assigned_to,
                 created_by=payload.created_by,
                 status="new",
@@ -143,6 +192,9 @@ async def create_homework(payload: HomeworkCreate, db: Session = Depends(get_db)
         "description": payload.description,
         "subject": payload.subject,
         "due_date": payload.due_date.isoformat() if payload.due_date else None,
+        "kind": payload.kind or "test",
+        "test_id": payload.test_id,
+        "assignment_type": payload.assignment_type or "homework",
         "assigned_to": payload.assigned_to,
         "created_by": payload.created_by,
         "status": "new",
@@ -158,10 +210,15 @@ async def create_homework(payload: HomeworkCreate, db: Session = Depends(get_db)
         "description": payload.description,
         "subject": payload.subject,
         "due_date": payload.due_date,
+        "kind": payload.kind or "test",
+        "test_id": payload.test_id,
+        "assignment_type": payload.assignment_type or "homework",
         "status": "new",
         "assigned_to": payload.assigned_to,
         "created_by": payload.created_by,
-        "created_at": datetime.now()
+        "created_at": datetime.now(),
+        "latest_submission_id": None,
+        "latest_test_submission_id": None,
     }
 
 
@@ -180,6 +237,7 @@ async def submit_homework_db(homework_id: int, payload: HomeworkSubmitDB, db: Se
                 homework_id=homework_id,
                 user_id=payload.user_id,
                 answer_text=payload.answer_text or "",
+                test_submission_id=payload.test_submission_id,
                 created_at=datetime.utcnow(),
             )
 
@@ -220,6 +278,7 @@ async def submit_homework_db(homework_id: int, payload: HomeworkSubmitDB, db: Se
                     "id": submission.id,
                     "user_id": submission.user_id,
                     "answer_text": submission.answer_text,
+                    "test_submission_id": getattr(submission, "test_submission_id", None),
                     "feedback": submission.feedback,
                     "created_at": submission.created_at,
                 },
@@ -263,6 +322,7 @@ async def submit_homework_db(homework_id: int, payload: HomeworkSubmitDB, db: Se
         "homework_id": homework_id,
         "user_id": payload.user_id,
         "answer_text": payload.answer_text or "",
+        "test_submission_id": payload.test_submission_id,
         "feedback": feedback,
         "created_at": datetime.now().isoformat()
     }
@@ -285,6 +345,7 @@ async def submit_homework_db(homework_id: int, payload: HomeworkSubmitDB, db: Se
             "id": new_submission_id,
             "user_id": payload.user_id,
             "answer_text": payload.answer_text or "",
+            "test_submission_id": payload.test_submission_id,
             "feedback": feedback,
             "created_at": datetime.now()
         },
@@ -306,6 +367,7 @@ async def list_submissions(homework_id: int, db: Session = Depends(get_db)):
                     "id": s.id,
                     "user_id": s.user_id,
                     "answer_text": s.answer_text,
+                    "test_submission_id": getattr(s, "test_submission_id", None),
                     "feedback": s.feedback,
                     "score": s.score,
                     "created_at": s.created_at,
@@ -333,6 +395,7 @@ async def list_submissions(homework_id: int, db: Session = Depends(get_db)):
             "id": s.get('id', 0),
             "user_id": s.get('user_id', ''),
             "answer_text": s.get('answer_text', ''),
+            "test_submission_id": s.get('test_submission_id'),
             "feedback": s.get('feedback'),
             "score": s.get('score'),
             "created_at": s.get('created_at')

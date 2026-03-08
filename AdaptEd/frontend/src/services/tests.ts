@@ -4,6 +4,8 @@ export interface ManualQuestion {
   question: string;
   options: string[];
   correct_index: number;
+  question_type?: 'single' | 'multiple' | 'text' | 'numeric';
+  correct_answer?: string | number | string[] | number[];
   explanation?: string;
 }
 
@@ -21,6 +23,9 @@ export interface GeneratedTestRequest {
   question_count?: number;
   creator_id?: string;
   user_id?: string;
+  subject?: string;
+  grade?: string;
+  include_explanations?: boolean;
 }
 
 export interface TestSummary {
@@ -38,6 +43,8 @@ export interface TestQuestion {
   question: string;
   options: string[];
   correct_index: number;
+  question_type?: 'single' | 'multiple' | 'text' | 'numeric';
+  correct_answer?: string | number | string[] | number[];
   explanation?: string;
 }
 
@@ -78,8 +85,8 @@ export interface ManualTestUpdate {
 }
 
 export async function updateTest(id: number, payload: ManualTestUpdate) {
-  const { data } = await api.put<{ test: TestDetail }>(`/tests/${id}`, payload);
-  return data.test;
+  const { data } = await api.put<{ test?: TestDetail } & TestDetail>(`/tests/${id}`, payload);
+  return data.test || (data as TestDetail);
 }
 
 export async function deleteTest(id: number) {
@@ -103,28 +110,78 @@ export async function assignTestAsHomework(
   return data;
 }
 
-export async function submitTest(testId: number, userId: string, answers: number[]) {
+export interface SubmittedAnswerPayload {
+  question_id?: number;
+  selected_option_indexes?: number[];
+  answer_text?: string;
+  answer_number?: number;
+  student_explanation?: string;
+}
+
+export interface QuestionResult {
+  question_id: number;
+  question: string;
+  question_type: 'single' | 'multiple' | 'text' | 'numeric';
+  selected_option_indexes?: number[];
+  selected_option_texts?: string[];
+  student_answer?: string | number | string[] | number[];
+  student_explanation?: string;
+  is_correct: boolean;
+  correct_answer?: string | number | string[] | number[];
+  correct_answer_text?: string;
+  question_explanation?: string;
+}
+
+export interface TestSubmissionSummary {
+  id: number;
+  user_id: string;
+  homework_id?: number;
+  score: number;
+  correct_count?: number;
+  total_questions?: number;
+  summary?: string;
+  feedback?: string;
+  created_at?: string;
+}
+
+export interface TestSubmissionDetail extends TestSubmissionSummary {
+  test_id: number;
+  answers: SubmittedAnswerPayload[];
+  question_results: QuestionResult[];
+  test?: TestDetail;
+}
+
+export async function submitTest(
+  testId: number,
+  payload: {
+    user_id: string;
+    homework_id?: number;
+    time_spent_seconds?: number;
+    answers: SubmittedAnswerPayload[];
+  }
+) {
   const { data } = await api.post<{
+    submission_id: number;
+    homework_id?: number;
     score: number;
     correct: number;
     total: number;
+    summary?: string;
     feedback?: string;
-    submission_id: number;
+    question_results: QuestionResult[];
   }>(`/tests/${testId}/submit`, {
-    user_id: userId,
-    answers,
+    ...payload,
   });
   return data;
 }
 
 export async function listTestSubmissions(testId: number) {
-  const { data } = await api.get<Array<{
-    id: number;
-    user_id: string;
-    score: number;
-    feedback?: string;
-    created_at?: string;
-  }>>(`/tests/${testId}/submissions`);
+  const { data } = await api.get<TestSubmissionSummary[]>(`/tests/${testId}/submissions`);
+  return data;
+}
+
+export async function getTestSubmission(submissionId: number) {
+  const { data } = await api.get<TestSubmissionDetail>(`/tests/submissions/${submissionId}`);
   return data;
 }
 

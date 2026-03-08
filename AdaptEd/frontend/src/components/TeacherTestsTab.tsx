@@ -1,17 +1,21 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Loader2, ListPlus, Save, Send, Trash2 } from 'lucide-react';
+import { Eye, Loader2, ListPlus, Save, Send, Trash2 } from 'lucide-react';
 import api from '../services/api';
 import {
+  getTestSubmission,
   listTests,
   getTest,
   deleteTest,
   updateTest,
   assignTestAsHomework,
   listTestSubmissions,
+  ManualQuestion,
+  TestSubmissionDetail,
   TestDetail,
   TestSummary,
 } from '../services/tests';
 import { toast } from 'sonner';
+import { TestCreator } from './TestCreator';
 
 type AssignmentType = 'homework' | 'control' | 'quiz';
 
@@ -20,11 +24,16 @@ interface StudentUser {
   full_name: string;
 }
 
-export function TeacherTestsTab() {
+interface TeacherTestsTabProps {
+  preselectedStudentId?: string | null;
+}
+
+export function TeacherTestsTab({ preselectedStudentId = null }: TeacherTestsTabProps) {
   const creatorId = localStorage.getItem('user_id') || '';
 
   const [tests, setTests] = useState<TestSummary[]>([]);
   const [selectedTest, setSelectedTest] = useState<TestDetail | null>(null);
+  const [editQuestions, setEditQuestions] = useState<ManualQuestion[]>([]);
   const [students, setStudents] = useState<StudentUser[]>([]);
   const [selectedStudentIds, setSelectedStudentIds] = useState<string[]>([]);
   const [assignmentType, setAssignmentType] = useState<AssignmentType>('homework');
@@ -36,9 +45,14 @@ export function TeacherTestsTab() {
     id: number;
     user_id: string;
     score: number;
+    correct_count?: number;
+    total_questions?: number;
+    summary?: string;
     feedback?: string;
     created_at?: string;
   }>>([]);
+  const [selectedSubmission, setSelectedSubmission] = useState<TestSubmissionDetail | null>(null);
+  const [submissionLoading, setSubmissionLoading] = useState<number | null>(null);
 
   const [editTitle, setEditTitle] = useState('');
   const [editTopic, setEditTopic] = useState('');
@@ -93,6 +107,16 @@ export function TeacherTestsTab() {
       setEditTitle(full.title || '');
       setEditTopic(full.topic || '');
       setEditDifficulty(full.difficulty || 'medium');
+      setEditQuestions(
+        full.questions.map((q) => ({
+          question: q.question,
+          options: [...q.options],
+          correct_index: q.correct_index,
+          question_type: q.question_type || 'single',
+          correct_answer: q.correct_answer,
+          explanation: q.explanation,
+        }))
+      );
       const subs = await listTestSubmissions(id);
       setSubmissions(subs);
     } catch (e: any) {
@@ -104,19 +128,42 @@ export function TeacherTestsTab() {
     if (!selectedTest) return;
     setSaving(true);
     try {
+      const normalizedQuestions = editQuestions.map((question) => ({
+        ...question,
+        question_type: question.question_type || 'single',
+        correct_answer:
+          question.question_type === 'single'
+            ? [question.correct_index]
+            : question.question_type === 'multiple'
+            ? (Array.isArray(question.correct_answer) ? question.correct_answer : [question.correct_index])
+            : question.question_type === 'numeric'
+            ? Number(question.correct_answer ?? 0)
+            : String(question.correct_answer ?? question.options?.[0] ?? ''),
+      }));
       const updated = await updateTest(selectedTest.id, {
         title: editTitle.trim() || selectedTest.title,
         topic: editTopic || undefined,
         difficulty: editDifficulty || undefined,
-        questions: selectedTest.questions.map((q) => ({
-          question: q.question,
-          options: q.options,
-          correct_index: q.correct_index,
-          explanation: q.explanation,
-        })),
+        questions: normalizedQuestions,
       });
       setSelectedTest(updated);
-      setTests((prev) => prev.map((t) => (t.id === updated.id ? { ...t, title: updated.title, topic: updated.topic, difficulty: updated.difficulty } : t)));
+      setEditQuestions(
+        updated.questions.map((q) => ({
+          question: q.question,
+          options: [...q.options],
+          correct_index: q.correct_index,
+          question_type: q.question_type || 'single',
+          correct_answer: q.correct_answer,
+          explanation: q.explanation,
+        }))
+      );
+      setTests((prev) =>
+        prev.map((t) =>
+          t.id === updated.id
+            ? { ...t, title: updated.title, topic: updated.topic, difficulty: updated.difficulty }
+            : t
+        )
+      );
       toast.success('Тест обновлен');
     } catch (e: any) {
       toast.error(e?.response?.data?.detail || 'Не удалось сохранить изменения');
@@ -166,13 +213,55 @@ export function TeacherTestsTab() {
     }
   };
 
+  const updateQuestion = (index: number, updater: (question: ManualQuestion) => ManualQuestion) => {
+    setEditQuestions((prev) => prev.map((question, qIdx) => (qIdx === index ? updater(question) : question)));
+  };
+
+  const handleOpenSubmission = async (submissionId: number) => {
+    setSubmissionLoading(submissionId);
+    try {
+      const detailed = await getTestSubmission(submissionId);
+      setSelectedSubmission(detailed);
+    } catch (e: any) {
+      toast.error(e?.response?.data?.detail || 'Не удалось загрузить отправку');
+    } finally {
+      setSubmissionLoading(null);
+    }
+  };
+
+  const addQuestion = () => {
+    setEditQuestions((prev) => [
+      ...prev,
+      {
+        question: '',
+        options: ['', '', '', ''],
+        correct_index: 0,
+        question_type: 'single',
+        correct_answer: [0],
+        explanation: '',
+      },
+    ]);
+  };
+
+  const removeQuestion = (index: number) => {
+    setEditQuestions((prev) => prev.filter((_, qIdx) => qIdx !== index));
+  };
+
   useEffect(() => {
     loadTests();
     loadStudents();
   }, []);
 
+  useEffect(() => {
+    if (preselectedStudentId && students.some((student) => student.user_id === preselectedStudentId)) {
+      setSelectedStudentIds((prev) => (prev.includes(preselectedStudentId) ? prev : [...prev, preselectedStudentId]));
+    }
+  }, [preselectedStudentId, students]);
+
   return (
     <div className="space-y-6">
+      <TestCreator onSaved={() => loadTests()} />
+
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <ListPlus className="w-5 h-5 text-blue-600" />
@@ -261,13 +350,63 @@ export function TeacherTestsTab() {
               </div>
 
               <div className="space-y-2">
-                <div className="text-sm text-gray-700">Вопросы ({selectedTest.questions.length})</div>
-                {selectedTest.questions.map((q, idx) => (
-                  <div key={q.id || idx} className="p-3 border border-gray-200 rounded-lg bg-gray-50">
-                    <div className="text-sm text-gray-900 mb-1">{idx + 1}. {q.question}</div>
-                    <div className="text-xs text-gray-600">
-                      {q.options.map((o, oi) => `${oi === q.correct_index ? '✓ ' : ''}${o}`).join(' | ')}
+                <div className="flex items-center justify-between gap-3">
+                  <div className="text-sm text-gray-700">Вопросы ({editQuestions.length})</div>
+                  <button
+                    type="button"
+                    onClick={addQuestion}
+                    className="px-3 py-2 text-sm bg-gray-100 rounded-lg hover:bg-gray-200"
+                  >
+                    Добавить вопрос
+                  </button>
+                </div>
+                {editQuestions.map((q, idx) => (
+                  <div key={`${selectedTest.id}-${idx}`} className="p-3 border border-gray-200 rounded-lg bg-gray-50 space-y-3">
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="text-sm font-medium text-gray-800">Вопрос {idx + 1}</div>
+                      <button
+                        type="button"
+                        onClick={() => removeQuestion(idx)}
+                        className="text-sm text-red-600 hover:text-red-700"
+                      >
+                        Удалить вопрос
+                      </button>
                     </div>
+                    <textarea
+                      value={q.question}
+                      onChange={(e) => updateQuestion(idx, (current) => ({ ...current, question: e.target.value }))}
+                      rows={2}
+                      className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm"
+                    />
+                    <div className="space-y-2">
+                      {q.options.map((option, optionIdx) => (
+                        <div key={optionIdx} className="flex items-center gap-2">
+                          <input
+                            type="radio"
+                            name={`correct-${idx}`}
+                            checked={q.correct_index === optionIdx}
+                            onChange={() => updateQuestion(idx, (current) => ({ ...current, correct_index: optionIdx }))}
+                          />
+                          <input
+                            value={option}
+                            onChange={(e) =>
+                              updateQuestion(idx, (current) => ({
+                                ...current,
+                                options: current.options.map((item, itemIdx) => (itemIdx === optionIdx ? e.target.value : item)),
+                              }))
+                            }
+                            className="flex-1 border border-gray-200 rounded-lg px-3 py-2 text-sm"
+                          />
+                        </div>
+                      ))}
+                    </div>
+                    <textarea
+                      value={q.explanation || ''}
+                      onChange={(e) => updateQuestion(idx, (current) => ({ ...current, explanation: e.target.value }))}
+                      rows={2}
+                      className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm"
+                      placeholder="Объяснение правильного ответа"
+                    />
                   </div>
                 ))}
               </div>
@@ -318,13 +457,30 @@ export function TeacherTestsTab() {
                 {submissions.length === 0 && <div className="text-sm text-gray-500">Пока нет отправленных работ.</div>}
                 {submissions.map((s) => (
                   <div key={s.id} className="p-3 border border-gray-200 rounded-lg">
-                    <div className="text-sm text-gray-900">
-                      {studentNameById[s.user_id] || s.user_id} — {s.score}%
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <div className="text-sm text-gray-900">
+                          {studentNameById[s.user_id] || s.user_id} — {s.score}%
+                          {typeof s.correct_count === 'number' && typeof s.total_questions === 'number' && (
+                            <span className="text-gray-500"> • {s.correct_count}/{s.total_questions}</span>
+                          )}
+                        </div>
+                        <div className="text-xs text-gray-500">
+                          {s.created_at ? new Date(s.created_at).toLocaleString('ru-RU') : ''}
+                        </div>
+                        {(s.summary || s.feedback) && (
+                          <div className="text-xs text-gray-700 mt-1">{s.summary || s.feedback}</div>
+                        )}
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => handleOpenSubmission(s.id)}
+                        className="inline-flex items-center gap-2 px-3 py-2 text-sm bg-white border border-gray-200 rounded-lg hover:bg-gray-50"
+                      >
+                        {submissionLoading === s.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Eye className="w-4 h-4" />}
+                        Открыть
+                      </button>
                     </div>
-                    <div className="text-xs text-gray-500">
-                      {s.created_at ? new Date(s.created_at).toLocaleString('ru-RU') : ''}
-                    </div>
-                    {s.feedback && <div className="text-xs text-gray-700 mt-1">{s.feedback}</div>}
                   </div>
                 ))}
               </div>
@@ -332,6 +488,69 @@ export function TeacherTestsTab() {
           )}
         </div>
       </div>
+
+      {selectedSubmission && (
+        <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4" onClick={() => setSelectedSubmission(null)}>
+          <div className="bg-white w-full max-w-4xl rounded-xl shadow-xl max-h-[90vh] overflow-auto p-6" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between gap-3 mb-4">
+              <div>
+                <h3 className="text-lg font-semibold text-gray-900">
+                  Работа ученика: {studentNameById[selectedSubmission.user_id] || selectedSubmission.user_id}
+                </h3>
+                <p className="text-sm text-gray-600">
+                  {selectedSubmission.correct_count ?? 0}/{selectedSubmission.total_questions ?? 0} правильных • {selectedSubmission.score}%
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setSelectedSubmission(null)}
+                className="px-3 py-2 text-sm bg-gray-100 rounded-lg hover:bg-gray-200"
+              >
+                Закрыть
+              </button>
+            </div>
+
+            {selectedSubmission.summary && (
+              <div className="mb-4 p-4 rounded-lg bg-blue-50 border border-blue-200 text-sm text-gray-700">
+                {selectedSubmission.summary}
+              </div>
+            )}
+
+            <div className="space-y-3">
+              {selectedSubmission.question_results.map((result, idx) => (
+                <div
+                  key={result.question_id}
+                  className={`p-4 rounded-xl border ${
+                    result.is_correct ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'
+                  }`}
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="space-y-1">
+                      <p className="text-sm font-semibold text-gray-900">{idx + 1}. {result.question}</p>
+                      <p className="text-xs text-gray-600">
+                        Ответ ученика:{' '}
+                        {Array.isArray(result.student_answer)
+                          ? result.selected_option_texts?.join(', ') || String(result.student_answer)
+                          : String(result.student_answer ?? '—')}
+                      </p>
+                      <p className="text-xs text-gray-600">Правильный ответ: {result.correct_answer_text || '—'}</p>
+                      {result.student_explanation && (
+                        <p className="text-sm text-gray-700">Как ученик решал: {result.student_explanation}</p>
+                      )}
+                      {result.question_explanation && (
+                        <p className="text-sm text-gray-700">Разбор: {result.question_explanation}</p>
+                      )}
+                    </div>
+                    <span className={`px-3 py-1 rounded-full text-xs font-medium ${result.is_correct ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+                      {result.is_correct ? 'Верно' : 'Ошибка'}
+                    </span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

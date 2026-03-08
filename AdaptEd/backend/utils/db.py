@@ -69,22 +69,43 @@ def init_db():
 		from models.test import Test, TestQuestion, TestSubmission  # noqa: F401
 		from models.user_db import User  # noqa: F401
 		Base.metadata.create_all(bind=_engine)
-		# Миграция: добавить колонки parent_fio, parent_phone в users (SQLite)
-		if DATABASE_URL and "sqlite" in DATABASE_URL:
-			try:
-				from sqlalchemy import text
-				with _engine.connect() as conn:
-					r = conn.execute(text("PRAGMA table_info(users)"))
-					cols = [row[1] for row in r.fetchall()]
-					if "parent_fio" not in cols:
-						conn.execute(text("ALTER TABLE users ADD COLUMN parent_fio VARCHAR(255)"))
-					if "parent_phone" not in cols:
-						conn.execute(text("ALTER TABLE users ADD COLUMN parent_phone VARCHAR(20)"))
-					if "avatar_seed" not in cols:
-						conn.execute(text("ALTER TABLE users ADD COLUMN avatar_seed VARCHAR(64)"))
-					conn.commit()
-			except Exception:
-				pass
+		try:
+			from sqlalchemy import text
+
+			def _sqlite_has_column(conn, table_name: str, column_name: str) -> bool:
+				r = conn.execute(text(f"PRAGMA table_info({table_name})"))
+				cols = [row[1] for row in r.fetchall()]
+				return column_name in cols
+
+			def _ensure_column(conn, table_name: str, column_name: str, column_type: str):
+				if DATABASE_URL and "sqlite" in DATABASE_URL:
+					if not _sqlite_has_column(conn, table_name, column_name):
+						conn.execute(text(f"ALTER TABLE {table_name} ADD COLUMN {column_name} {column_type}"))
+					return
+
+				# Postgres / other engines that support IF NOT EXISTS.
+				conn.execute(text(f"ALTER TABLE {table_name} ADD COLUMN IF NOT EXISTS {column_name} {column_type}"))
+
+			with _engine.connect() as conn:
+				# Existing users compatibility columns.
+				_ensure_column(conn, "users", "parent_fio", "VARCHAR(255)")
+				_ensure_column(conn, "users", "parent_phone", "VARCHAR(20)")
+				_ensure_column(conn, "users", "avatar_seed", "VARCHAR(64)")
+
+				# Test/homework rework columns.
+				_ensure_column(conn, "test_questions", "correct_answer", "JSON")
+				_ensure_column(conn, "test_submissions", "homework_id", "INTEGER")
+				_ensure_column(conn, "test_submissions", "question_results", "JSON")
+				_ensure_column(conn, "test_submissions", "correct_count", "INTEGER")
+				_ensure_column(conn, "test_submissions", "total_questions", "INTEGER")
+				_ensure_column(conn, "test_submissions", "summary", "TEXT")
+				_ensure_column(conn, "homeworks", "kind", "VARCHAR(50)")
+				_ensure_column(conn, "homeworks", "test_id", "INTEGER")
+				_ensure_column(conn, "homeworks", "assignment_type", "VARCHAR(50)")
+				_ensure_column(conn, "homework_submissions", "test_submission_id", "INTEGER")
+				conn.commit()
+		except Exception:
+			pass
 	except Exception:
 		# Silently skip DB init if models import fails
 		return
