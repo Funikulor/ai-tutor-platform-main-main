@@ -1,0 +1,216 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+  xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
+  xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI"
+  xmlns:dc="http://www.omg.org/spec/DD/20100524/DC"
+  xmlns:di="http://www.omg.org/spec/DD/20100524/DI"
+  id="Definitions_ToBeRecommendations"
+  targetNamespace="http://adapted.local/bpmn">
+  <bpmn:collaboration id="Collaboration_ToBeRecommendations">
+    <bpmn:participant id="Participant_ToBeRecommendations" name="AdaptEd TO-BE: единый контур контента, retrieval и рекомендаций" processRef="Process_ToBeRecommendations"/>
+  </bpmn:collaboration>
+
+  <bpmn:process id="Process_ToBeRecommendations" isExecutable="false">
+    <bpmn:laneSet id="LaneSet_ToBeRecommendations">
+      <bpmn:lane id="Lane_AdminToBe" name="Администратор или методист">
+        <bpmn:flowNodeRef>StartEvent_NewMaterial</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_UploadStructuredMaterial</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_ApprovePublication</bpmn:flowNodeRef>
+      </bpmn:lane>
+      <bpmn:lane id="Lane_PlatformToBe" name="Платформа AdaptEd">
+        <bpmn:flowNodeRef>Task_ValidateMetadata</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_PublishToUnifiedLibrary</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_DetectWeakTopicAndContext</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_ShowGroundedRecommendation</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_LogUsageAndUpdateAnalytics</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_ReorderMaterialRanking</bpmn:flowNodeRef>
+      </bpmn:lane>
+      <bpmn:lane id="Lane_RetrievalLLM" name="Retrieval и LLM-сервис">
+        <bpmn:flowNodeRef>Task_ExtractChunkAndIndex</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_SelectRelevantChunks</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_GenerateHintWithSources</bpmn:flowNodeRef>
+      </bpmn:lane>
+      <bpmn:lane id="Lane_StudentToBe" name="Ученик">
+        <bpmn:flowNodeRef>Task_RequestHelpAfterError</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_OpenRecommendedMaterial</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_RetryTaskOrContinueLearning</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>EndEvent_ToBeCycleComplete</bpmn:flowNodeRef>
+      </bpmn:lane>
+    </bpmn:laneSet>
+
+    <bpmn:startEvent id="StartEvent_NewMaterial" name="Появился новый материал или обновление"/>
+    <bpmn:task id="Task_UploadStructuredMaterial" name="Загрузить материал с темой, разделом и метаданными"/>
+    <bpmn:task id="Task_ValidateMetadata" name="Проверить полноту метаданных и структуру"/>
+    <bpmn:task id="Task_ExtractChunkAndIndex" name="Извлечь текст, разбить на чанки и проиндексировать"/>
+    <bpmn:task id="Task_ApprovePublication" name="Подтвердить публикацию"/>
+    <bpmn:task id="Task_PublishToUnifiedLibrary" name="Опубликовать материал в единой библиотеке"/>
+    <bpmn:task id="Task_RequestHelpAfterError" name="Запросить помощь после ошибки или слабой темы"/>
+    <bpmn:task id="Task_DetectWeakTopicAndContext" name="Определить тему, тип ошибки и контекст ученика"/>
+    <bpmn:task id="Task_SelectRelevantChunks" name="Подобрать релевантные фрагменты по индексу"/>
+    <bpmn:task id="Task_GenerateHintWithSources" name="Сформировать подсказку с источником и правильным ответом"/>
+    <bpmn:task id="Task_ShowGroundedRecommendation" name="Показать объяснение, источник и рекомендуемый материал"/>
+    <bpmn:task id="Task_OpenRecommendedMaterial" name="Открыть рекомендованный материал"/>
+    <bpmn:task id="Task_LogUsageAndUpdateAnalytics" name="Зафиксировать использование и обновить аналитику"/>
+    <bpmn:task id="Task_ReorderMaterialRanking" name="Обновить рейтинг материалов и траекторию"/>
+    <bpmn:task id="Task_RetryTaskOrContinueLearning" name="Повторить задание или перейти дальше"/>
+    <bpmn:endEvent id="EndEvent_ToBeCycleComplete" name="Контур персонализации и контента замкнут"/>
+
+    <bpmn:sequenceFlow id="ToBeFlow_01" sourceRef="StartEvent_NewMaterial" targetRef="Task_UploadStructuredMaterial"/>
+    <bpmn:sequenceFlow id="ToBeFlow_02" sourceRef="Task_UploadStructuredMaterial" targetRef="Task_ValidateMetadata"/>
+    <bpmn:sequenceFlow id="ToBeFlow_03" sourceRef="Task_ValidateMetadata" targetRef="Task_ExtractChunkAndIndex"/>
+    <bpmn:sequenceFlow id="ToBeFlow_04" sourceRef="Task_ExtractChunkAndIndex" targetRef="Task_ApprovePublication"/>
+    <bpmn:sequenceFlow id="ToBeFlow_05" sourceRef="Task_ApprovePublication" targetRef="Task_PublishToUnifiedLibrary"/>
+    <bpmn:sequenceFlow id="ToBeFlow_06" sourceRef="Task_PublishToUnifiedLibrary" targetRef="Task_RequestHelpAfterError"/>
+    <bpmn:sequenceFlow id="ToBeFlow_07" sourceRef="Task_RequestHelpAfterError" targetRef="Task_DetectWeakTopicAndContext"/>
+    <bpmn:sequenceFlow id="ToBeFlow_08" sourceRef="Task_DetectWeakTopicAndContext" targetRef="Task_SelectRelevantChunks"/>
+    <bpmn:sequenceFlow id="ToBeFlow_09" sourceRef="Task_SelectRelevantChunks" targetRef="Task_GenerateHintWithSources"/>
+    <bpmn:sequenceFlow id="ToBeFlow_10" sourceRef="Task_GenerateHintWithSources" targetRef="Task_ShowGroundedRecommendation"/>
+    <bpmn:sequenceFlow id="ToBeFlow_11" sourceRef="Task_ShowGroundedRecommendation" targetRef="Task_OpenRecommendedMaterial"/>
+    <bpmn:sequenceFlow id="ToBeFlow_12" sourceRef="Task_OpenRecommendedMaterial" targetRef="Task_LogUsageAndUpdateAnalytics"/>
+    <bpmn:sequenceFlow id="ToBeFlow_13" sourceRef="Task_LogUsageAndUpdateAnalytics" targetRef="Task_ReorderMaterialRanking"/>
+    <bpmn:sequenceFlow id="ToBeFlow_14" sourceRef="Task_ReorderMaterialRanking" targetRef="Task_RetryTaskOrContinueLearning"/>
+    <bpmn:sequenceFlow id="ToBeFlow_15" sourceRef="Task_RetryTaskOrContinueLearning" targetRef="EndEvent_ToBeCycleComplete"/>
+  </bpmn:process>
+
+  <bpmndi:BPMNDiagram id="BPMNDiagram_ToBeRecommendations">
+    <bpmndi:BPMNPlane id="BPMNPlane_ToBeRecommendations" bpmnElement="Collaboration_ToBeRecommendations">
+      <bpmndi:BPMNShape id="Participant_ToBeRecommendations_di" bpmnElement="Participant_ToBeRecommendations" isHorizontal="true">
+        <dc:Bounds x="50" y="50" width="3550" height="690"/>
+      </bpmndi:BPMNShape>
+
+      <bpmndi:BPMNShape id="Lane_AdminToBe_di" bpmnElement="Lane_AdminToBe" isHorizontal="true">
+        <dc:Bounds x="80" y="50" width="3520" height="160"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Lane_PlatformToBe_di" bpmnElement="Lane_PlatformToBe" isHorizontal="true">
+        <dc:Bounds x="80" y="210" width="3520" height="170"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Lane_RetrievalLLM_di" bpmnElement="Lane_RetrievalLLM" isHorizontal="true">
+        <dc:Bounds x="80" y="380" width="3520" height="160"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Lane_StudentToBe_di" bpmnElement="Lane_StudentToBe" isHorizontal="true">
+        <dc:Bounds x="80" y="540" width="3520" height="200"/>
+      </bpmndi:BPMNShape>
+
+      <bpmndi:BPMNShape id="StartEvent_NewMaterial_di" bpmnElement="StartEvent_NewMaterial">
+        <dc:Bounds x="120" y="112" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_UploadStructuredMaterial_di" bpmnElement="Task_UploadStructuredMaterial">
+        <dc:Bounds x="200" y="90" width="170" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_ValidateMetadata_di" bpmnElement="Task_ValidateMetadata">
+        <dc:Bounds x="435" y="255" width="150" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_ExtractChunkAndIndex_di" bpmnElement="Task_ExtractChunkAndIndex">
+        <dc:Bounds x="640" y="420" width="180" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_ApprovePublication_di" bpmnElement="Task_ApprovePublication">
+        <dc:Bounds x="890" y="90" width="145" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_PublishToUnifiedLibrary_di" bpmnElement="Task_PublishToUnifiedLibrary">
+        <dc:Bounds x="1100" y="255" width="165" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_RequestHelpAfterError_di" bpmnElement="Task_RequestHelpAfterError">
+        <dc:Bounds x="1335" y="595" width="170" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_DetectWeakTopicAndContext_di" bpmnElement="Task_DetectWeakTopicAndContext">
+        <dc:Bounds x="1575" y="255" width="180" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_SelectRelevantChunks_di" bpmnElement="Task_SelectRelevantChunks">
+        <dc:Bounds x="1825" y="420" width="165" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_GenerateHintWithSources_di" bpmnElement="Task_GenerateHintWithSources">
+        <dc:Bounds x="2055" y="420" width="185" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_ShowGroundedRecommendation_di" bpmnElement="Task_ShowGroundedRecommendation">
+        <dc:Bounds x="2305" y="255" width="185" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_OpenRecommendedMaterial_di" bpmnElement="Task_OpenRecommendedMaterial">
+        <dc:Bounds x="2550" y="595" width="165" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_LogUsageAndUpdateAnalytics_di" bpmnElement="Task_LogUsageAndUpdateAnalytics">
+        <dc:Bounds x="2780" y="255" width="180" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_ReorderMaterialRanking_di" bpmnElement="Task_ReorderMaterialRanking">
+        <dc:Bounds x="3025" y="255" width="170" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_RetryTaskOrContinueLearning_di" bpmnElement="Task_RetryTaskOrContinueLearning">
+        <dc:Bounds x="3255" y="595" width="180" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="EndEvent_ToBeCycleComplete_di" bpmnElement="EndEvent_ToBeCycleComplete">
+        <dc:Bounds x="3490" y="617" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+
+      <bpmndi:BPMNEdge id="ToBeFlow_01_di" bpmnElement="ToBeFlow_01">
+        <di:waypoint x="156" y="130"/>
+        <di:waypoint x="200" y="130"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="ToBeFlow_02_di" bpmnElement="ToBeFlow_02">
+        <di:waypoint x="370" y="130"/>
+        <di:waypoint x="510" y="130"/>
+        <di:waypoint x="510" y="255"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="ToBeFlow_03_di" bpmnElement="ToBeFlow_03">
+        <di:waypoint x="585" y="295"/>
+        <di:waypoint x="730" y="295"/>
+        <di:waypoint x="730" y="420"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="ToBeFlow_04_di" bpmnElement="ToBeFlow_04">
+        <di:waypoint x="820" y="460"/>
+        <di:waypoint x="962" y="460"/>
+        <di:waypoint x="962" y="170"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="ToBeFlow_05_di" bpmnElement="ToBeFlow_05">
+        <di:waypoint x="1035" y="130"/>
+        <di:waypoint x="1182" y="130"/>
+        <di:waypoint x="1182" y="255"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="ToBeFlow_06_di" bpmnElement="ToBeFlow_06">
+        <di:waypoint x="1265" y="295"/>
+        <di:waypoint x="1420" y="295"/>
+        <di:waypoint x="1420" y="595"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="ToBeFlow_07_di" bpmnElement="ToBeFlow_07">
+        <di:waypoint x="1505" y="635"/>
+        <di:waypoint x="1665" y="635"/>
+        <di:waypoint x="1665" y="335"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="ToBeFlow_08_di" bpmnElement="ToBeFlow_08">
+        <di:waypoint x="1755" y="295"/>
+        <di:waypoint x="1907" y="295"/>
+        <di:waypoint x="1907" y="420"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="ToBeFlow_09_di" bpmnElement="ToBeFlow_09">
+        <di:waypoint x="1990" y="460"/>
+        <di:waypoint x="2055" y="460"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="ToBeFlow_10_di" bpmnElement="ToBeFlow_10">
+        <di:waypoint x="2240" y="460"/>
+        <di:waypoint x="2397" y="460"/>
+        <di:waypoint x="2397" y="335"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="ToBeFlow_11_di" bpmnElement="ToBeFlow_11">
+        <di:waypoint x="2490" y="295"/>
+        <di:waypoint x="2632" y="295"/>
+        <di:waypoint x="2632" y="595"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="ToBeFlow_12_di" bpmnElement="ToBeFlow_12">
+        <di:waypoint x="2715" y="635"/>
+        <di:waypoint x="2870" y="635"/>
+        <di:waypoint x="2870" y="335"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="ToBeFlow_13_di" bpmnElement="ToBeFlow_13">
+        <di:waypoint x="2960" y="295"/>
+        <di:waypoint x="3025" y="295"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="ToBeFlow_14_di" bpmnElement="ToBeFlow_14">
+        <di:waypoint x="3195" y="295"/>
+        <di:waypoint x="3345" y="295"/>
+        <di:waypoint x="3345" y="595"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="ToBeFlow_15_di" bpmnElement="ToBeFlow_15">
+        <di:waypoint x="3435" y="635"/>
+        <di:waypoint x="3490" y="635"/>
+      </bpmndi:BPMNEdge>
+    </bpmndi:BPMNPlane>
+  </bpmndi:BPMNDiagram>
+</bpmn:definitions>

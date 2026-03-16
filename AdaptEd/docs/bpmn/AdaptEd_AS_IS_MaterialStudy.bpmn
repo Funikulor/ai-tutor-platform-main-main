@@ -1,0 +1,220 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+  xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
+  xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI"
+  xmlns:dc="http://www.omg.org/spec/DD/20100524/DC"
+  xmlns:di="http://www.omg.org/spec/DD/20100524/DI"
+  id="Definitions_MaterialStudy"
+  targetNamespace="http://adapted.local/bpmn">
+  <bpmn:collaboration id="Collaboration_MaterialStudy">
+    <bpmn:participant id="Participant_MaterialStudy" name="AdaptEd AS-IS: изучение материала и обновление прогресса" processRef="Process_MaterialStudy"/>
+  </bpmn:collaboration>
+
+  <bpmn:process id="Process_MaterialStudy" isExecutable="false">
+    <bpmn:laneSet id="LaneSet_MaterialStudy">
+      <bpmn:lane id="Lane_StudentStudy" name="Ученик">
+        <bpmn:flowNodeRef>StartEvent_NeedTheory</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_OpenLibrary</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_SelectMaterial</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_StudyMaterial</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_MarkAsCompleted</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>EndEvent_StudyCycleFinished</bpmn:flowNodeRef>
+      </bpmn:lane>
+      <bpmn:lane id="Lane_PlatformStudy" name="Платформа AdaptEd">
+        <bpmn:flowNodeRef>Task_FilterLibrary</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Gateway_MaterialFound</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_ShowTopicMaterials</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_ShowGeneralMaterials</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Gateway_MaterialsPrepared</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_SaveStudyEvent</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_UpdateMasteryAndPoints</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_RecalculateRatingsAndRecommendations</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Gateway_OfferPractice</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_ShowUpdatedProgress</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_OfferAdaptivePractice</bpmn:flowNodeRef>
+      </bpmn:lane>
+    </bpmn:laneSet>
+
+    <bpmn:startEvent id="StartEvent_NeedTheory" name="Нужно повторить тему"/>
+    <bpmn:task id="Task_OpenLibrary" name="Открыть библиотеку материалов"/>
+    <bpmn:task id="Task_FilterLibrary" name="Отфильтровать материалы по теме и типу"/>
+    <bpmn:exclusiveGateway id="Gateway_MaterialFound" name="Найдены подходящие материалы?"/>
+    <bpmn:task id="Task_ShowTopicMaterials" name="Показать тематические материалы"/>
+    <bpmn:task id="Task_ShowGeneralMaterials" name="Показать общие материалы"/>
+    <bpmn:exclusiveGateway id="Gateway_MaterialsPrepared" name="Список материалов готов"/>
+    <bpmn:task id="Task_SelectMaterial" name="Выбрать материал"/>
+    <bpmn:task id="Task_StudyMaterial" name="Изучить материал"/>
+    <bpmn:task id="Task_MarkAsCompleted" name="Завершить просмотр или чтение"/>
+    <bpmn:task id="Task_SaveStudyEvent" name="Сохранить факт изучения и время"/>
+    <bpmn:task id="Task_UpdateMasteryAndPoints" name="Обновить mastery, баллы и уровень"/>
+    <bpmn:task id="Task_RecalculateRatingsAndRecommendations" name="Пересчитать рейтинг материалов и рекомендации"/>
+    <bpmn:exclusiveGateway id="Gateway_OfferPractice" name="Предложить практику сейчас?"/>
+    <bpmn:task id="Task_ShowUpdatedProgress" name="Показать обновлённый прогресс"/>
+    <bpmn:task id="Task_OfferAdaptivePractice" name="Предложить адаптивное задание по теме"/>
+    <bpmn:endEvent id="EndEvent_StudyCycleFinished" name="Цикл изучения материала завершён"/>
+
+    <bpmn:sequenceFlow id="StudyFlow_01" sourceRef="StartEvent_NeedTheory" targetRef="Task_OpenLibrary"/>
+    <bpmn:sequenceFlow id="StudyFlow_02" sourceRef="Task_OpenLibrary" targetRef="Task_FilterLibrary"/>
+    <bpmn:sequenceFlow id="StudyFlow_03" sourceRef="Task_FilterLibrary" targetRef="Gateway_MaterialFound"/>
+    <bpmn:sequenceFlow id="StudyFlow_04" sourceRef="Gateway_MaterialFound" targetRef="Task_ShowTopicMaterials" name="Да"/>
+    <bpmn:sequenceFlow id="StudyFlow_05" sourceRef="Gateway_MaterialFound" targetRef="Task_ShowGeneralMaterials" name="Нет"/>
+    <bpmn:sequenceFlow id="StudyFlow_06" sourceRef="Task_ShowTopicMaterials" targetRef="Gateway_MaterialsPrepared"/>
+    <bpmn:sequenceFlow id="StudyFlow_07" sourceRef="Task_ShowGeneralMaterials" targetRef="Gateway_MaterialsPrepared"/>
+    <bpmn:sequenceFlow id="StudyFlow_08" sourceRef="Gateway_MaterialsPrepared" targetRef="Task_SelectMaterial"/>
+    <bpmn:sequenceFlow id="StudyFlow_09" sourceRef="Task_SelectMaterial" targetRef="Task_StudyMaterial"/>
+    <bpmn:sequenceFlow id="StudyFlow_10" sourceRef="Task_StudyMaterial" targetRef="Task_MarkAsCompleted"/>
+    <bpmn:sequenceFlow id="StudyFlow_11" sourceRef="Task_MarkAsCompleted" targetRef="Task_SaveStudyEvent"/>
+    <bpmn:sequenceFlow id="StudyFlow_12" sourceRef="Task_SaveStudyEvent" targetRef="Task_UpdateMasteryAndPoints"/>
+    <bpmn:sequenceFlow id="StudyFlow_13" sourceRef="Task_UpdateMasteryAndPoints" targetRef="Task_RecalculateRatingsAndRecommendations"/>
+    <bpmn:sequenceFlow id="StudyFlow_14" sourceRef="Task_RecalculateRatingsAndRecommendations" targetRef="Gateway_OfferPractice"/>
+    <bpmn:sequenceFlow id="StudyFlow_15" sourceRef="Gateway_OfferPractice" targetRef="Task_OfferAdaptivePractice" name="Да"/>
+    <bpmn:sequenceFlow id="StudyFlow_16" sourceRef="Gateway_OfferPractice" targetRef="Task_ShowUpdatedProgress" name="Нет"/>
+    <bpmn:sequenceFlow id="StudyFlow_17" sourceRef="Task_OfferAdaptivePractice" targetRef="EndEvent_StudyCycleFinished"/>
+    <bpmn:sequenceFlow id="StudyFlow_18" sourceRef="Task_ShowUpdatedProgress" targetRef="EndEvent_StudyCycleFinished"/>
+  </bpmn:process>
+
+  <bpmndi:BPMNDiagram id="BPMNDiagram_MaterialStudy">
+    <bpmndi:BPMNPlane id="BPMNPlane_MaterialStudy" bpmnElement="Collaboration_MaterialStudy">
+      <bpmndi:BPMNShape id="Participant_MaterialStudy_di" bpmnElement="Participant_MaterialStudy" isHorizontal="true">
+        <dc:Bounds x="60" y="60" width="2620" height="390"/>
+      </bpmndi:BPMNShape>
+
+      <bpmndi:BPMNShape id="Lane_StudentStudy_di" bpmnElement="Lane_StudentStudy" isHorizontal="true">
+        <dc:Bounds x="90" y="60" width="2590" height="190"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Lane_PlatformStudy_di" bpmnElement="Lane_PlatformStudy" isHorizontal="true">
+        <dc:Bounds x="90" y="250" width="2590" height="200"/>
+      </bpmndi:BPMNShape>
+
+      <bpmndi:BPMNShape id="StartEvent_NeedTheory_di" bpmnElement="StartEvent_NeedTheory">
+        <dc:Bounds x="130" y="137" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_OpenLibrary_di" bpmnElement="Task_OpenLibrary">
+        <dc:Bounds x="210" y="115" width="135" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_FilterLibrary_di" bpmnElement="Task_FilterLibrary">
+        <dc:Bounds x="410" y="310" width="145" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Gateway_MaterialFound_di" bpmnElement="Gateway_MaterialFound" isMarkerVisible="true">
+        <dc:Bounds x="620" y="325" width="50" height="50"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_ShowTopicMaterials_di" bpmnElement="Task_ShowTopicMaterials">
+        <dc:Bounds x="730" y="280" width="145" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_ShowGeneralMaterials_di" bpmnElement="Task_ShowGeneralMaterials">
+        <dc:Bounds x="730" y="370" width="145" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Gateway_MaterialsPrepared_di" bpmnElement="Gateway_MaterialsPrepared" isMarkerVisible="true">
+        <dc:Bounds x="940" y="325" width="50" height="50"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_SelectMaterial_di" bpmnElement="Task_SelectMaterial">
+        <dc:Bounds x="1060" y="115" width="130" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_StudyMaterial_di" bpmnElement="Task_StudyMaterial">
+        <dc:Bounds x="1245" y="115" width="130" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_MarkAsCompleted_di" bpmnElement="Task_MarkAsCompleted">
+        <dc:Bounds x="1430" y="115" width="145" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_SaveStudyEvent_di" bpmnElement="Task_SaveStudyEvent">
+        <dc:Bounds x="1640" y="310" width="145" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_UpdateMasteryAndPoints_di" bpmnElement="Task_UpdateMasteryAndPoints">
+        <dc:Bounds x="1850" y="310" width="150" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_RecalculateRatingsAndRecommendations_di" bpmnElement="Task_RecalculateRatingsAndRecommendations">
+        <dc:Bounds x="2065" y="310" width="175" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Gateway_OfferPractice_di" bpmnElement="Gateway_OfferPractice" isMarkerVisible="true">
+        <dc:Bounds x="2300" y="325" width="50" height="50"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_ShowUpdatedProgress_di" bpmnElement="Task_ShowUpdatedProgress">
+        <dc:Bounds x="2410" y="280" width="145" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_OfferAdaptivePractice_di" bpmnElement="Task_OfferAdaptivePractice">
+        <dc:Bounds x="2410" y="370" width="145" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="EndEvent_StudyCycleFinished_di" bpmnElement="EndEvent_StudyCycleFinished">
+        <dc:Bounds x="2605" y="137" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+
+      <bpmndi:BPMNEdge id="StudyFlow_01_di" bpmnElement="StudyFlow_01">
+        <di:waypoint x="166" y="155"/>
+        <di:waypoint x="210" y="155"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="StudyFlow_02_di" bpmnElement="StudyFlow_02">
+        <di:waypoint x="345" y="155"/>
+        <di:waypoint x="482" y="155"/>
+        <di:waypoint x="482" y="310"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="StudyFlow_03_di" bpmnElement="StudyFlow_03">
+        <di:waypoint x="555" y="350"/>
+        <di:waypoint x="620" y="350"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="StudyFlow_04_di" bpmnElement="StudyFlow_04">
+        <di:waypoint x="670" y="350"/>
+        <di:waypoint x="730" y="320"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="StudyFlow_05_di" bpmnElement="StudyFlow_05">
+        <di:waypoint x="670" y="350"/>
+        <di:waypoint x="730" y="410"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="StudyFlow_06_di" bpmnElement="StudyFlow_06">
+        <di:waypoint x="875" y="320"/>
+        <di:waypoint x="940" y="350"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="StudyFlow_07_di" bpmnElement="StudyFlow_07">
+        <di:waypoint x="875" y="410"/>
+        <di:waypoint x="940" y="350"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="StudyFlow_08_di" bpmnElement="StudyFlow_08">
+        <di:waypoint x="990" y="350"/>
+        <di:waypoint x="1125" y="350"/>
+        <di:waypoint x="1125" y="195"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="StudyFlow_09_di" bpmnElement="StudyFlow_09">
+        <di:waypoint x="1190" y="155"/>
+        <di:waypoint x="1245" y="155"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="StudyFlow_10_di" bpmnElement="StudyFlow_10">
+        <di:waypoint x="1375" y="155"/>
+        <di:waypoint x="1430" y="155"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="StudyFlow_11_di" bpmnElement="StudyFlow_11">
+        <di:waypoint x="1575" y="155"/>
+        <di:waypoint x="1712" y="155"/>
+        <di:waypoint x="1712" y="310"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="StudyFlow_12_di" bpmnElement="StudyFlow_12">
+        <di:waypoint x="1785" y="350"/>
+        <di:waypoint x="1850" y="350"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="StudyFlow_13_di" bpmnElement="StudyFlow_13">
+        <di:waypoint x="2000" y="350"/>
+        <di:waypoint x="2065" y="350"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="StudyFlow_14_di" bpmnElement="StudyFlow_14">
+        <di:waypoint x="2240" y="350"/>
+        <di:waypoint x="2300" y="350"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="StudyFlow_15_di" bpmnElement="StudyFlow_15">
+        <di:waypoint x="2350" y="350"/>
+        <di:waypoint x="2410" y="410"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="StudyFlow_16_di" bpmnElement="StudyFlow_16">
+        <di:waypoint x="2350" y="350"/>
+        <di:waypoint x="2410" y="320"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="StudyFlow_17_di" bpmnElement="StudyFlow_17">
+        <di:waypoint x="2555" y="410"/>
+        <di:waypoint x="2623" y="410"/>
+        <di:waypoint x="2623" y="173"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="StudyFlow_18_di" bpmnElement="StudyFlow_18">
+        <di:waypoint x="2555" y="320"/>
+        <di:waypoint x="2623" y="320"/>
+        <di:waypoint x="2623" y="173"/>
+      </bpmndi:BPMNEdge>
+    </bpmndi:BPMNPlane>
+  </bpmndi:BPMNDiagram>
+</bpmn:definitions>

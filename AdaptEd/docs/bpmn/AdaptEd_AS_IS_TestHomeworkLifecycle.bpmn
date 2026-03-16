@@ -1,0 +1,274 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+  xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
+  xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI"
+  xmlns:dc="http://www.omg.org/spec/DD/20100524/DC"
+  xmlns:di="http://www.omg.org/spec/DD/20100524/DI"
+  id="Definitions_TestLifecycle"
+  targetNamespace="http://adapted.local/bpmn">
+  <bpmn:collaboration id="Collaboration_TestLifecycle">
+    <bpmn:participant id="Participant_TestLifecycle" name="AdaptEd AS-IS: создание, назначение и прохождение теста/ДЗ" processRef="Process_TestLifecycle"/>
+  </bpmn:collaboration>
+
+  <bpmn:process id="Process_TestLifecycle" isExecutable="false">
+    <bpmn:laneSet id="LaneSet_TestLifecycle">
+      <bpmn:lane id="Lane_Teacher" name="Учитель">
+        <bpmn:flowNodeRef>StartEvent_NeedControl</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Gateway_CreateMode</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_CreateManualTest</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_SetAIGenerationParams</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Gateway_TestPrepared</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_AssignTest</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_ViewResults</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Gateway_NeedIntervention</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_PlanSupportActions</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_CloseAssessmentCycle</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>EndEvent_TestCycleCompleted</bpmn:flowNodeRef>
+      </bpmn:lane>
+      <bpmn:lane id="Lane_PlatformTest" name="Платформа AdaptEd">
+        <bpmn:flowNodeRef>Task_SaveGeneratedTest</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_CreateAssignments</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_ShowAssignedHomework</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_AutoEvaluateSubmission</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_SaveSubmissionAndStatuses</bpmn:flowNodeRef>
+      </bpmn:lane>
+      <bpmn:lane id="Lane_StudentTest" name="Ученик">
+        <bpmn:flowNodeRef>Task_OpenHomeworkTab</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_CompleteTest</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_SubmitTest</bpmn:flowNodeRef>
+      </bpmn:lane>
+      <bpmn:lane id="Lane_AITest" name="AI сервис">
+        <bpmn:flowNodeRef>Task_GenerateTestByAI</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_GenerateFeedbackSummary</bpmn:flowNodeRef>
+      </bpmn:lane>
+    </bpmn:laneSet>
+
+    <bpmn:startEvent id="StartEvent_NeedControl" name="Нужно провести контроль"/>
+    <bpmn:exclusiveGateway id="Gateway_CreateMode" name="Тест вручную или через AI?"/>
+    <bpmn:task id="Task_CreateManualTest" name="Собрать тест вручную"/>
+    <bpmn:task id="Task_SetAIGenerationParams" name="Задать тему, сложность и класс"/>
+    <bpmn:task id="Task_GenerateTestByAI" name="Сгенерировать тест"/>
+    <bpmn:task id="Task_SaveGeneratedTest" name="Сохранить тест в системе"/>
+    <bpmn:exclusiveGateway id="Gateway_TestPrepared" name="Тест готов"/>
+    <bpmn:task id="Task_AssignTest" name="Назначить тест ученикам"/>
+    <bpmn:task id="Task_CreateAssignments" name="Создать записи homework и сроки"/>
+    <bpmn:task id="Task_ShowAssignedHomework" name="Показать назначенный тест"/>
+    <bpmn:task id="Task_OpenHomeworkTab" name="Открыть вкладку домашней работы"/>
+    <bpmn:task id="Task_CompleteTest" name="Ответить на вопросы теста"/>
+    <bpmn:task id="Task_SubmitTest" name="Отправить тест на проверку"/>
+    <bpmn:task id="Task_AutoEvaluateSubmission" name="Автоматически оценить ответы"/>
+    <bpmn:task id="Task_GenerateFeedbackSummary" name="Сформировать краткий AI-фидбек"/>
+    <bpmn:task id="Task_SaveSubmissionAndStatuses" name="Сохранить результат и обновить статусы"/>
+    <bpmn:task id="Task_ViewResults" name="Просмотреть результаты и аналитику"/>
+    <bpmn:exclusiveGateway id="Gateway_NeedIntervention" name="Нужна дополнительная поддержка?"/>
+    <bpmn:task id="Task_PlanSupportActions" name="Назначить повторение или связаться с родителем"/>
+    <bpmn:task id="Task_CloseAssessmentCycle" name="Зафиксировать итоги контроля"/>
+    <bpmn:endEvent id="EndEvent_TestCycleCompleted" name="Цикл тестирования завершён"/>
+
+    <bpmn:sequenceFlow id="TestFlow_01" sourceRef="StartEvent_NeedControl" targetRef="Gateway_CreateMode"/>
+    <bpmn:sequenceFlow id="TestFlow_02" sourceRef="Gateway_CreateMode" targetRef="Task_CreateManualTest" name="Вручную"/>
+    <bpmn:sequenceFlow id="TestFlow_03" sourceRef="Gateway_CreateMode" targetRef="Task_SetAIGenerationParams" name="Через AI"/>
+    <bpmn:sequenceFlow id="TestFlow_04" sourceRef="Task_SetAIGenerationParams" targetRef="Task_GenerateTestByAI"/>
+    <bpmn:sequenceFlow id="TestFlow_05" sourceRef="Task_GenerateTestByAI" targetRef="Task_SaveGeneratedTest"/>
+    <bpmn:sequenceFlow id="TestFlow_06" sourceRef="Task_CreateManualTest" targetRef="Gateway_TestPrepared"/>
+    <bpmn:sequenceFlow id="TestFlow_07" sourceRef="Task_SaveGeneratedTest" targetRef="Gateway_TestPrepared"/>
+    <bpmn:sequenceFlow id="TestFlow_08" sourceRef="Gateway_TestPrepared" targetRef="Task_AssignTest"/>
+    <bpmn:sequenceFlow id="TestFlow_09" sourceRef="Task_AssignTest" targetRef="Task_CreateAssignments"/>
+    <bpmn:sequenceFlow id="TestFlow_10" sourceRef="Task_CreateAssignments" targetRef="Task_ShowAssignedHomework"/>
+    <bpmn:sequenceFlow id="TestFlow_11" sourceRef="Task_ShowAssignedHomework" targetRef="Task_OpenHomeworkTab"/>
+    <bpmn:sequenceFlow id="TestFlow_12" sourceRef="Task_OpenHomeworkTab" targetRef="Task_CompleteTest"/>
+    <bpmn:sequenceFlow id="TestFlow_13" sourceRef="Task_CompleteTest" targetRef="Task_SubmitTest"/>
+    <bpmn:sequenceFlow id="TestFlow_14" sourceRef="Task_SubmitTest" targetRef="Task_AutoEvaluateSubmission"/>
+    <bpmn:sequenceFlow id="TestFlow_15" sourceRef="Task_AutoEvaluateSubmission" targetRef="Task_GenerateFeedbackSummary"/>
+    <bpmn:sequenceFlow id="TestFlow_16" sourceRef="Task_GenerateFeedbackSummary" targetRef="Task_SaveSubmissionAndStatuses"/>
+    <bpmn:sequenceFlow id="TestFlow_17" sourceRef="Task_SaveSubmissionAndStatuses" targetRef="Task_ViewResults"/>
+    <bpmn:sequenceFlow id="TestFlow_18" sourceRef="Task_ViewResults" targetRef="Gateway_NeedIntervention"/>
+    <bpmn:sequenceFlow id="TestFlow_19" sourceRef="Gateway_NeedIntervention" targetRef="Task_PlanSupportActions" name="Да"/>
+    <bpmn:sequenceFlow id="TestFlow_20" sourceRef="Gateway_NeedIntervention" targetRef="Task_CloseAssessmentCycle" name="Нет"/>
+    <bpmn:sequenceFlow id="TestFlow_21" sourceRef="Task_PlanSupportActions" targetRef="Task_CloseAssessmentCycle"/>
+    <bpmn:sequenceFlow id="TestFlow_22" sourceRef="Task_CloseAssessmentCycle" targetRef="EndEvent_TestCycleCompleted"/>
+  </bpmn:process>
+
+  <bpmndi:BPMNDiagram id="BPMNDiagram_TestLifecycle">
+    <bpmndi:BPMNPlane id="BPMNPlane_TestLifecycle" bpmnElement="Collaboration_TestLifecycle">
+      <bpmndi:BPMNShape id="Participant_TestLifecycle_di" bpmnElement="Participant_TestLifecycle" isHorizontal="true">
+        <dc:Bounds x="50" y="50" width="3200" height="680"/>
+      </bpmndi:BPMNShape>
+
+      <bpmndi:BPMNShape id="Lane_Teacher_di" bpmnElement="Lane_Teacher" isHorizontal="true">
+        <dc:Bounds x="80" y="50" width="3170" height="170"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Lane_PlatformTest_di" bpmnElement="Lane_PlatformTest" isHorizontal="true">
+        <dc:Bounds x="80" y="220" width="3170" height="160"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Lane_StudentTest_di" bpmnElement="Lane_StudentTest" isHorizontal="true">
+        <dc:Bounds x="80" y="380" width="3170" height="160"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Lane_AITest_di" bpmnElement="Lane_AITest" isHorizontal="true">
+        <dc:Bounds x="80" y="540" width="3170" height="190"/>
+      </bpmndi:BPMNShape>
+
+      <bpmndi:BPMNShape id="StartEvent_NeedControl_di" bpmnElement="StartEvent_NeedControl">
+        <dc:Bounds x="130" y="117" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Gateway_CreateMode_di" bpmnElement="Gateway_CreateMode" isMarkerVisible="true">
+        <dc:Bounds x="220" y="110" width="50" height="50"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_CreateManualTest_di" bpmnElement="Task_CreateManualTest">
+        <dc:Bounds x="330" y="95" width="130" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_SetAIGenerationParams_di" bpmnElement="Task_SetAIGenerationParams">
+        <dc:Bounds x="330" y="185" width="145" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_GenerateTestByAI_di" bpmnElement="Task_GenerateTestByAI">
+        <dc:Bounds x="560" y="600" width="135" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_SaveGeneratedTest_di" bpmnElement="Task_SaveGeneratedTest">
+        <dc:Bounds x="780" y="260" width="140" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Gateway_TestPrepared_di" bpmnElement="Gateway_TestPrepared" isMarkerVisible="true">
+        <dc:Bounds x="1030" y="110" width="50" height="50"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_AssignTest_di" bpmnElement="Task_AssignTest">
+        <dc:Bounds x="1140" y="95" width="135" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_CreateAssignments_di" bpmnElement="Task_CreateAssignments">
+        <dc:Bounds x="1360" y="260" width="150" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_ShowAssignedHomework_di" bpmnElement="Task_ShowAssignedHomework">
+        <dc:Bounds x="1600" y="260" width="155" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_OpenHomeworkTab_di" bpmnElement="Task_OpenHomeworkTab">
+        <dc:Bounds x="1830" y="420" width="130" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_CompleteTest_di" bpmnElement="Task_CompleteTest">
+        <dc:Bounds x="2025" y="420" width="130" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_SubmitTest_di" bpmnElement="Task_SubmitTest">
+        <dc:Bounds x="2215" y="420" width="130" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_AutoEvaluateSubmission_di" bpmnElement="Task_AutoEvaluateSubmission">
+        <dc:Bounds x="2405" y="260" width="150" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_GenerateFeedbackSummary_di" bpmnElement="Task_GenerateFeedbackSummary">
+        <dc:Bounds x="2405" y="600" width="160" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_SaveSubmissionAndStatuses_di" bpmnElement="Task_SaveSubmissionAndStatuses">
+        <dc:Bounds x="2615" y="260" width="165" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_ViewResults_di" bpmnElement="Task_ViewResults">
+        <dc:Bounds x="2615" y="95" width="145" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Gateway_NeedIntervention_di" bpmnElement="Gateway_NeedIntervention" isMarkerVisible="true">
+        <dc:Bounds x="2810" y="110" width="50" height="50"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_PlanSupportActions_di" bpmnElement="Task_PlanSupportActions">
+        <dc:Bounds x="2910" y="70" width="170" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_CloseAssessmentCycle_di" bpmnElement="Task_CloseAssessmentCycle">
+        <dc:Bounds x="2910" y="165" width="160" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="EndEvent_TestCycleCompleted_di" bpmnElement="EndEvent_TestCycleCompleted">
+        <dc:Bounds x="3115" y="187" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+
+      <bpmndi:BPMNEdge id="TestFlow_01_di" bpmnElement="TestFlow_01">
+        <di:waypoint x="166" y="135"/>
+        <di:waypoint x="220" y="135"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="TestFlow_02_di" bpmnElement="TestFlow_02">
+        <di:waypoint x="270" y="135"/>
+        <di:waypoint x="330" y="135"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="TestFlow_03_di" bpmnElement="TestFlow_03">
+        <di:waypoint x="245" y="160"/>
+        <di:waypoint x="245" y="225"/>
+        <di:waypoint x="330" y="225"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="TestFlow_04_di" bpmnElement="TestFlow_04">
+        <di:waypoint x="475" y="225"/>
+        <di:waypoint x="560" y="640"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="TestFlow_05_di" bpmnElement="TestFlow_05">
+        <di:waypoint x="695" y="640"/>
+        <di:waypoint x="850" y="640"/>
+        <di:waypoint x="850" y="340"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="TestFlow_06_di" bpmnElement="TestFlow_06">
+        <di:waypoint x="460" y="135"/>
+        <di:waypoint x="1030" y="135"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="TestFlow_07_di" bpmnElement="TestFlow_07">
+        <di:waypoint x="920" y="300"/>
+        <di:waypoint x="1055" y="300"/>
+        <di:waypoint x="1055" y="160"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="TestFlow_08_di" bpmnElement="TestFlow_08">
+        <di:waypoint x="1080" y="135"/>
+        <di:waypoint x="1140" y="135"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="TestFlow_09_di" bpmnElement="TestFlow_09">
+        <di:waypoint x="1275" y="135"/>
+        <di:waypoint x="1435" y="135"/>
+        <di:waypoint x="1435" y="260"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="TestFlow_10_di" bpmnElement="TestFlow_10">
+        <di:waypoint x="1510" y="300"/>
+        <di:waypoint x="1600" y="300"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="TestFlow_11_di" bpmnElement="TestFlow_11">
+        <di:waypoint x="1755" y="300"/>
+        <di:waypoint x="1895" y="300"/>
+        <di:waypoint x="1895" y="420"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="TestFlow_12_di" bpmnElement="TestFlow_12">
+        <di:waypoint x="1960" y="460"/>
+        <di:waypoint x="2025" y="460"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="TestFlow_13_di" bpmnElement="TestFlow_13">
+        <di:waypoint x="2155" y="460"/>
+        <di:waypoint x="2215" y="460"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="TestFlow_14_di" bpmnElement="TestFlow_14">
+        <di:waypoint x="2345" y="460"/>
+        <di:waypoint x="2480" y="460"/>
+        <di:waypoint x="2480" y="340"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="TestFlow_15_di" bpmnElement="TestFlow_15">
+        <di:waypoint x="2480" y="340"/>
+        <di:waypoint x="2480" y="600"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="TestFlow_16_di" bpmnElement="TestFlow_16">
+        <di:waypoint x="2565" y="640"/>
+        <di:waypoint x="2697" y="640"/>
+        <di:waypoint x="2697" y="340"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="TestFlow_17_di" bpmnElement="TestFlow_17">
+        <di:waypoint x="2697" y="260"/>
+        <di:waypoint x="2697" y="175"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="TestFlow_18_di" bpmnElement="TestFlow_18">
+        <di:waypoint x="2760" y="135"/>
+        <di:waypoint x="2810" y="135"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="TestFlow_19_di" bpmnElement="TestFlow_19">
+        <di:waypoint x="2860" y="135"/>
+        <di:waypoint x="2910" y="110"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="TestFlow_20_di" bpmnElement="TestFlow_20">
+        <di:waypoint x="2835" y="160"/>
+        <di:waypoint x="2835" y="205"/>
+        <di:waypoint x="2910" y="205"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="TestFlow_21_di" bpmnElement="TestFlow_21">
+        <di:waypoint x="3080" y="110"/>
+        <di:waypoint x="2990" y="110"/>
+        <di:waypoint x="2990" y="165"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="TestFlow_22_di" bpmnElement="TestFlow_22">
+        <di:waypoint x="3070" y="205"/>
+        <di:waypoint x="3115" y="205"/>
+      </bpmndi:BPMNEdge>
+    </bpmndi:BPMNPlane>
+  </bpmndi:BPMNDiagram>
+</bpmn:definitions>

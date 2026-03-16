@@ -1,0 +1,304 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+  xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
+  xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI"
+  xmlns:dc="http://www.omg.org/spec/DD/20100524/DC"
+  xmlns:di="http://www.omg.org/spec/DD/20100524/DI"
+  id="Definitions_AdminOperations"
+  targetNamespace="http://adapted.local/bpmn">
+  <bpmn:collaboration id="Collaboration_AdminOperations">
+    <bpmn:participant id="Participant_AdminOperations" name="AdaptEd AS-IS: администрирование платформы" processRef="Process_AdminOperations"/>
+  </bpmn:collaboration>
+
+  <bpmn:process id="Process_AdminOperations" isExecutable="false">
+    <bpmn:laneSet id="LaneSet_AdminOperations">
+      <bpmn:lane id="Lane_Admin" name="Администратор">
+        <bpmn:flowNodeRef>StartEvent_NeedAdminAction</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Gateway_InitialSetup</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_RunCreateAdminScript</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_RunSeedScript</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Gateway_SetupFinished</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_LoginAdminPanel</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Gateway_SelectAdminOperation</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_ManageUsers</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_EditContentStructure</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_AdjustSystemSettings</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Gateway_AdminOperationDone</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_ReviewUpdatedState</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>EndEvent_AdminCycleFinished</bpmn:flowNodeRef>
+      </bpmn:lane>
+      <bpmn:lane id="Lane_PlatformAdmin" name="Платформа AdaptEd">
+        <bpmn:flowNodeRef>Task_ParseCredentialsAndPrepareUsers</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_LoadAdminStatistics</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_ApplyUserChanges</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_ApplyContentChanges</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_ApplySettingsChanges</bpmn:flowNodeRef>
+      </bpmn:lane>
+      <bpmn:lane id="Lane_StorageAdmin" name="База данных и хранилище">
+        <bpmn:flowNodeRef>Task_SaveAdminAccount</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_SaveSeededUsers</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_SaveUserRecords</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_SaveContentStructure</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_SaveSystemConfig</bpmn:flowNodeRef>
+      </bpmn:lane>
+    </bpmn:laneSet>
+
+    <bpmn:startEvent id="StartEvent_NeedAdminAction" name="Нужно подготовить или обслужить систему"/>
+    <bpmn:exclusiveGateway id="Gateway_InitialSetup" name="Требуется первичное заполнение?"/>
+    <bpmn:task id="Task_RunCreateAdminScript" name="Запустить скрипт создания администратора"/>
+    <bpmn:task id="Task_SaveAdminAccount" name="Сохранить учётную запись admin"/>
+    <bpmn:task id="Task_RunSeedScript" name="Запустить импорт из seed_credentials.txt"/>
+    <bpmn:task id="Task_ParseCredentialsAndPrepareUsers" name="Разобрать файл и подготовить записи"/>
+    <bpmn:task id="Task_SaveSeededUsers" name="Создать или обновить пользователей"/>
+    <bpmn:exclusiveGateway id="Gateway_SetupFinished" name="Подготовка завершена"/>
+    <bpmn:task id="Task_LoginAdminPanel" name="Войти в административную панель"/>
+    <bpmn:task id="Task_LoadAdminStatistics" name="Загрузить статистику и текущее состояние"/>
+    <bpmn:exclusiveGateway id="Gateway_SelectAdminOperation" name="Какое действие нужно?"/>
+    <bpmn:task id="Task_ManageUsers" name="Управлять пользователями и паролями"/>
+    <bpmn:task id="Task_ApplyUserChanges" name="Применить изменения пользователей"/>
+    <bpmn:task id="Task_SaveUserRecords" name="Сохранить карточки пользователей"/>
+    <bpmn:task id="Task_EditContentStructure" name="Изменить предметы, разделы и темы"/>
+    <bpmn:task id="Task_ApplyContentChanges" name="Применить изменения структуры контента"/>
+    <bpmn:task id="Task_SaveContentStructure" name="Сохранить структуру контента"/>
+    <bpmn:task id="Task_AdjustSystemSettings" name="Изменить системные настройки и провайдеры"/>
+    <bpmn:task id="Task_ApplySettingsChanges" name="Применить новые настройки"/>
+    <bpmn:task id="Task_SaveSystemConfig" name="Сохранить конфигурацию"/>
+    <bpmn:exclusiveGateway id="Gateway_AdminOperationDone" name="Изменения сохранены"/>
+    <bpmn:task id="Task_ReviewUpdatedState" name="Проверить обновлённое состояние системы"/>
+    <bpmn:endEvent id="EndEvent_AdminCycleFinished" name="Административный цикл завершён"/>
+
+    <bpmn:sequenceFlow id="AdminFlow_01" sourceRef="StartEvent_NeedAdminAction" targetRef="Gateway_InitialSetup"/>
+    <bpmn:sequenceFlow id="AdminFlow_02" sourceRef="Gateway_InitialSetup" targetRef="Task_RunCreateAdminScript" name="Да"/>
+    <bpmn:sequenceFlow id="AdminFlow_03" sourceRef="Task_RunCreateAdminScript" targetRef="Task_SaveAdminAccount"/>
+    <bpmn:sequenceFlow id="AdminFlow_04" sourceRef="Task_SaveAdminAccount" targetRef="Task_RunSeedScript"/>
+    <bpmn:sequenceFlow id="AdminFlow_05" sourceRef="Task_RunSeedScript" targetRef="Task_ParseCredentialsAndPrepareUsers"/>
+    <bpmn:sequenceFlow id="AdminFlow_06" sourceRef="Task_ParseCredentialsAndPrepareUsers" targetRef="Task_SaveSeededUsers"/>
+    <bpmn:sequenceFlow id="AdminFlow_07" sourceRef="Task_SaveSeededUsers" targetRef="Gateway_SetupFinished"/>
+    <bpmn:sequenceFlow id="AdminFlow_08" sourceRef="Gateway_InitialSetup" targetRef="Gateway_SetupFinished" name="Нет"/>
+    <bpmn:sequenceFlow id="AdminFlow_09" sourceRef="Gateway_SetupFinished" targetRef="Task_LoginAdminPanel"/>
+    <bpmn:sequenceFlow id="AdminFlow_10" sourceRef="Task_LoginAdminPanel" targetRef="Task_LoadAdminStatistics"/>
+    <bpmn:sequenceFlow id="AdminFlow_11" sourceRef="Task_LoadAdminStatistics" targetRef="Gateway_SelectAdminOperation"/>
+    <bpmn:sequenceFlow id="AdminFlow_12" sourceRef="Gateway_SelectAdminOperation" targetRef="Task_ManageUsers" name="Пользователи"/>
+    <bpmn:sequenceFlow id="AdminFlow_13" sourceRef="Task_ManageUsers" targetRef="Task_ApplyUserChanges"/>
+    <bpmn:sequenceFlow id="AdminFlow_14" sourceRef="Task_ApplyUserChanges" targetRef="Task_SaveUserRecords"/>
+    <bpmn:sequenceFlow id="AdminFlow_15" sourceRef="Task_SaveUserRecords" targetRef="Gateway_AdminOperationDone"/>
+    <bpmn:sequenceFlow id="AdminFlow_16" sourceRef="Gateway_SelectAdminOperation" targetRef="Task_EditContentStructure" name="Контент"/>
+    <bpmn:sequenceFlow id="AdminFlow_17" sourceRef="Task_EditContentStructure" targetRef="Task_ApplyContentChanges"/>
+    <bpmn:sequenceFlow id="AdminFlow_18" sourceRef="Task_ApplyContentChanges" targetRef="Task_SaveContentStructure"/>
+    <bpmn:sequenceFlow id="AdminFlow_19" sourceRef="Task_SaveContentStructure" targetRef="Gateway_AdminOperationDone"/>
+    <bpmn:sequenceFlow id="AdminFlow_20" sourceRef="Gateway_SelectAdminOperation" targetRef="Task_AdjustSystemSettings" name="Настройки"/>
+    <bpmn:sequenceFlow id="AdminFlow_21" sourceRef="Task_AdjustSystemSettings" targetRef="Task_ApplySettingsChanges"/>
+    <bpmn:sequenceFlow id="AdminFlow_22" sourceRef="Task_ApplySettingsChanges" targetRef="Task_SaveSystemConfig"/>
+    <bpmn:sequenceFlow id="AdminFlow_23" sourceRef="Task_SaveSystemConfig" targetRef="Gateway_AdminOperationDone"/>
+    <bpmn:sequenceFlow id="AdminFlow_24" sourceRef="Gateway_AdminOperationDone" targetRef="Task_ReviewUpdatedState"/>
+    <bpmn:sequenceFlow id="AdminFlow_25" sourceRef="Task_ReviewUpdatedState" targetRef="EndEvent_AdminCycleFinished"/>
+  </bpmn:process>
+
+  <bpmndi:BPMNDiagram id="BPMNDiagram_AdminOperations">
+    <bpmndi:BPMNPlane id="BPMNPlane_AdminOperations" bpmnElement="Collaboration_AdminOperations">
+      <bpmndi:BPMNShape id="Participant_AdminOperations_di" bpmnElement="Participant_AdminOperations" isHorizontal="true">
+        <dc:Bounds x="50" y="50" width="3150" height="530"/>
+      </bpmndi:BPMNShape>
+
+      <bpmndi:BPMNShape id="Lane_Admin_di" bpmnElement="Lane_Admin" isHorizontal="true">
+        <dc:Bounds x="80" y="50" width="3120" height="180"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Lane_PlatformAdmin_di" bpmnElement="Lane_PlatformAdmin" isHorizontal="true">
+        <dc:Bounds x="80" y="230" width="3120" height="160"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Lane_StorageAdmin_di" bpmnElement="Lane_StorageAdmin" isHorizontal="true">
+        <dc:Bounds x="80" y="390" width="3120" height="190"/>
+      </bpmndi:BPMNShape>
+
+      <bpmndi:BPMNShape id="StartEvent_NeedAdminAction_di" bpmnElement="StartEvent_NeedAdminAction">
+        <dc:Bounds x="120" y="122" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Gateway_InitialSetup_di" bpmnElement="Gateway_InitialSetup" isMarkerVisible="true">
+        <dc:Bounds x="210" y="115" width="50" height="50"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_RunCreateAdminScript_di" bpmnElement="Task_RunCreateAdminScript">
+        <dc:Bounds x="320" y="100" width="150" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_SaveAdminAccount_di" bpmnElement="Task_SaveAdminAccount">
+        <dc:Bounds x="520" y="445" width="145" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_RunSeedScript_di" bpmnElement="Task_RunSeedScript">
+        <dc:Bounds x="720" y="100" width="145" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_ParseCredentialsAndPrepareUsers_di" bpmnElement="Task_ParseCredentialsAndPrepareUsers">
+        <dc:Bounds x="930" y="270" width="170" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_SaveSeededUsers_di" bpmnElement="Task_SaveSeededUsers">
+        <dc:Bounds x="1170" y="445" width="150" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Gateway_SetupFinished_di" bpmnElement="Gateway_SetupFinished" isMarkerVisible="true">
+        <dc:Bounds x="1400" y="115" width="50" height="50"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_LoginAdminPanel_di" bpmnElement="Task_LoginAdminPanel">
+        <dc:Bounds x="1510" y="100" width="145" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_LoadAdminStatistics_di" bpmnElement="Task_LoadAdminStatistics">
+        <dc:Bounds x="1725" y="270" width="155" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Gateway_SelectAdminOperation_di" bpmnElement="Gateway_SelectAdminOperation" isMarkerVisible="true">
+        <dc:Bounds x="1945" y="115" width="50" height="50"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_ManageUsers_di" bpmnElement="Task_ManageUsers">
+        <dc:Bounds x="2060" y="60" width="150" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_ApplyUserChanges_di" bpmnElement="Task_ApplyUserChanges">
+        <dc:Bounds x="2275" y="250" width="145" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_SaveUserRecords_di" bpmnElement="Task_SaveUserRecords">
+        <dc:Bounds x="2490" y="425" width="145" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_EditContentStructure_di" bpmnElement="Task_EditContentStructure">
+        <dc:Bounds x="2060" y="145" width="160" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_ApplyContentChanges_di" bpmnElement="Task_ApplyContentChanges">
+        <dc:Bounds x="2275" y="335" width="160" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_SaveContentStructure_di" bpmnElement="Task_SaveContentStructure">
+        <dc:Bounds x="2490" y="510" width="150" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_AdjustSystemSettings_di" bpmnElement="Task_AdjustSystemSettings">
+        <dc:Bounds x="2060" y="230" width="170" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_ApplySettingsChanges_di" bpmnElement="Task_ApplySettingsChanges">
+        <dc:Bounds x="2275" y="170" width="150" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_SaveSystemConfig_di" bpmnElement="Task_SaveSystemConfig">
+        <dc:Bounds x="2490" y="340" width="145" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Gateway_AdminOperationDone_di" bpmnElement="Gateway_AdminOperationDone" isMarkerVisible="true">
+        <dc:Bounds x="2720" y="115" width="50" height="50"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_ReviewUpdatedState_di" bpmnElement="Task_ReviewUpdatedState">
+        <dc:Bounds x="2835" y="100" width="165" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="EndEvent_AdminCycleFinished_di" bpmnElement="EndEvent_AdminCycleFinished">
+        <dc:Bounds x="3055" y="122" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+
+      <bpmndi:BPMNEdge id="AdminFlow_01_di" bpmnElement="AdminFlow_01">
+        <di:waypoint x="156" y="140"/>
+        <di:waypoint x="210" y="140"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="AdminFlow_02_di" bpmnElement="AdminFlow_02">
+        <di:waypoint x="260" y="140"/>
+        <di:waypoint x="320" y="140"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="AdminFlow_03_di" bpmnElement="AdminFlow_03">
+        <di:waypoint x="470" y="140"/>
+        <di:waypoint x="592" y="140"/>
+        <di:waypoint x="592" y="445"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="AdminFlow_04_di" bpmnElement="AdminFlow_04">
+        <di:waypoint x="665" y="485"/>
+        <di:waypoint x="792" y="485"/>
+        <di:waypoint x="792" y="180"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="AdminFlow_05_di" bpmnElement="AdminFlow_05">
+        <di:waypoint x="865" y="140"/>
+        <di:waypoint x="1015" y="140"/>
+        <di:waypoint x="1015" y="270"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="AdminFlow_06_di" bpmnElement="AdminFlow_06">
+        <di:waypoint x="1100" y="310"/>
+        <di:waypoint x="1245" y="310"/>
+        <di:waypoint x="1245" y="445"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="AdminFlow_07_di" bpmnElement="AdminFlow_07">
+        <di:waypoint x="1320" y="485"/>
+        <di:waypoint x="1425" y="485"/>
+        <di:waypoint x="1425" y="165"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="AdminFlow_08_di" bpmnElement="AdminFlow_08">
+        <di:waypoint x="235" y="165"/>
+        <di:waypoint x="235" y="200"/>
+        <di:waypoint x="1425" y="200"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="AdminFlow_09_di" bpmnElement="AdminFlow_09">
+        <di:waypoint x="1450" y="140"/>
+        <di:waypoint x="1510" y="140"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="AdminFlow_10_di" bpmnElement="AdminFlow_10">
+        <di:waypoint x="1655" y="140"/>
+        <di:waypoint x="1802" y="140"/>
+        <di:waypoint x="1802" y="270"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="AdminFlow_11_di" bpmnElement="AdminFlow_11">
+        <di:waypoint x="1880" y="310"/>
+        <di:waypoint x="1970" y="310"/>
+        <di:waypoint x="1970" y="165"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="AdminFlow_12_di" bpmnElement="AdminFlow_12">
+        <di:waypoint x="1995" y="140"/>
+        <di:waypoint x="2060" y="100"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="AdminFlow_13_di" bpmnElement="AdminFlow_13">
+        <di:waypoint x="2210" y="100"/>
+        <di:waypoint x="2348" y="100"/>
+        <di:waypoint x="2348" y="250"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="AdminFlow_14_di" bpmnElement="AdminFlow_14">
+        <di:waypoint x="2420" y="290"/>
+        <di:waypoint x="2562" y="290"/>
+        <di:waypoint x="2562" y="425"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="AdminFlow_15_di" bpmnElement="AdminFlow_15">
+        <di:waypoint x="2635" y="465"/>
+        <di:waypoint x="2745" y="465"/>
+        <di:waypoint x="2745" y="165"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="AdminFlow_16_di" bpmnElement="AdminFlow_16">
+        <di:waypoint x="1995" y="140"/>
+        <di:waypoint x="2140" y="140"/>
+        <di:waypoint x="2140" y="145"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="AdminFlow_17_di" bpmnElement="AdminFlow_17">
+        <di:waypoint x="2220" y="185"/>
+        <di:waypoint x="2355" y="185"/>
+        <di:waypoint x="2355" y="335"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="AdminFlow_18_di" bpmnElement="AdminFlow_18">
+        <di:waypoint x="2435" y="375"/>
+        <di:waypoint x="2565" y="375"/>
+        <di:waypoint x="2565" y="510"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="AdminFlow_19_di" bpmnElement="AdminFlow_19">
+        <di:waypoint x="2640" y="550"/>
+        <di:waypoint x="2745" y="550"/>
+        <di:waypoint x="2745" y="165"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="AdminFlow_20_di" bpmnElement="AdminFlow_20">
+        <di:waypoint x="1970" y="165"/>
+        <di:waypoint x="1970" y="270"/>
+        <di:waypoint x="2060" y="270"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="AdminFlow_21_di" bpmnElement="AdminFlow_21">
+        <di:waypoint x="2230" y="270"/>
+        <di:waypoint x="2350" y="270"/>
+        <di:waypoint x="2350" y="250"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="AdminFlow_22_di" bpmnElement="AdminFlow_22">
+        <di:waypoint x="2425" y="210"/>
+        <di:waypoint x="2562" y="210"/>
+        <di:waypoint x="2562" y="340"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="AdminFlow_23_di" bpmnElement="AdminFlow_23">
+        <di:waypoint x="2635" y="380"/>
+        <di:waypoint x="2745" y="380"/>
+        <di:waypoint x="2745" y="165"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="AdminFlow_24_di" bpmnElement="AdminFlow_24">
+        <di:waypoint x="2770" y="140"/>
+        <di:waypoint x="2835" y="140"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="AdminFlow_25_di" bpmnElement="AdminFlow_25">
+        <di:waypoint x="3000" y="140"/>
+        <di:waypoint x="3055" y="140"/>
+      </bpmndi:BPMNEdge>
+    </bpmndi:BPMNPlane>
+  </bpmndi:BPMNDiagram>
+</bpmn:definitions>
