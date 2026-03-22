@@ -1,4 +1,5 @@
 import os
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
@@ -41,7 +42,43 @@ try:
 except Exception:
 	pass
 
-app = FastAPI(redirect_slashes=False)  # Отключаем автоматический редирект слэшей
+
+def _flush_on_shutdown() -> None:
+    try:
+        try:
+            from agents.orchestrator import AgentOrchestrator
+
+            orchestrator = AgentOrchestrator()
+            orchestrator.profiler.flush_all_profiles()
+        except Exception:
+            pass
+
+        try:
+            from services.student_analytics import get_analytics_service
+
+            analytics_service = get_analytics_service()
+            analytics_service.adaptive_educator.flush_all_data()
+        except Exception:
+            pass
+
+        try:
+            from services.assistant import get_assistant_service
+
+            assistant_service = get_assistant_service()
+            assistant_service.flush_all_profiles()
+        except Exception:
+            pass
+    except Exception:
+        pass
+
+
+@asynccontextmanager
+async def _app_lifespan(_app: FastAPI):
+    yield
+    _flush_on_shutdown()
+
+
+app = FastAPI(redirect_slashes=False, lifespan=_app_lifespan)
 
 
 def _get_allowed_origins() -> list[str]:
@@ -99,38 +136,13 @@ def read_root():
 def debug_storage():
     """Отладочный endpoint для проверки хранилища"""
     from utils.persistent_storage import persistent_storage
-    import os
+
+    data_file = Path(persistent_storage.data_file)
     return {
         "users_count": len(persistent_storage.get("users", {})),
         "users": persistent_storage.get("users", {}),
-        "data_file_exists": os.path.exists("data.json")
+        "data_file_exists": data_file.is_file(),
     }
-
-@app.on_event("shutdown")
-async def shutdown_event():
-    try:
-        try:
-            from agents.orchestrator import AgentOrchestrator
-            orchestrator = AgentOrchestrator()
-            orchestrator.profiler.flush_all_profiles()
-        except Exception:
-            pass
-        
-        try:
-            from services.student_analytics import get_analytics_service
-            analytics_service = get_analytics_service()
-            analytics_service.adaptive_educator.flush_all_data()
-        except Exception:
-            pass
-        
-        try:
-            from services.assistant import get_assistant_service
-            assistant_service = get_assistant_service()
-            assistant_service.flush_all_profiles()
-        except Exception:
-            pass
-    except Exception:
-        pass
 
 @app.get("/batcher-stats")
 def get_batcher_stats():
@@ -141,7 +153,7 @@ def get_batcher_stats():
             get_analytics_batcher,
             get_personality_batcher
         )
-        
+
         return {
             "profiler": get_profiler_batcher().get_stats(),
             "analytics": get_analytics_batcher().get_stats(),
@@ -164,6 +176,8 @@ def serve_spa(full_path: str):
         "homework/",
         "tests/",
         "tasks/",
+        "materials",
+        "materials/",
         "debug",
         "batcher-stats",
         "docs",

@@ -43,6 +43,7 @@ Thumbs.db
 # Data files
 *.json.bak
 data.json
+AdaptEd/backend/adapted.db
 
 # Logs
 *.log
@@ -50,4 +51,3 @@ data.json
 # Temporary files
 *.tmp
 *.temp
-

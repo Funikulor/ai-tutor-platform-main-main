@@ -37,6 +37,27 @@ def _ensure_materials() -> List[Dict[str, Any]]:
     return defaults
 
 
+def _material_matches(
+    m: Dict[str, Any],
+    subject: Optional[str],
+    material_type: Optional[str],
+    query_lc: Optional[str],
+) -> bool:
+    if subject and subject != "all" and m.get("subject") != subject:
+        return False
+    if material_type and material_type != "all" and m.get("type") != material_type:
+        return False
+    if query_lc:
+        if query_lc in str(m.get("title", "")).lower():
+            return True
+        if query_lc in str(m.get("description", "")).lower():
+            return True
+        if query_lc in str(m.get("topic", "")).lower():
+            return True
+        return False
+    return True
+
+
 @router.get("/materials", response_model=List[Dict[str, Any]])
 async def list_materials(
     subject: Optional[str] = None,
@@ -45,24 +66,8 @@ async def list_materials(
 ):
     try:
         materials = _ensure_materials()
-
-        result = materials
-        if subject and subject != "all":
-            result = [m for m in result if m.get("subject") == subject]
-
-        if material_type and material_type != "all":
-            result = [m for m in result if m.get("type") == material_type]
-
-        if q:
-            query = q.lower().strip()
-            result = [
-                m for m in result
-                if query in str(m.get("title", "")).lower()
-                or query in str(m.get("description", "")).lower()
-                or query in str(m.get("topic", "")).lower()
-            ]
-
-        return result
+        query_lc = q.lower().strip() if q else None
+        return [m for m in materials if _material_matches(m, subject, material_type, query_lc)]
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
