@@ -20,9 +20,9 @@ class StudentAnalyticsService:
         """Получить ProfilerAgent из orchestrator"""
         if self.profiler is None:
             try:
-                from agents.orchestrator import AgentOrchestrator
-                orchestrator = AgentOrchestrator()
-                self.profiler = orchestrator.profiler
+                from utils.orchestrator_singleton import get_orchestrator
+
+                self.profiler = get_orchestrator().profiler
             except Exception:
                 pass
         return self.profiler

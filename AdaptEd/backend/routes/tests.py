@@ -8,13 +8,14 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from agents.orchestrator import AgentOrchestrator
+from utils.orchestrator_singleton import get_orchestrator
 from models.homework import Homework, HomeworkSubmission
 from models.test import Test, TestQuestion, TestSubmission
 from services.assistant import get_assistant_service
 from services.student_analytics import get_analytics_service
 from utils.answer_parse import numeric_answers_equal
 from utils.db import get_db, has_db
+from routes.auth import get_current_user, require_roles, assert_can_view_user_data
 
 router = APIRouter()
 
@@ -233,7 +234,7 @@ def _build_generation_prompt(payload: GeneratedTestRequest) -> str:
 	weak_topics_text = ""
 	if payload.user_id:
 		try:
-			profile = AgentOrchestrator().profiler.get_profile(payload.user_id)
+			profile = get_orchestrator().profiler.get_profile(payload.user_id)
 			if profile and profile.topic_mastery:
 				weak_topics = [
 					topic
@@ -307,18 +308,23 @@ def _create_question_record(db: Session, test_id: int, question: ManualQuestion)
 
 
 @router.post("/tests/manual", response_model=Dict[str, Any])
-async def create_manual_test(payload: ManualTestCreate, db: Session = Depends(get_db)):
+async def create_manual_test(
+	payload: ManualTestCreate,
+	db: Session = Depends(get_db),
+	current_user: dict = Depends(require_roles("teacher", "admin")),
+):
 	if not has_db() or db is None:
 		raise HTTPException(status_code=503, detail="Database is not configured")
 	if not payload.questions:
 		raise HTTPException(status_code=400, detail="Questions are required")
 
+	creator_id = payload.creator_id or str(current_user.get("user_id", ""))
 	test = Test(
 		title=payload.title,
 		topic=payload.topic,
 		difficulty=payload.difficulty,
 		source="manual",
-		creator_id=payload.creator_id,
+		creator_id=creator_id,
 		created_at=datetime.utcnow(),
 	)
 	db.add(test)
@@ -333,12 +339,17 @@ async def create_manual_test(payload: ManualTestCreate, db: Session = Depends(ge
 
 
 @router.post("/tests/generate", response_model=Dict[str, Any])
-async def generate_test(payload: GeneratedTestRequest, db: Session = Depends(get_db)):
+async def generate_test(
+	payload: GeneratedTestRequest,
+	db: Session = Depends(get_db),
+	current_user: dict = Depends(require_roles("teacher", "admin")),
+):
 	if not has_db() or db is None:
 		raise HTTPException(status_code=503, detail="Database is not configured")
 	if not (payload.topic or "").strip():
 		raise HTTPException(status_code=400, detail="Укажите тему для генерации теста (topic)")
 
+	creator_id = payload.creator_id or str(current_user.get("user_id", ""))
 	raw = _assistant()._generate(_build_generation_prompt(payload), max_new_tokens=1000)
 	data = _extract_generated_payload(raw)
 	questions = data.get("questions") or []
@@ -350,7 +361,7 @@ async def generate_test(payload: GeneratedTestRequest, db: Session = Depends(get
 		topic=data.get("topic") or payload.topic,
 		difficulty=data.get("difficulty") or payload.difficulty,
 		source="ai",
-		creator_id=payload.creator_id,
+		creator_id=creator_id,
 		created_at=datetime.utcnow(),
 	)
 	db.add(test)
@@ -377,7 +388,12 @@ async def generate_test(payload: GeneratedTestRequest, db: Session = Depends(get
 
 
 @router.get("/tests", response_model=List[Dict[str, Any]])
-async def list_tests(topic: Optional[str] = None, creator_id: Optional[str] = None, db: Session = Depends(get_db)):
+async def list_tests(
+	topic: Optional[str] = None,
+	creator_id: Optional[str] = None,
+	db: Session = Depends(get_db),
+	_user: dict = Depends(get_current_user),
+):
 	if not has_db() or db is None:
 		raise HTTPException(status_code=503, detail="Database is not configured")
 	stmt = select(Test).order_by(Test.created_at.desc())
@@ -390,7 +406,7 @@ async def list_tests(topic: Optional[str] = None, creator_id: Optional[str] = No
 
 
 @router.get("/tests/{test_id}", response_model=Dict[str, Any])
-async def get_test(test_id: int, db: Session = Depends(get_db)):
+async def get_test(test_id: int, db: Session = Depends(get_db), _user: dict = Depends(get_current_user)):
 	if not has_db() or db is None:
 		raise HTTPException(status_code=503, detail="Database is not configured")
 	test = db.get(Test, test_id)
@@ -400,7 +416,12 @@ async def get_test(test_id: int, db: Session = Depends(get_db)):
 
 
 @router.put("/tests/{test_id}", response_model=Dict[str, Any])
-async def update_test(test_id: int, payload: ManualTestUpdate, db: Session = Depends(get_db)):
+async def update_test(
+	test_id: int,
+	payload: ManualTestUpdate,
+	db: Session = Depends(get_db),
+	_staff: dict = Depends(require_roles("teacher", "admin")),
+):
 	if not has_db() or db is None:
 		raise HTTPException(status_code=503, detail="Database is not configured")
 	test = db.get(Test, test_id)
@@ -427,7 +448,7 @@ async def update_test(test_id: int, payload: ManualTestUpdate, db: Session = Dep
 
 
 @router.delete("/tests/{test_id}", response_model=Dict[str, Any])
-async def delete_test(test_id: int, db: Session = Depends(get_db)):
+async def delete_test(test_id: int, db: Session = Depends(get_db), _staff: dict = Depends(require_roles("teacher", "admin"))):
 	if not has_db() or db is None:
 		raise HTTPException(status_code=503, detail="Database is not configured")
 	test = db.get(Test, test_id)
@@ -439,9 +460,17 @@ async def delete_test(test_id: int, db: Session = Depends(get_db)):
 
 
 @router.post("/tests/{test_id}/submit", response_model=Dict[str, Any])
-async def submit_test(test_id: int, payload: TestSubmitRequest, db: Session = Depends(get_db)):
+async def submit_test(
+	test_id: int,
+	payload: TestSubmitRequest,
+	db: Session = Depends(get_db),
+	current_user: dict = Depends(get_current_user),
+):
 	if not has_db() or db is None:
 		raise HTTPException(status_code=503, detail="Database is not configured")
+	role = str(current_user.get("role", ""))
+	if role not in ("teacher", "admin"):
+		assert_can_view_user_data(current_user, str(payload.user_id))
 	test = db.get(Test, test_id)
 	if not test:
 		raise HTTPException(status_code=404, detail="Test not found")
@@ -517,7 +546,7 @@ async def submit_test(test_id: int, payload: TestSubmitRequest, db: Session = De
 
 	try:
 		analytics_service = get_analytics_service()
-		cognitive_profile = AgentOrchestrator().profiler.get_profile(payload.user_id)
+		cognitive_profile = get_orchestrator().profiler.get_profile(payload.user_id)
 		analytics_service.process_test_result(
 			user_id=payload.user_id,
 			test_result={
@@ -532,7 +561,7 @@ async def submit_test(test_id: int, payload: TestSubmitRequest, db: Session = De
 		pass
 
 	try:
-		orchestrator = AgentOrchestrator()
+		orchestrator = get_orchestrator()
 		for idx, item in enumerate(question_results):
 			orchestrator.process_task_submission(
 				user_id=payload.user_id,
@@ -561,18 +590,27 @@ async def submit_test(test_id: int, payload: TestSubmitRequest, db: Session = De
 
 
 @router.get("/tests/submissions/{submission_id}", response_model=Dict[str, Any])
-async def get_test_submission_detail(submission_id: int, db: Session = Depends(get_db)):
+async def get_test_submission_detail(
+	submission_id: int,
+	db: Session = Depends(get_db),
+	current_user: dict = Depends(get_current_user),
+):
 	if not has_db() or db is None:
 		raise HTTPException(status_code=503, detail="Database is not configured")
 	submission = db.get(TestSubmission, submission_id)
 	if not submission:
 		raise HTTPException(status_code=404, detail="Submission not found")
+	assert_can_view_user_data(current_user, str(submission.user_id))
 	test = db.get(Test, submission.test_id)
 	return _serialize_submission(submission, test=test)
 
 
 @router.get("/tests/{test_id}/submissions", response_model=List[Dict[str, Any]])
-async def list_test_submissions(test_id: int, db: Session = Depends(get_db)):
+async def list_test_submissions(
+	test_id: int,
+	db: Session = Depends(get_db),
+	_staff: dict = Depends(require_roles("teacher", "admin")),
+):
 	if not has_db() or db is None:
 		raise HTTPException(status_code=503, detail="Database is not configured")
 	test = db.get(Test, test_id)
@@ -598,7 +636,11 @@ async def list_test_submissions(test_id: int, db: Session = Depends(get_db)):
 
 
 @router.post("/tests/assign", response_model=Dict[str, Any])
-async def assign_test_to_students(payload: TestAssignRequest, db: Session = Depends(get_db)):
+async def assign_test_to_students(
+	payload: TestAssignRequest,
+	db: Session = Depends(get_db),
+	_staff: dict = Depends(require_roles("teacher", "admin")),
+):
 	if not payload.student_ids:
 		raise HTTPException(status_code=400, detail="student_ids is required")
 

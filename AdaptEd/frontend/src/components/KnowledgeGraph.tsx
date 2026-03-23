@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react';
-import { CheckCircle, AlertCircle, Circle, ChevronRight, ChevronDown } from 'lucide-react';
+import { useState, useEffect, useCallback } from 'react';
+import { CheckCircle, AlertCircle, Circle, ChevronRight, ChevronDown, RefreshCw } from 'lucide-react';
 import api from '../services/api';
 
 interface KnowledgeNode {
@@ -28,11 +28,7 @@ export function KnowledgeGraph() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    loadKnowledgeGraph();
-  }, []);
-
-  const loadKnowledgeGraph = async () => {
+  const loadKnowledgeGraph = useCallback(async () => {
     try {
       setLoading(true);
       setError(null);
@@ -68,7 +64,11 @@ export function KnowledgeGraph() {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    loadKnowledgeGraph();
+  }, [loadKnowledgeGraph]);
 
   const toggleNode = (nodeId: string) => {
     setExpandedNodes(prev => {
@@ -188,11 +188,20 @@ export function KnowledgeGraph() {
     <div className="space-y-6">
       {/* Header */}
       <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-        <div className="flex items-center justify-between mb-4">
+        <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
           <div>
             <h2 className="text-gray-900">Граф знаний</h2>
-            <p className="text-gray-600">Визуализация вашего прогресса по темам</p>
+            <p className="text-gray-600">Прогресс по темам из адаптивных заданий и изученных материалов</p>
           </div>
+          <button
+            type="button"
+            onClick={() => loadKnowledgeGraph()}
+            disabled={loading}
+            className="inline-flex items-center gap-2 px-3 py-2 text-sm border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50"
+          >
+            <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+            Обновить
+          </button>
           <div className="flex items-center gap-6">
             <div className="flex items-center gap-2">
               <CheckCircle className="w-5 h-5 text-green-600" />
@@ -244,9 +253,16 @@ export function KnowledgeGraph() {
       {!loading && !error && knowledgeData && (
         <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
           <h3 className="text-gray-900 mb-4">Структура знаний</h3>
-          <div className="space-y-2">
-            {renderNode(knowledgeData)}
-          </div>
+          {!knowledgeData.children || knowledgeData.children.length === 0 ? (
+            <div className="text-center py-8 text-gray-500">
+              <p className="mb-2">Пока нет тем с прогрессом.</p>
+              <p className="text-sm">
+                Решайте задания во вкладке «Адаптивные задания» или изучайте материалы в «Библиотеке» — проценты по темам появятся здесь.
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-2">{renderNode(knowledgeData)}</div>
+          )}
         </div>
       )}
 
@@ -306,14 +322,6 @@ export function KnowledgeGraph() {
         </div>
       )}
 
-      {/* Empty State */}
-      {!loading && !error && (!knowledgeData || (knowledgeData.children && knowledgeData.children.length === 0)) && (
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-          <div className="text-center py-8">
-            <p className="text-gray-500">Нет данных о знаниях. Начните выполнять задания, чтобы увидеть свой прогресс!</p>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

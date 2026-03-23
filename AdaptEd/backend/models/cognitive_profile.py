@@ -1,7 +1,7 @@
 """
 Модель когнитивного профиля ученика
 """
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from typing import List, Dict, Optional, Literal, Any
 from datetime import datetime
 from enum import Enum
@@ -123,7 +123,6 @@ class CognitiveProfile(BaseModel):
     progress_history: List[Dict[str, Any]] = Field(default_factory=list)  # История прогресса по датам
     improvement_trends: Dict[str, float] = Field(default_factory=dict)  # Тренды улучшения по темам
     learning_velocity: float = 0.0  # Скорость обучения (заданий в день)
-    
-    class Config:
-        use_enum_values = True
+
+    model_config = ConfigDict(use_enum_values=True)
 

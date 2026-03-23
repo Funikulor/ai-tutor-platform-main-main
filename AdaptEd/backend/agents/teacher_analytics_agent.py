@@ -54,10 +54,10 @@ class TeacherAnalyticsAgent(BaseAgent):
     
     def _collect_profiles(self, class_id: str = None, user_ids: List[str] = []) -> List[CognitiveProfile]:
         """Собирает профили учеников"""
-        from agents.orchestrator import AgentOrchestrator
+        from utils.orchestrator_singleton import get_orchestrator
         from utils.auth_service import auth_service
         
-        orchestrator = AgentOrchestrator()
+        orchestrator = get_orchestrator()
         profiles = []
         
         # Если указаны конкретные user_ids, получаем их профили

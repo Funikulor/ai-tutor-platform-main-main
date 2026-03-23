@@ -1,0 +1,208 @@
+[
+  {
+    "id": "course-linear-equations",
+    "title": "Линейные уравнения: полный базовый курс",
+    "description": "От интуиции «что ищем» до уверенного решения уравнений со скобками: правила равенства, перенос, умножение и деление обеих частей, типовые ловушки и проверка ответа.",
+    "subject": "Математика",
+    "topic": "Алгебра: линейные уравнения",
+    "difficulty": "beginner",
+    "estimated_minutes": 125,
+    "lessons": [
+      {
+        "id": "lin-1",
+        "title": "Уравнение, неизвестное и корень",
+        "content_file": "linear_lin_01",
+        "checkpoint": {
+          "type": "single_choice",
+          "question": "Что значит «решить уравнение»?",
+          "options": [
+            "Найти все значения неизвестного, при которых равенство верно",
+            "Записать букву x в конце тетради",
+            "Умножить обе части на ноль",
+            "Заменить все числа на буквы"
+          ],
+          "correct_index": 0
+        }
+      },
+      {
+        "id": "lin-2",
+        "title": "Перенос слагаемых и свойства равенства",
+        "content_file": "linear_lin_02",
+        "checkpoint": {
+          "type": "single_choice",
+          "question": "Уравнение x − 4 = 9. Как корректно выразить x?",
+          "options": [
+            "x = 9 + 4",
+            "x = 9 − 4",
+            "x = 4 − 9",
+            "x = −9 − 4"
+          ],
+          "correct_index": 0
+        }
+      },
+      {
+        "id": "lin-3",
+        "title": "Умножение и деление обеих частей",
+        "content_file": "linear_lin_03",
+        "checkpoint": {
+          "type": "numeric",
+          "question": "Решите: 5x = 35. Чему равен x? (целое число)",
+          "correct_answer": "7"
+        }
+      },
+      {
+        "id": "lin-4",
+        "title": "Скобки, раскрытие и сбор слагаемых",
+        "content_file": "linear_lin_04",
+        "checkpoint": {
+          "type": "numeric",
+          "question": "Решите: 3(x − 2) = 9. Чему равен x?",
+          "correct_answer": "5"
+        }
+      },
+      {
+        "id": "lin-5",
+        "title": "Алгоритм, особые случаи и проверка",
+        "content_file": "linear_lin_05",
+        "checkpoint": {
+          "type": "single_choice",
+          "question": "Для уравнения 4(x + 1) = 20 какой первый шаг наиболее рационален?",
+          "options": [
+            "Раскрыть скобки: 4x + 4 = 20",
+            "Сразу разделить всё на x",
+            "Убрать скобки, не умножая 4 на слагаемые внутри",
+            "Прибавить 4 только к правой части"
+          ],
+          "correct_index": 0
+        }
+      }
+    ]
+  },
+  {
+    "id": "course-fractions-basics",
+    "title": "Дроби: смысл, действия, связь с десятичными",
+    "description": "Понятная модель «частей целого», сокращение и приведение, сложение и умножение, деление через переворот дроби, перевод в десятичную запись и обратно.",
+    "subject": "Математика",
+    "topic": "Арифметика: дроби",
+    "difficulty": "beginner",
+    "estimated_minutes": 100,
+    "lessons": [
+      {
+        "id": "fr-1",
+        "title": "Что показывает дробь на самом деле",
+        "content_file": "fractions_fr_01",
+        "checkpoint": {
+          "type": "single_choice",
+          "question": "Что означает дробь 5/8?",
+          "options": [
+            "Пять равных частей из восьми, на которые разделили целое",
+            "Десятичное число 5,8",
+            "Восемь частей из пяти",
+            "Только целое число 5"
+          ],
+          "correct_index": 0
+        }
+      },
+      {
+        "id": "fr-2",
+        "title": "Сокращение, расширение и несократимая дробь",
+        "content_file": "fractions_fr_02",
+        "checkpoint": {
+          "type": "single_choice",
+          "question": "Какая дробь равна 9/12 в несократимом виде?",
+          "options": ["3/4", "9/12", "4/3", "12/9"],
+          "correct_index": 0
+        }
+      },
+      {
+        "id": "fr-3",
+        "title": "Сложение, вычитание и общий знаменатель",
+        "content_file": "fractions_fr_03",
+        "checkpoint": {
+          "type": "numeric",
+          "question": "Сколько будет 1/4 + 1/4? Ответ как дробь: a/b без пробелов (например 1/2)",
+          "correct_answer": "1/2"
+        }
+      },
+      {
+        "id": "fr-4",
+        "title": "Умножение и деление дробей",
+        "content_file": "fractions_fr_04",
+        "checkpoint": {
+          "type": "single_choice",
+          "question": "Чему равно (1/2) · (2/3)?",
+          "options": ["1/3", "2/5", "3/4", "1"],
+          "correct_index": 0
+        }
+      },
+      {
+        "id": "fr-5",
+        "title": "Десятичные дроби и переводы",
+        "content_file": "fractions_fr_05",
+        "checkpoint": {
+          "type": "short_text",
+          "question": "Одним словом в нижнем регистре: как называется число под чертой дроби m/n?",
+          "acceptable_answers": ["знаменатель", "знаменателем"]
+        }
+      }
+    ]
+  },
+  {
+    "id": "course-pythagoras-mini",
+    "title": "Теорема Пифагора: от чертежа до уверенных расчётов",
+    "description": "Прямой угол, катеты и гипотенуза, формула и её переформулировки, поиск любой стороны, проверка решения и частые ошибки на контрольных.",
+    "subject": "Математика",
+    "topic": "Геометрия: теорема Пифагора",
+    "difficulty": "beginner",
+    "estimated_minutes": 70,
+    "lessons": [
+      {
+        "id": "py-1",
+        "title": "Прямоугольный треугольник без путаницы",
+        "content_file": "pythagoras_py_01",
+        "checkpoint": {
+          "type": "single_choice",
+          "question": "В прямоугольном треугольнике самая длинная сторона — это…",
+          "options": ["Гипотенуза", "Катет", "Медиана", "Высота из любой вершины"],
+          "correct_index": 0
+        }
+      },
+      {
+        "id": "py-2",
+        "title": "Формула c² = a² + b² и «египетский» треугольник",
+        "content_file": "pythagoras_py_02",
+        "checkpoint": {
+          "type": "numeric",
+          "question": "Катеты 6 и 8. Найдите длину гипотенузы c (целое число).",
+          "correct_answer": "10"
+        }
+      },
+      {
+        "id": "py-3",
+        "title": "Ищем катет, если известны гипотенуза и второй катет",
+        "content_file": "pythagoras_py_03",
+        "checkpoint": {
+          "type": "numeric",
+          "question": "Гипотенуза 10, один катет 6. Второй катет (целое число)?",
+          "correct_answer": "8"
+        }
+      },
+      {
+        "id": "py-4",
+        "title": "Проверка, задачи словами и типовые ловушки",
+        "content_file": "pythagoras_py_04",
+        "checkpoint": {
+          "type": "single_choice",
+          "question": "Какая формула верна, если c — гипотенуза, a и b — катеты?",
+          "options": [
+            "c² = a² + b²",
+            "c = a + b",
+            "a² = c² + b²",
+            "a + b + c = 180"
+          ],
+          "correct_index": 0
+        }
+      }
+    ]
+  }
+]

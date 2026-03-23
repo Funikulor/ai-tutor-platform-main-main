@@ -46,10 +46,9 @@ except Exception:
 def _flush_on_shutdown() -> None:
     try:
         try:
-            from agents.orchestrator import AgentOrchestrator
+            from utils.orchestrator_singleton import get_orchestrator
 
-            orchestrator = AgentOrchestrator()
-            orchestrator.profiler.flush_all_profiles()
+            get_orchestrator().profiler.flush_all_profiles()
         except Exception:
             pass
 
@@ -132,21 +131,29 @@ def read_root():
         return FileResponse(str(FRONTEND_INDEX_FILE))
     return {"message": "Welcome to the AdaptEd API!"}
 
+def _diagnostics_endpoints_enabled() -> bool:
+    """Диагностика только при DEBUG=1/true (локально или явно на сервере)."""
+    return os.getenv("DEBUG", "").strip().lower() in ("1", "true", "yes", "on")
+
+
 @app.get("/debug")
 def debug_storage():
-    """Отладочный endpoint для проверки хранилища"""
+    """Отладочный endpoint (без персональных данных). Включается переменной DEBUG."""
+    if not _diagnostics_endpoints_enabled():
+        raise HTTPException(status_code=404, detail="Not Found")
     from utils.persistent_storage import persistent_storage
 
     data_file = Path(persistent_storage.data_file)
     return {
         "users_count": len(persistent_storage.get("users", {})),
-        "users": persistent_storage.get("users", {}),
         "data_file_exists": data_file.is_file(),
     }
 
 @app.get("/batcher-stats")
 def get_batcher_stats():
-    """Endpoint для получения статистики батчеров"""
+    """Статистика батчеров — только при DEBUG."""
+    if not _diagnostics_endpoints_enabled():
+        raise HTTPException(status_code=404, detail="Not Found")
     try:
         from utils.batched_saver import (
             get_profiler_batcher,

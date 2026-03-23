@@ -57,7 +57,11 @@ class ProfilerAgent(BaseAgent):
             if user_id in self.profiles:
                 profile = self.profiles[user_id]
                 # Конвертируем в dict для сохранения
-                profile_dict = profile.dict()
+                profile_dict = (
+                    profile.model_dump(mode="json")
+                    if hasattr(profile, "model_dump")
+                    else profile.dict()
+                )
                 # Обновляем last_updated
                 profile_dict['last_updated'] = datetime.now().isoformat()
                 
@@ -80,7 +84,11 @@ class ProfilerAgent(BaseAgent):
         """Принудительно сохраняет все профили (используется при завершении)"""
         batcher = get_profiler_batcher()
         batcher.flush_all()
-    
+
+    def persist_profile(self, user_id: str, force: bool = True) -> None:
+        """Сохранить профиль после прямых изменений вне process() (например /study/material)."""
+        self._save_profile(user_id, force=force)
+
     def process(self, input_data: Dict[str, Any]) -> Dict[str, Any]:
         """
         Обновляет профиль ученика
@@ -141,7 +149,11 @@ class ProfilerAgent(BaseAgent):
         self._save_profile(user_id)
         
         return {
-            "profile": profile.dict(),
+            "profile": (
+                profile.model_dump(mode="json")
+                if hasattr(profile, "model_dump")
+                else profile.dict()
+            ),
             "insights": insights
         }
     

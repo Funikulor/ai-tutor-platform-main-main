@@ -33,8 +33,8 @@ api.interceptors.request.use((config) => {
     config.headers.Authorization = `Bearer ${token}`;
   }
   
-  // Логируем запросы для отладки (особенно для auth)
-  if (config.url?.includes('/auth/')) {
+  // Логируем запросы только в dev (без URL и env в production)
+  if (!import.meta.env.PROD && config.url?.includes('/auth/')) {
     console.log('API Request:', {
       method: config.method?.toUpperCase(),
       url: `${API_BASE_URL}${config.url}`,

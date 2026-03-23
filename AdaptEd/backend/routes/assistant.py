@@ -504,9 +504,9 @@ async def assistant_chat(req: ChatRequest):
 		
 		if req.user_id:
 			# Получаем профиль когнитивный для слабых мест
-			from agents.orchestrator import AgentOrchestrator
-			orchestrator = AgentOrchestrator()
-			profile = orchestrator.profiler.get_profile(req.user_id)
+			from utils.orchestrator_singleton import get_orchestrator
+
+			profile = get_orchestrator().profiler.get_profile(req.user_id)
 			cognitive_profile = profile
 			if profile:
 				# Извлекаем слабые места из профиля
@@ -659,9 +659,9 @@ async def process_test_result(req: TestResultRequest):
 		# Получаем cognitive profile для синхронизации
 		cognitive_profile = None
 		if req.user_id:
-			from agents.orchestrator import AgentOrchestrator
-			orchestrator = AgentOrchestrator()
-			cognitive_profile = orchestrator.profiler.get_profile(req.user_id)
+			from utils.orchestrator_singleton import get_orchestrator
+
+			cognitive_profile = get_orchestrator().profiler.get_profile(req.user_id)
 		
 		test_result = {
 			"subject": req.subject,
@@ -690,9 +690,9 @@ async def process_task_attempt(req: TaskAttemptRequest):
 		# Получаем cognitive profile для синхронизации
 		cognitive_profile = None
 		if req.user_id:
-			from agents.orchestrator import AgentOrchestrator
-			orchestrator = AgentOrchestrator()
-			cognitive_profile = orchestrator.profiler.get_profile(req.user_id)
+			from utils.orchestrator_singleton import get_orchestrator
+
+			cognitive_profile = get_orchestrator().profiler.get_profile(req.user_id)
 		
 		task_attempt = {
 			"is_correct": req.is_correct,

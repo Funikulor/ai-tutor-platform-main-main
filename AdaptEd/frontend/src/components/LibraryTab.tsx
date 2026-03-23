@@ -1,9 +1,10 @@
 import { useState, useEffect } from 'react';
 import { MaterialViewer } from './MaterialViewer';
-import { BookOpen, Video, FileText, ChevronRight, Search, Star, CheckCircle } from 'lucide-react';
+import { CourseViewer } from './CourseViewer';
+import { BookOpen, Video, FileText, ChevronRight, Search, Star, CheckCircle, GraduationCap, Layers } from 'lucide-react';
 import { motion } from 'motion/react';
 import api from '../services/api';
-import { fetchMaterials } from '../services/materials';
+import { fetchMaterials, fetchLibraryCourses, type LibraryCourse } from '../services/materials';
 
 export interface Material {
   id: string;
@@ -27,17 +28,22 @@ interface LibraryTabProps {
 }
 
 export function LibraryTab({ selectedMaterialId, onStudyComplete }: LibraryTabProps) {
+  const [librarySection, setLibrarySection] = useState<'courses' | 'materials'>('courses');
   const [selectedMaterial, setSelectedMaterial] = useState<Material | null>(null);
+  const [selectedCourse, setSelectedCourse] = useState<LibraryCourse | null>(null);
   const [selectedSubject, setSelectedSubject] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedType, setSelectedType] = useState<'all' | 'article' | 'video' | 'pdf'>('all');
   const [materials, setMaterials] = useState<Material[]>([]);
+  const [courses, setCourses] = useState<LibraryCourse[]>([]);
   const [materialsLoading, setMaterialsLoading] = useState(true);
+  const [coursesLoading, setCoursesLoading] = useState(true);
   const [topicMastery, setTopicMastery] = useState<Record<string, number>>({});
   const [materialRatings, setMaterialRatings] = useState<Record<string, number>>({});
 
   useEffect(() => {
     loadMaterials();
+    loadCourses();
     loadStudyProgress();
     loadMaterialRatings();
   }, []);
@@ -60,6 +66,19 @@ export function LibraryTab({ selectedMaterialId, onStudyComplete }: LibraryTabPr
       setMaterials([]);
     } finally {
       setMaterialsLoading(false);
+    }
+  };
+
+  const loadCourses = async () => {
+    setCoursesLoading(true);
+    try {
+      const data = await fetchLibraryCourses();
+      setCourses(Array.isArray(data) ? data : []);
+    } catch (err) {
+      console.error('Error loading courses:', err);
+      setCourses([]);
+    } finally {
+      setCoursesLoading(false);
     }
   };
 
@@ -93,6 +112,10 @@ export function LibraryTab({ selectedMaterialId, onStudyComplete }: LibraryTabPr
     }
   };
 
+  const handleCourseProgress = () => {
+    loadStudyProgress();
+  };
+
   const getTopicMastery = (topic: string): number => {
     return topicMastery[topic] ? Math.round(topicMastery[topic] * 100) : 0;
   };
@@ -101,7 +124,10 @@ export function LibraryTab({ selectedMaterialId, onStudyComplete }: LibraryTabPr
     return getTopicMastery(material.topic) >= 30;
   };
 
-  const subjects = ['all', ...Array.from(new Set(materials.map(m => m.subject)))];
+  const subjects = [
+    'all',
+    ...Array.from(new Set([...materials.map((m) => m.subject), ...courses.map((c) => c.subject)])),
+  ];
 
   const filteredMaterials = materials.filter(material => {
     const matchesSubject = selectedSubject === 'all' || material.subject === selectedSubject;
@@ -110,6 +136,29 @@ export function LibraryTab({ selectedMaterialId, onStudyComplete }: LibraryTabPr
                          material.description.toLowerCase().includes(searchQuery.toLowerCase());
     return matchesSubject && matchesType && matchesSearch;
   });
+
+  const q = searchQuery.toLowerCase();
+  const filteredCourses = courses.filter((c) => {
+    const subOk = selectedSubject === 'all' || c.subject === selectedSubject;
+    const searchOk =
+      !q ||
+      c.title.toLowerCase().includes(q) ||
+      c.description.toLowerCase().includes(q) ||
+      c.topic.toLowerCase().includes(q);
+    return subOk && searchOk;
+  });
+
+  const courseProgress = (c: LibraryCourse) => {
+    try {
+      const raw = localStorage.getItem(`library_course_passed_${c.id}`);
+      const arr = raw ? (JSON.parse(raw) as string[]) : [];
+      const n = Array.isArray(arr) ? arr.length : 0;
+      const total = c.lessons?.length || 1;
+      return Math.min(100, Math.round((n / total) * 100));
+    } catch {
+      return 0;
+    }
+  };
 
   const getTypeIcon = (type: string) => {
     switch (type) {
@@ -145,6 +194,16 @@ export function LibraryTab({ selectedMaterialId, onStudyComplete }: LibraryTabPr
     }
   };
 
+  if (selectedCourse) {
+    return (
+      <CourseViewer
+        course={selectedCourse}
+        onBack={() => setSelectedCourse(null)}
+        onProgress={handleCourseProgress}
+      />
+    );
+  }
+
   if (selectedMaterial) {
     return (
       <MaterialViewer 
@@ -167,25 +226,59 @@ export function LibraryTab({ selectedMaterialId, onStudyComplete }: LibraryTabPr
           </div>
           <div>
             <h1 className="text-white text-3xl mb-2">Библиотека знаний</h1>
-            <p className="text-blue-100">Учебные материалы, видеоуроки и справочники по всем предметам</p>
+            <p className="text-blue-100">
+              Мини-курсы с шагами и проверкой после каждого блока, плюс статьи, видео и PDF
+            </p>
           </div>
         </div>
         
         {/* Stats */}
-        <div className="grid grid-cols-3 gap-4 mt-6">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-6">
           <div className="bg-white/10 backdrop-blur-sm rounded-xl p-4">
-            <p className="text-blue-100 text-sm">Всего материалов</p>
+            <p className="text-blue-100 text-sm">Мини-курсы</p>
+            <p className="text-2xl text-white mt-1">{courses.length}</p>
+          </div>
+          <div className="bg-white/10 backdrop-blur-sm rounded-xl p-4">
+            <p className="text-blue-100 text-sm">Материалы</p>
             <p className="text-2xl text-white mt-1">{materials.length}</p>
           </div>
           <div className="bg-white/10 backdrop-blur-sm rounded-xl p-4">
             <p className="text-blue-100 text-sm">Предметов</p>
-            <p className="text-2xl text-white mt-1">{subjects.length - 1}</p>
+            <p className="text-2xl text-white mt-1">{Math.max(0, subjects.length - 1)}</p>
           </div>
           <div className="bg-white/10 backdrop-blur-sm rounded-xl p-4">
             <p className="text-blue-100 text-sm">Средний рейтинг</p>
             <p className="text-2xl text-white mt-1">4.7 ⭐</p>
           </div>
         </div>
+      </div>
+
+      {/* Раздел: курсы или материалы */}
+      <div className="flex flex-wrap gap-2">
+        <button
+          type="button"
+          onClick={() => setLibrarySection('courses')}
+          className={`inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium transition-colors ${
+            librarySection === 'courses'
+              ? 'bg-indigo-600 text-white shadow-md'
+              : 'bg-white border border-gray-200 text-gray-700 hover:bg-gray-50'
+          }`}
+        >
+          <GraduationCap className="w-5 h-5" />
+          Мини-курсы
+        </button>
+        <button
+          type="button"
+          onClick={() => setLibrarySection('materials')}
+          className={`inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium transition-colors ${
+            librarySection === 'materials'
+              ? 'bg-indigo-600 text-white shadow-md'
+              : 'bg-white border border-gray-200 text-gray-700 hover:bg-gray-50'
+          }`}
+        >
+          <Layers className="w-5 h-5" />
+          Статьи, видео, PDF
+        </button>
       </div>
 
       {/* Filters */}
@@ -196,7 +289,7 @@ export function LibraryTab({ selectedMaterialId, onStudyComplete }: LibraryTabPr
             <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
             <input
               type="text"
-              placeholder="Поиск материалов..."
+              placeholder={librarySection === 'courses' ? 'Поиск курсов…' : 'Поиск материалов…'}
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
@@ -215,7 +308,8 @@ export function LibraryTab({ selectedMaterialId, onStudyComplete }: LibraryTabPr
             ))}
           </select>
 
-          {/* Type Filter */}
+          {/* Type Filter — только для материалов */}
+          {librarySection === 'materials' && (
           <div className="flex gap-2 bg-gray-100 rounded-lg p-1">
             <button
               onClick={() => setSelectedType('all')}
@@ -250,10 +344,79 @@ export function LibraryTab({ selectedMaterialId, onStudyComplete }: LibraryTabPr
               PDF
             </button>
           </div>
+          )}
         </div>
       </div>
 
+      {/* Courses Grid */}
+      {librarySection === 'courses' && (
+        <>
+          {coursesLoading && (
+            <div className="bg-white rounded-xl border border-gray-200 p-4 text-sm text-gray-500">
+              Загружаем курсы...
+            </div>
+          )}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            {filteredCourses.map((c, index) => (
+              <motion.div
+                key={c.id}
+                initial={{ opacity: 0, y: 16 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: index * 0.05 }}
+                onClick={() => setSelectedCourse(c)}
+                className="bg-white rounded-xl border-2 border-gray-200 hover:border-indigo-400 hover:shadow-lg transition-all cursor-pointer group overflow-hidden"
+              >
+                <div className="h-2 bg-gradient-to-r from-indigo-500 to-violet-500" />
+                <div className="p-6">
+                  <div className="flex items-start justify-between gap-3 mb-3">
+                    <div className="flex items-center gap-2 text-indigo-900">
+                      <GraduationCap className="w-6 h-6 shrink-0" />
+                      <span className="text-xs font-bold uppercase tracking-wide">Мини-курс</span>
+                    </div>
+                    <span className={`text-xs px-2 py-1 rounded ${getDifficultyColor(c.difficulty)}`}>
+                      {getDifficultyLabel(c.difficulty)}
+                    </span>
+                  </div>
+                  <h3 className="text-lg font-bold text-gray-950 mb-2 group-hover:text-indigo-800 transition-colors">
+                    {c.title}
+                  </h3>
+                  <p className="text-sm text-gray-700 mb-4 line-clamp-3 leading-relaxed">{c.description}</p>
+                  <div className="flex flex-wrap gap-2 mb-4">
+                    <span className="px-2 py-1 bg-purple-50 text-purple-800 rounded text-xs">{c.subject}</span>
+                    <span className="px-2 py-1 bg-blue-50 text-blue-800 rounded text-xs">{c.topic}</span>
+                    {c.estimated_minutes != null && (
+                      <span className="px-2 py-1 bg-gray-100 text-gray-700 rounded text-xs">
+                        ~{c.estimated_minutes} мин
+                      </span>
+                    )}
+                    <span className="px-2 py-1 bg-gray-100 text-gray-700 rounded text-xs">
+                      {c.lessons?.length ?? 0} шагов
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between pt-3 border-t border-gray-100">
+                    <span className="text-sm text-gray-600">Прогресс: {courseProgress(c)}%</span>
+                    <span className="text-sm text-indigo-600 font-medium flex items-center gap-1 group-hover:gap-2 transition-all">
+                      Открыть курс
+                      <ChevronRight className="w-4 h-4" />
+                    </span>
+                  </div>
+                </div>
+              </motion.div>
+            ))}
+          </div>
+          {!coursesLoading && filteredCourses.length === 0 && (
+            <div className="text-center py-12 bg-white rounded-xl border border-gray-200">
+              <GraduationCap className="w-14 h-14 text-gray-300 mx-auto mb-3" />
+              <p className="text-gray-600">Курсы не найдены</p>
+              <p className="text-sm text-gray-500 mt-1">Измените поиск или предмет</p>
+            </div>
+          )}
+        </>
+      )}
+
       {/* Materials Grid */}
+      {librarySection === 'materials' && (
+        <>
       {materialsLoading && (
         <div className="bg-white rounded-xl border border-gray-200 p-4 text-sm text-gray-500">
           Загружаем материалы...
@@ -339,6 +502,8 @@ export function LibraryTab({ selectedMaterialId, onStudyComplete }: LibraryTabPr
           <p className="text-gray-600">Материалы не найдены</p>
           <p className="text-sm text-gray-500 mt-2">Попробуйте изменить фильтры поиска</p>
         </div>
+      )}
+        </>
       )}
     </div>
   );

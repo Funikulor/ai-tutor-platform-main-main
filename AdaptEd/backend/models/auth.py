@@ -1,7 +1,7 @@
 """
 Модели для авторизации и регистрации
 """
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, ConfigDict
 from typing import Optional
 from enum import Enum
 from datetime import datetime
@@ -47,9 +47,8 @@ class User(BaseModel):
     avatar_seed: Optional[str] = None
     created_at: datetime
     is_active: bool = True
-    
-    class Config:
-        use_enum_values = True
+
+    model_config = ConfigDict(use_enum_values=True)
 
 
 class Token(BaseModel):

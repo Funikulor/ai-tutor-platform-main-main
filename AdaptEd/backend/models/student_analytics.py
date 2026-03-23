@@ -2,7 +2,7 @@
 Модель для хранения аналитических данных об ученике
 Используется адаптивным педагогом-аналитиком
 """
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from typing import List, Dict, Optional, Literal, Any
 from datetime import datetime
 from enum import Enum
@@ -99,7 +99,6 @@ class StudentAnalyticsData(BaseModel):
     
     # История диалогов для анализа
     conversation_snippets: List[Dict[str, str]] = Field(default_factory=list)  # Ключевые фрагменты диалогов
-    
-    class Config:
-        use_enum_values = True
+
+    model_config = ConfigDict(use_enum_values=True)
 

@@ -35,6 +35,31 @@ def get_current_user(authorization: str = Header(None)) -> dict:
     return user
 
 
+def require_roles(*allowed_roles: str):
+    """Depends(...) — доступ только для перечисленных ролей."""
+
+    allowed = tuple(allowed_roles)
+
+    async def role_checker(current_user: dict = Depends(get_current_user)) -> dict:
+        role = str(current_user.get("role", ""))
+        if role not in allowed:
+            raise HTTPException(status_code=403, detail="Недостаточно прав")
+        return current_user
+
+    return role_checker
+
+
+def assert_can_view_user_data(current_user: dict, target_user_id: str) -> None:
+    """Ученик/родитель — только свои данные; учитель и админ — любые."""
+    role = str(current_user.get("role", ""))
+    uid = str(current_user.get("user_id", ""))
+    if role in ("admin", "teacher"):
+        return
+    if role in ("student", "parent") and uid == str(target_user_id):
+        return
+    raise HTTPException(status_code=403, detail="Недостаточно прав")
+
+
 @router.post("/auth/register", response_model=User)
 async def register(user_data: UserRegistration):
     """
@@ -117,9 +142,7 @@ async def get_user_profile(user_id: str, current_user: dict = Depends(get_curren
     Ученики могут видеть только свой профиль
     Учителя и админы - профили всех пользователей
     """
-    # Проверяем доступ
-    if current_user["role"] == "student" and current_user["user_id"] != user_id:
-        raise HTTPException(status_code=403, detail="Access denied")
+    assert_can_view_user_data(current_user, user_id)
     
     # Получаем пользователя через AuthService
     user_data = auth_service.get_user_by_id(user_id)

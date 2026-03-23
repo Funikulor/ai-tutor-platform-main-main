@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
-import { Users, TrendingDown, AlertCircle, Download, Filter, BarChart3, FileText, PenSquare, ClipboardList, X } from 'lucide-react';
+import { Users, TrendingUp, AlertCircle, Download, Filter, BarChart3, FileText, PenSquare, ClipboardList, X, Phone } from 'lucide-react';
 import { TeacherTestsTab } from './TeacherTestsTab';
 import api from '../services/api';
 import { toast } from 'sonner';
@@ -54,6 +54,8 @@ interface ParentContact {
   phone: string;
 }
 
+const TABLE_PAGE_SIZE = 12;
+
 export function TeacherDashboard() {
   const [selectedClass, setSelectedClass] = useState('all');
   const [currentView, setCurrentView] = useState<'analytics' | 'create-tests' | 'created-tests' | 'results'>('analytics');
@@ -69,6 +71,8 @@ export function TeacherDashboard() {
   const [statusFilter, setStatusFilter] = useState<'all' | StudentStatus>('all');
   const [minScoreFilter, setMinScoreFilter] = useState(0);
   const [detailStudent, setDetailStudent] = useState<StudentRow | null>(null);
+  const [tablePage, setTablePage] = useState(0);
+  const performanceTableRef = useRef<HTMLDivElement>(null);
 
   const visibleStudents = useMemo(() => {
     return classData.filter((student) => {
@@ -83,10 +87,25 @@ export function TeacherDashboard() {
     return Math.round(visibleStudents.reduce((acc, s) => acc + s.score, 0) / visibleStudents.length);
   }, [visibleStudents]);
 
-  const needsHelpCount = useMemo(
-    () => visibleStudents.filter((s) => s.status === 'needs-help').length,
-    [visibleStudents]
+  const needsHelpTotalInClass = useMemo(
+    () => classData.filter((s) => s.status === 'needs-help').length,
+    [classData]
   );
+
+  const paginatedStudents = useMemo(() => {
+    const start = tablePage * TABLE_PAGE_SIZE;
+    return visibleStudents.slice(start, start + TABLE_PAGE_SIZE);
+  }, [visibleStudents, tablePage]);
+
+  const tablePageCount = Math.max(1, Math.ceil(visibleStudents.length / TABLE_PAGE_SIZE));
+
+  useEffect(() => {
+    setTablePage(0);
+  }, [classData, statusFilter, minScoreFilter, selectedClass]);
+
+  useEffect(() => {
+    setTablePage((p) => Math.min(p, Math.max(0, tablePageCount - 1)));
+  }, [tablePageCount]);
 
   useEffect(() => {
     const loadAnalytics = async () => {
@@ -248,6 +267,15 @@ export function TeacherDashboard() {
     toast.info(`Родитель: ${contact.full_name} • ${contact.phone}`);
   };
 
+  const handleFocusNeedsHelp = () => {
+    setStatusFilter('needs-help');
+    setMinScoreFilter(0);
+    setFiltersOpen(true);
+    requestAnimationFrame(() => {
+      performanceTableRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+  };
+
   const getStatusBadge = (status: string) => {
     const styles = {
       excellent: 'bg-green-100 text-green-700',
@@ -407,21 +435,29 @@ export function TeacherDashboard() {
                 {averageScore}%
               </p>
             </div>
-            <TrendingDown className="w-10 h-10 text-green-500" />
+            <TrendingUp className="w-10 h-10 text-green-500" />
           </div>
         </div>
 
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+        <button
+          type="button"
+          onClick={handleFocusNeedsHelp}
+          disabled={needsHelpTotalInClass === 0}
+          className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 text-left w-full transition-colors hover:border-red-200 hover:bg-red-50/40 disabled:opacity-50 disabled:hover:bg-white disabled:hover:border-gray-200 disabled:cursor-not-allowed"
+        >
           <div className="flex items-center justify-between">
             <div>
               <p className="text-gray-600 text-sm">Нужна помощь</p>
               <p className="text-3xl text-gray-900 mt-1">
-                {needsHelpCount}
+                {needsHelpTotalInClass}
               </p>
+              {needsHelpTotalInClass > 0 && (
+                <p className="text-xs text-red-600 mt-1">Нажмите, чтобы показать в таблице</p>
+              )}
             </div>
-            <AlertCircle className="w-10 h-10 text-red-500" />
+            <AlertCircle className="w-10 h-10 text-red-500 shrink-0" />
           </div>
-        </div>
+        </button>
 
         <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
           <div className="flex items-center justify-between">
@@ -441,8 +477,11 @@ export function TeacherDashboard() {
       </div>
 
       {/* Student Performance Table */}
-      <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-        <h3 className="text-gray-900 mb-4">Успеваемость учеников</h3>
+      <div ref={performanceTableRef} className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 scroll-mt-4">
+        <h3 className="text-gray-900">Успеваемость учеников</h3>
+        <p className="text-sm text-gray-500 mt-1 mb-4">
+          Ученики со статусом «Нужна помощь» подсвечены; карточка «Нужна помощь» выше отфильтрует таблицу.
+        </p>
         <div className="overflow-x-auto">
           <table className="w-full">
             <thead>
@@ -456,11 +495,22 @@ export function TeacherDashboard() {
               </tr>
             </thead>
             <tbody>
-              {visibleStudents.map((student) => (
-                <tr key={student.user_id} className="border-b border-gray-100 hover:bg-gray-50 transition-colors">
+              {paginatedStudents.map((student) => (
+                <tr
+                  key={student.user_id}
+                  className={`border-b border-gray-100 hover:bg-gray-50 transition-colors ${
+                    student.status === 'needs-help' ? 'bg-red-50/60' : ''
+                  }`}
+                >
                   <td className="py-4 px-4">
                     <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 bg-gradient-to-br from-blue-400 to-purple-500 rounded-full flex items-center justify-center text-white">
+                      <div
+                        className={`w-10 h-10 rounded-full flex items-center justify-center text-white ${
+                          student.status === 'needs-help'
+                            ? 'bg-gradient-to-br from-red-400 to-red-600'
+                            : 'bg-gradient-to-br from-blue-400 to-purple-500'
+                        }`}
+                      >
                         {student.student.charAt(0)}
                       </div>
                       <span className="text-gray-900">{student.student}</span>
@@ -490,13 +540,36 @@ export function TeacherDashboard() {
                     {getStatusBadge(student.status)}
                   </td>
                   <td className="text-right py-4 px-4">
-                    <button
-                      type="button"
-                      onClick={() => setDetailStudent(student)}
-                      className="text-blue-600 hover:text-blue-700 text-sm"
-                    >
-                      Подробнее →
-                    </button>
+                    <div className="flex flex-wrap items-center justify-end gap-2">
+                      {student.status === 'needs-help' && (
+                        <>
+                          <button
+                            type="button"
+                            title="Назначить до занятия"
+                            onClick={() => handleAssignBeforeLesson(student)}
+                            disabled={assigningStudentId === student.user_id}
+                            className="inline-flex items-center justify-center p-2 rounded-lg border border-red-200 text-red-700 bg-white hover:bg-red-50 disabled:opacity-60"
+                          >
+                            <PenSquare className="w-4 h-4" />
+                          </button>
+                          <button
+                            type="button"
+                            title="Контакт родителя"
+                            onClick={() => handleShowParentContact(student)}
+                            className="inline-flex items-center justify-center p-2 rounded-lg border border-red-200 text-red-700 bg-white hover:bg-red-50"
+                          >
+                            <Phone className="w-4 h-4" />
+                          </button>
+                        </>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => setDetailStudent(student)}
+                        className="text-blue-600 hover:text-blue-700 text-sm whitespace-nowrap"
+                      >
+                        Подробнее →
+                      </button>
+                    </div>
                   </td>
                 </tr>
             ))}
@@ -510,6 +583,31 @@ export function TeacherDashboard() {
             </tbody>
           </table>
         </div>
+        {!loading && visibleStudents.length > TABLE_PAGE_SIZE && (
+          <div className="mt-4 flex flex-wrap items-center justify-between gap-3 text-sm text-gray-600">
+            <span>
+              Страница {tablePage + 1} из {tablePageCount} ({visibleStudents.length} учеников)
+            </span>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                disabled={tablePage <= 0}
+                onClick={() => setTablePage((p) => Math.max(0, p - 1))}
+                className="px-3 py-1.5 rounded-lg border border-gray-300 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                Назад
+              </button>
+              <button
+                type="button"
+                disabled={tablePage >= tablePageCount - 1}
+                onClick={() => setTablePage((p) => Math.min(tablePageCount - 1, p + 1))}
+                className="px-3 py-1.5 rounded-lg border border-gray-300 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                Вперёд
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Common Errors Analysis */}
@@ -546,7 +644,13 @@ export function TeacherDashboard() {
               <p className="text-sm text-gray-500">Частые ошибки пока не выявлены.</p>
             )}
           </div>
-          <button className="mt-4 w-full py-2 px-4 bg-blue-50 text-blue-600 rounded-lg hover:bg-blue-100 transition-colors text-sm">
+          <button
+            type="button"
+            onClick={() =>
+              toast.info('Функция планирования группового занятия пока в разработке. Используйте назначение тестов для отдельных учеников.')
+            }
+            className="mt-4 w-full py-2 px-4 bg-blue-50 text-blue-600 rounded-lg hover:bg-blue-100 transition-colors text-sm"
+          >
             Создать групповое занятие по проблемным темам
           </button>
         </div>
@@ -608,57 +712,32 @@ export function TeacherDashboard() {
                   <p><a href={`tel:${parentContactsByStudentId[detailStudent.user_id].phone}`} className="text-blue-600 hover:underline">{parentContactsByStudentId[detailStudent.user_id].phone}</a></p>
                 </div>
               )}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Students Needing Help */}
-      <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-        <div className="flex items-center gap-2 mb-4">
-          <AlertCircle className="w-5 h-5 text-red-600" />
-          <h3 className="text-gray-900">Группа риска - требуется внимание</h3>
-        </div>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {visibleStudents
-            .filter(s => s.status === 'needs-help')
-            .map((student, index) => (
-              <div key={index} className="p-4 bg-red-50 rounded-lg border border-red-200">
-                <div className="flex items-center justify-between mb-3">
-                  <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 bg-red-200 rounded-full flex items-center justify-center text-red-700">
-                      {student.student.charAt(0)}
-                    </div>
-                    <div>
-                      <h4 className="text-gray-900">{student.student}</h4>
-                      <p className="text-sm text-gray-600">{student.score}% • {student.errors} ошибок</p>
-                    </div>
-                  </div>
-                </div>
-                <div className="space-y-2">
+              {detailStudent.status === 'needs-help' && (
+                <div className="mt-4 pt-4 border-t border-gray-200 flex flex-col gap-2">
                   <button
-                    onClick={() => handleAssignBeforeLesson(student)}
-                    disabled={assigningStudentId === student.user_id}
+                    type="button"
+                    onClick={() => {
+                      handleAssignBeforeLesson(detailStudent);
+                      setDetailStudent(null);
+                    }}
+                    disabled={assigningStudentId === detailStudent.user_id}
                     className="w-full py-2 px-3 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors text-sm disabled:opacity-60"
                   >
-                    {assigningStudentId === student.user_id ? 'Назначаем...' : 'Назначить до занятия'}
+                    {assigningStudentId === detailStudent.user_id ? 'Назначаем...' : 'Назначить до занятия'}
                   </button>
                   <button
-                    onClick={() => handleShowParentContact(student)}
+                    type="button"
+                    onClick={() => handleShowParentContact(detailStudent)}
                     className="w-full py-2 px-3 bg-white text-red-600 border border-red-300 rounded-lg hover:bg-red-50 transition-colors text-sm"
                   >
                     Связаться с родителями
                   </button>
-                  {parentContactsByStudentId[student.user_id] && (
-                    <p className="text-xs text-red-700">
-                      {parentContactsByStudentId[student.user_id].full_name} • {parentContactsByStudentId[student.user_id].phone}
-                    </p>
-                  )}
                 </div>
-              </div>
-            ))}
+              )}
+            </div>
+          </div>
         </div>
-      </div>
+      )}
         </>
       )}
     </div>

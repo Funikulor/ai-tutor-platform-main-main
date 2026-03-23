@@ -8,10 +8,10 @@ from datetime import datetime
 import json
 import re
 import random
-from agents.orchestrator import AgentOrchestrator
+from utils.orchestrator_singleton import get_orchestrator
 
 router = APIRouter()
-orchestrator = AgentOrchestrator()
+orchestrator = get_orchestrator()
 
 
 from utils.answer_parse import parse_numeric_answer as _parse_numeric_answer
@@ -65,13 +65,14 @@ async def submit_task(submission: TaskSubmission):
             is_correct = abs(user_num - correct_num) < 0.001  # Допуск для числовых ответов
         
         # Обрабатываем через orchestrator
+        effective_topic = (submission.topic or "").strip() or "Адаптивные задания"
         result = orchestrator.process_task_submission(
             user_id=submission.user_id,
             task_id=submission.task_id,
             question=submission.question,
             user_answer=submission.user_answer,
             correct_answer=submission.correct_answer,
-            topic=submission.topic,
+            topic=effective_topic,
             time_spent_seconds=submission.time_spent_seconds
         )
         

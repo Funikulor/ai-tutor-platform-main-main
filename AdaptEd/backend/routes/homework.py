@@ -2,14 +2,14 @@
 API маршруты для домашних заданий
 """
 from fastapi import APIRouter, HTTPException, Depends
-from routes.auth import get_current_user
-from pydantic import BaseModel
+from routes.auth import get_current_user, require_roles, assert_can_view_user_data
+from pydantic import BaseModel, ConfigDict
 from typing import List, Optional, Dict, Any
 from datetime import datetime, timedelta
 import json
 import re
 from collections import defaultdict
-from agents.orchestrator import AgentOrchestrator
+from utils.orchestrator_singleton import get_orchestrator
 from services.assistant import get_assistant_service
 from utils.db import get_db, has_db
 from sqlalchemy.orm import Session
@@ -19,7 +19,7 @@ from sqlalchemy import select
 from models.test import TestSubmission, Test
 
 router = APIRouter()
-orchestrator = AgentOrchestrator()
+orchestrator = get_orchestrator()
 assistant_service = None  # будет создан по запросу
 
 def _assistant():
@@ -69,8 +69,7 @@ class HomeworkOut(BaseModel):
     latest_submission_id: Optional[int] = None
     latest_test_submission_id: Optional[int] = None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class HomeworkSubmitDB(BaseModel):
@@ -82,13 +81,25 @@ class HomeworkSubmitDB(BaseModel):
 # ====== Новые эндпоинты на Postgres ======
 
 @router.get("/homeworks", response_model=List[HomeworkOut])
-async def list_homeworks(user_id: Optional[str] = None, db: Session = Depends(get_db)):
+async def list_homeworks(
+    user_id: Optional[str] = None,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+):
+    role = str(current_user.get("role", ""))
+    if role in ("student", "parent"):
+        effective_filter = str(current_user.get("user_id", ""))
+    elif role in ("teacher", "admin"):
+        effective_filter = user_id
+    else:
+        effective_filter = str(current_user.get("user_id", ""))
+
     # Пробуем использовать БД
     if has_db() and db is not None:
         try:
             stmt = select(Homework)
-            if user_id:
-                stmt = stmt.where(Homework.assigned_to == user_id)
+            if effective_filter:
+                stmt = stmt.where(Homework.assigned_to == effective_filter)
             rows = db.execute(stmt).scalars().all()
             result = []
             for hw in rows:
@@ -129,9 +140,9 @@ async def list_homeworks(user_id: Optional[str] = None, db: Session = Depends(ge
     # Fallback на persistent_storage
     from utils.persistent_storage import persistent_storage
     homeworks = persistent_storage.get("homeworks", [])
-    
-    if user_id:
-        homeworks = [hw for hw in homeworks if hw.get('assigned_to') == user_id]
+
+    if effective_filter:
+        homeworks = [hw for hw in homeworks if hw.get("assigned_to") == effective_filter]
     
     # Преобразуем в формат HomeworkOut
     result = []
@@ -157,7 +168,12 @@ async def list_homeworks(user_id: Optional[str] = None, db: Session = Depends(ge
 
 
 @router.post("/homeworks", response_model=HomeworkOut)
-async def create_homework(payload: HomeworkCreate, db: Session = Depends(get_db)):
+async def create_homework(
+    payload: HomeworkCreate,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(require_roles("teacher", "admin")),
+):
+    created_by = payload.created_by or str(current_user.get("user_id", ""))
     # Пробуем использовать БД
     if has_db() and db is not None:
         try:
@@ -170,7 +186,7 @@ async def create_homework(payload: HomeworkCreate, db: Session = Depends(get_db)
                 test_id=payload.test_id,
                 assignment_type=payload.assignment_type or "homework",
                 assigned_to=payload.assigned_to,
-                created_by=payload.created_by,
+                created_by=created_by,
                 status="new",
             )
             db.add(hw)
@@ -196,7 +212,7 @@ async def create_homework(payload: HomeworkCreate, db: Session = Depends(get_db)
         "test_id": payload.test_id,
         "assignment_type": payload.assignment_type or "homework",
         "assigned_to": payload.assigned_to,
-        "created_by": payload.created_by,
+        "created_by": created_by,
         "status": "new",
         "created_at": datetime.now().isoformat()
     }
@@ -215,7 +231,7 @@ async def create_homework(payload: HomeworkCreate, db: Session = Depends(get_db)
         "assignment_type": payload.assignment_type or "homework",
         "status": "new",
         "assigned_to": payload.assigned_to,
-        "created_by": payload.created_by,
+        "created_by": created_by,
         "created_at": datetime.now(),
         "latest_submission_id": None,
         "latest_test_submission_id": None,
@@ -223,7 +239,17 @@ async def create_homework(payload: HomeworkCreate, db: Session = Depends(get_db)
 
 
 @router.post("/homeworks/{homework_id}/submit", response_model=Dict[str, Any])
-async def submit_homework_db(homework_id: int, payload: HomeworkSubmitDB, db: Session = Depends(get_db)):
+async def submit_homework_db(
+    homework_id: int,
+    payload: HomeworkSubmitDB,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+):
+    role = str(current_user.get("role", ""))
+    uid = str(current_user.get("user_id", ""))
+    if role not in ("teacher", "admin") and payload.user_id != uid:
+        raise HTTPException(status_code=403, detail="Нельзя сдать задание от имени другого пользователя")
+
     # Пробуем использовать БД
     if has_db() and db is not None:
         try:
@@ -353,15 +379,31 @@ async def submit_homework_db(homework_id: int, payload: HomeworkSubmitDB, db: Se
 
 
 @router.get("/homeworks/{homework_id}/submissions", response_model=List[Dict[str, Any]])
-async def list_submissions(homework_id: int, db: Session = Depends(get_db)):
+async def list_submissions(
+    homework_id: int,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+):
+    role = str(current_user.get("role", ""))
+    uid = str(current_user.get("user_id", ""))
+
     # Пробуем использовать БД
     if has_db() and db is not None:
         try:
             hw = db.get(Homework, homework_id)
             if not hw:
                 raise HTTPException(status_code=404, detail="Homework not found")
+            if role in ("student", "parent"):
+                if str(hw.assigned_to) != uid:
+                    raise HTTPException(status_code=403, detail="Forbidden")
+            elif role not in ("teacher", "admin"):
+                if str(hw.assigned_to) != uid:
+                    raise HTTPException(status_code=403, detail="Forbidden")
+
             stmt = select(HomeworkSubmissionORM).where(HomeworkSubmissionORM.homework_id == homework_id)
             rows = db.execute(stmt).scalars().all()
+            if role in ("student", "parent"):
+                rows = [s for s in rows if str(s.user_id) == uid]
             return [
                 {
                     "id": s.id,
@@ -386,9 +428,18 @@ async def list_submissions(homework_id: int, db: Session = Depends(get_db)):
     
     if not hw:
         raise HTTPException(status_code=404, detail="Homework not found")
+
+    if role in ("student", "parent"):
+        if str(hw.get("assigned_to")) != uid:
+            raise HTTPException(status_code=403, detail="Forbidden")
+    elif role not in ("teacher", "admin"):
+        if str(hw.get("assigned_to")) != uid:
+            raise HTTPException(status_code=403, detail="Forbidden")
     
     submissions = persistent_storage.get("homework_submissions", [])
     homework_submissions = [s for s in submissions if s.get('homework_id') == homework_id]
+    if role in ("student", "parent"):
+        homework_submissions = [s for s in homework_submissions if str(s.get("user_id")) == uid]
     
     return [
         {
@@ -405,11 +456,16 @@ async def list_submissions(homework_id: int, db: Session = Depends(get_db)):
 
 
 @router.post("/homework/submit", response_model=Dict[str, Any])
-async def submit_homework(submission: HomeworkSubmissionPayload):
+async def submit_homework(
+    submission: HomeworkSubmissionPayload,
+    current_user: dict = Depends(get_current_user),
+):
     """
     Сдача домашнего задания с анализом решения
     """
     try:
+        assert_can_view_user_data(current_user, submission.user_id)
+
         # Анализируем описание решения через LLM для выявления слабых мест
         analysis_prompt = f"""Проанализируй описание решения ученика и определи:
 1. Правильность решения
@@ -454,11 +510,15 @@ async def submit_homework(submission: HomeworkSubmissionPayload):
 
 
 @router.get("/statistics/{user_id}", response_model=Dict[str, Any])
-async def get_student_statistics(user_id: str):
+async def get_student_statistics(
+    user_id: str,
+    current_user: dict = Depends(get_current_user),
+):
     """
     Получение статистики и слабых мест ученика
     """
     try:
+        assert_can_view_user_data(current_user, user_id)
         profile = orchestrator.profiler.get_profile(user_id)
         personality_profile = _assistant().get_personality_profile(user_id)
         
@@ -509,19 +569,24 @@ async def get_student_statistics(user_id: str):
             "strengths": [
                 topic for topic, mastery in profile.topic_mastery.items() if mastery >= 0.7
             ],
-            "personality": personality_profile.dict() if personality_profile else None
+            "personality": personality_profile.model_dump() if personality_profile else None
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.get("/progress/{user_id}", response_model=Dict[str, Any])
-async def get_student_progress(user_id: str, db: Session = Depends(get_db)):
+async def get_student_progress(
+    user_id: str,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+):
     """
     Получение полной статистики прогресса ученика для дашборда
     Включает: статистику, слабые места, недельные данные, недавнюю активность
     """
     try:
+        assert_can_view_user_data(current_user, user_id)
         # Получаем базовую статистику
         profile = orchestrator.profiler.get_profile(user_id)
         if not profile:
@@ -727,13 +792,45 @@ async def get_student_progress(user_id: str, db: Session = Depends(get_db)):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+def _effective_topic_mastery_for_graph(profile) -> Dict[str, float]:
+    """
+    topic_mastery из Profiler + темы только из истории изучения материалов,
+    если по ним ещё нет записи (например старые данные до фикса singleton).
+    """
+    merged: Dict[str, float] = dict(profile.topic_mastery or {})
+    history = getattr(profile, "material_study_history", None) or []
+    for study in history:
+        if not getattr(study, "completed", False):
+            continue
+        t = (getattr(study, "topic", None) or "").strip()
+        if not t:
+            continue
+        if t not in merged:
+            n_done = sum(
+                1
+                for s in history
+                if getattr(s, "completed", False) and (getattr(s, "topic", None) or "").strip() == t
+            )
+            comp = float(getattr(study, "completion_percentage", 1.0) or 1.0)
+            merged[t] = min(
+                1.0,
+                round(0.28 + 0.06 * min(n_done, 9) + 0.05 * min(comp, 1.0), 2),
+            )
+    return merged
+
+
 @router.get("/knowledge-graph/{user_id}", response_model=Dict[str, Any])
-async def get_knowledge_graph(user_id: str, db: Session = Depends(get_db)):
+async def get_knowledge_graph(
+    user_id: str,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+):
     """
     Получение данных для графа знаний ученика
     Возвращает структурированные данные о знаниях по темам
     """
     try:
+        assert_can_view_user_data(current_user, user_id)
         profile = orchestrator.profiler.get_profile(user_id)
         if not profile:
             raise HTTPException(status_code=404, detail="Profile not found")
@@ -748,9 +845,10 @@ async def get_knowledge_graph(user_id: str, db: Session = Depends(get_db)):
         
         # Создаем структуру графа знаний
         knowledge_nodes = []
-        
-        # Обрабатываем каждую тему из topic_mastery
-        for topic_name, mastery_value in profile.topic_mastery.items():
+        mastery_map = _effective_topic_mastery_for_graph(profile)
+
+        # Обрабатываем каждую тему (задания + изученные материалы)
+        for topic_name, mastery_value in mastery_map.items():
             mastery_level = int(mastery_value * 100)  # Конвертируем в проценты
             
             # Определяем статус на основе уровня мастерства
@@ -871,7 +969,10 @@ async def get_knowledge_graph(user_id: str, db: Session = Depends(get_db)):
 
 
 @router.get("/admin/stats", response_model=Dict[str, Any])
-async def get_admin_stats(db: Session = Depends(get_db)):
+async def get_admin_stats(
+    db: Session = Depends(get_db),
+    _admin: dict = Depends(require_roles("admin")),
+):
     """
     Получение системной статистики для админа
     """
@@ -925,7 +1026,10 @@ async def get_admin_stats(db: Session = Depends(get_db)):
 
 
 @router.get("/admin/users", response_model=List[Dict[str, Any]])
-async def get_admin_users(db: Session = Depends(get_db)):
+async def get_admin_users(
+    db: Session = Depends(get_db),
+    _admin: dict = Depends(require_roles("admin")),
+):
     """
     Получение списка всех пользователей для админа
     """
@@ -956,7 +1060,11 @@ async def get_admin_users(db: Session = Depends(get_db)):
 
 
 @router.get("/teacher/class-analytics", response_model=Dict[str, Any])
-async def get_class_analytics(class_id: Optional[str] = None, db: Session = Depends(get_db)):
+async def get_class_analytics(
+    class_id: Optional[str] = None,
+    db: Session = Depends(get_db),
+    _staff: dict = Depends(require_roles("teacher", "admin")),
+):
     """
     Получение аналитики класса для учителя
     """
@@ -1073,7 +1181,11 @@ async def get_class_analytics(class_id: Optional[str] = None, db: Session = Depe
 
 
 @router.post("/study/material", response_model=Dict[str, Any])
-async def mark_material_studied(request: Dict[str, Any], db: Session = Depends(get_db)):
+async def mark_material_studied(
+    request: Dict[str, Any],
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+):
     """
     Отметить материал как изученный
     Обновляет topic_mastery и сохраняет историю изучения
@@ -1086,11 +1198,18 @@ async def mark_material_studied(request: Dict[str, Any], db: Session = Depends(g
         time_spent_seconds = request.get("time_spent_seconds", 0)
         completion_percentage = request.get("completion_percentage", 1.0)
         
-        if not user_id or not material_id or not topic:
-            raise HTTPException(status_code=400, detail="user_id, material_id и topic обязательны")
+        if not user_id or not material_id:
+            raise HTTPException(status_code=400, detail="user_id и material_id обязательны")
+        topic = (topic or "").strip() if isinstance(topic, str) else ""
+        if not topic:
+            topic = (subject or "Учебные материалы").strip() or "Учебные материалы"
+
+        assert_can_view_user_data(current_user, str(user_id))
         
         # Получаем профиль ученика
         profile = orchestrator.profiler.get_profile(user_id)
+        if not profile:
+            raise HTTPException(status_code=404, detail="Profile not found")
         
         # Создаем запись об изучении
         from models.cognitive_profile import MaterialStudy
@@ -1127,6 +1246,8 @@ async def mark_material_studied(request: Dict[str, Any], db: Session = Depends(g
         # Обновляем уровень
         profile.level = min(profile.points // 100 + 1, 10)
         
+        orchestrator.profiler.persist_profile(user_id)
+
         return {
             "success": True,
             "topic_mastery": profile.topic_mastery.get(topic, 0),
@@ -1142,13 +1263,20 @@ async def mark_material_studied(request: Dict[str, Any], db: Session = Depends(g
 
 
 @router.get("/study/progress/{user_id}", response_model=Dict[str, Any])
-async def get_study_progress(user_id: str, db: Session = Depends(get_db)):
+async def get_study_progress(
+    user_id: str,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+):
     """
     Получить прогресс изучения материалов
     """
     try:
+        assert_can_view_user_data(current_user, user_id)
         profile = orchestrator.profiler.get_profile(user_id)
-        
+        if not profile:
+            raise HTTPException(status_code=404, detail="Profile not found")
+
         # Группируем по темам
         topics_studied = {}
         total_time = 0
@@ -1181,11 +1309,17 @@ async def get_study_progress(user_id: str, db: Session = Depends(get_db)):
 
 
 @router.get("/recommendations/{user_id}", response_model=Dict[str, Any])
-async def get_recommendations(user_id: str, topic: Optional[str] = None, db: Session = Depends(get_db)):
+async def get_recommendations(
+    user_id: str,
+    topic: Optional[str] = None,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+):
     """
     Получить рекомендации материалов на основе прогресса ученика
     """
     try:
+        assert_can_view_user_data(current_user, user_id)
         profile = orchestrator.profiler.get_profile(user_id)
         if not profile:
             raise HTTPException(status_code=404, detail="Profile not found")
@@ -1303,7 +1437,10 @@ async def get_recommendations(user_id: str, topic: Optional[str] = None, db: Ses
 
 
 @router.get("/materials/ratings", response_model=Dict[str, Any])
-async def get_materials_ratings(db: Session = Depends(get_db)):
+async def get_materials_ratings(
+    db: Session = Depends(get_db),
+    _user: dict = Depends(get_current_user),
+):
     """
     Получить рейтинги материалов на основе реальных данных
     Рейтинг рассчитывается на основе:
@@ -1408,7 +1545,10 @@ async def get_materials_ratings(db: Session = Depends(get_db)):
 
 
 @router.get("/admin/content-structure", response_model=Dict[str, Any])
-async def get_content_structure(db: Session = Depends(get_db)):
+async def get_content_structure(
+    db: Session = Depends(get_db),
+    _admin: dict = Depends(require_roles("admin")),
+):
     """
     Получить структуру образовательного контента для панели администратора
     Анализирует реальные материалы и задания из системы
@@ -1618,14 +1758,12 @@ _SEED_TEACHER_NAMES = [
 
 
 @router.post("/admin/seed", response_model=Dict[str, Any])
-async def admin_seed_db(current_user: dict = Depends(get_current_user)):
+async def admin_seed_db(_admin: dict = Depends(require_roles("admin"))):
     """
     Заполнить БД тестовыми учениками и учителями (только для админа).
     Вызывайте этот endpoint один раз после деплоя на Railway — пользователи создадутся
     в вашей Railway Postgres. В ответе вернётся список email и паролей.
     """
-    if current_user.get("role") != "admin":
-        raise HTTPException(status_code=403, detail="Доступ только для администратора")
     import random
     import string
     from utils.auth_service import auth_service
@@ -1695,7 +1833,11 @@ async def admin_seed_db(current_user: dict = Depends(get_current_user)):
 
 
 @router.post("/admin/users", response_model=Dict[str, Any])
-async def create_user(user_data: UserCreateRequest, db: Session = Depends(get_db)):
+async def create_user(
+    user_data: UserCreateRequest,
+    db: Session = Depends(get_db),
+    _admin: dict = Depends(require_roles("admin")),
+):
     """Создать нового пользователя (админ)"""
     try:
         from utils.auth_service import auth_service
@@ -1738,7 +1880,12 @@ async def create_user(user_data: UserCreateRequest, db: Session = Depends(get_db
 
 
 @router.put("/admin/users/{user_id}", response_model=Dict[str, Any])
-async def update_admin_user(user_id: str, updates: Dict[str, Any], db: Session = Depends(get_db)):
+async def update_admin_user(
+    user_id: str,
+    updates: Dict[str, Any],
+    db: Session = Depends(get_db),
+    _admin: dict = Depends(require_roles("admin")),
+):
     """Обновить данные пользователя (админ)"""
     try:
         from utils.auth_service import auth_service
@@ -1816,10 +1963,12 @@ async def update_admin_user(user_id: str, updates: Dict[str, Any], db: Session =
 
 
 @router.put("/admin/users/{user_id}/password", response_model=Dict[str, Any])
-async def set_user_password_admin(user_id: str, body: Dict[str, Any], current_user: dict = Depends(get_current_user)):
+async def set_user_password_admin(
+    user_id: str,
+    body: Dict[str, Any],
+    _admin: dict = Depends(require_roles("admin")),
+):
     """Сменить пароль пользователя (только админ; админ может менять и свой пароль)."""
-    if current_user.get("role") != "admin":
-        raise HTTPException(status_code=403, detail="Только администратор может менять пароли")
     try:
         new_password = (body.get("new_password") or "").strip()
         if len(new_password) < 6:
@@ -1837,7 +1986,11 @@ async def set_user_password_admin(user_id: str, body: Dict[str, Any], current_us
 
 
 @router.delete("/admin/users/{user_id}", response_model=Dict[str, Any])
-async def delete_admin_user(user_id: str, db: Session = Depends(get_db)):
+async def delete_admin_user(
+    user_id: str,
+    db: Session = Depends(get_db),
+    _admin: dict = Depends(require_roles("admin")),
+):
     """Удалить пользователя (админ)"""
     try:
         from utils.db import get_db as get_db_session
@@ -1906,7 +2059,11 @@ class ContentTopicCreate(BaseModel):
 
 
 @router.post("/admin/content/subject", response_model=Dict[str, Any])
-async def create_subject(data: ContentSubjectCreate, db: Session = Depends(get_db)):
+async def create_subject(
+    data: ContentSubjectCreate,
+    db: Session = Depends(get_db),
+    _admin: dict = Depends(require_roles("admin")),
+):
     """Создать новый предмет"""
     try:
         from utils.persistent_storage import persistent_storage
@@ -1933,7 +2090,12 @@ async def create_subject(data: ContentSubjectCreate, db: Session = Depends(get_d
 
 
 @router.put("/admin/content/subject/{subject_id}", response_model=Dict[str, Any])
-async def update_subject(subject_id: int, data: Dict[str, Any], db: Session = Depends(get_db)):
+async def update_subject(
+    subject_id: int,
+    data: Dict[str, Any],
+    db: Session = Depends(get_db),
+    _admin: dict = Depends(require_roles("admin")),
+):
     """Обновить предмет"""
     try:
         from utils.persistent_storage import persistent_storage
@@ -1958,7 +2120,11 @@ async def update_subject(subject_id: int, data: Dict[str, Any], db: Session = De
 
 
 @router.delete("/admin/content/subject/{subject_id}", response_model=Dict[str, Any])
-async def delete_subject(subject_id: int, db: Session = Depends(get_db)):
+async def delete_subject(
+    subject_id: int,
+    db: Session = Depends(get_db),
+    _admin: dict = Depends(require_roles("admin")),
+):
     """Удалить предмет"""
     try:
         from utils.persistent_storage import persistent_storage
@@ -1981,7 +2147,11 @@ async def delete_subject(subject_id: int, db: Session = Depends(get_db)):
 
 
 @router.post("/admin/content/section", response_model=Dict[str, Any])
-async def create_section(data: ContentSectionCreate, db: Session = Depends(get_db)):
+async def create_section(
+    data: ContentSectionCreate,
+    db: Session = Depends(get_db),
+    _admin: dict = Depends(require_roles("admin")),
+):
     """Создать новый раздел"""
     try:
         from utils.persistent_storage import persistent_storage
@@ -2017,7 +2187,12 @@ async def create_section(data: ContentSectionCreate, db: Session = Depends(get_d
 
 
 @router.put("/admin/content/section/{section_id}", response_model=Dict[str, Any])
-async def update_section(section_id: int, data: Dict[str, Any], db: Session = Depends(get_db)):
+async def update_section(
+    section_id: int,
+    data: Dict[str, Any],
+    db: Session = Depends(get_db),
+    _admin: dict = Depends(require_roles("admin")),
+):
     """Обновить раздел"""
     try:
         from utils.persistent_storage import persistent_storage
@@ -2050,7 +2225,11 @@ async def update_section(section_id: int, data: Dict[str, Any], db: Session = De
 
 
 @router.delete("/admin/content/section/{section_id}", response_model=Dict[str, Any])
-async def delete_section(section_id: int, db: Session = Depends(get_db)):
+async def delete_section(
+    section_id: int,
+    db: Session = Depends(get_db),
+    _admin: dict = Depends(require_roles("admin")),
+):
     """Удалить раздел"""
     try:
         from utils.persistent_storage import persistent_storage
@@ -2069,7 +2248,11 @@ async def delete_section(section_id: int, db: Session = Depends(get_db)):
 
 
 @router.post("/admin/content/topic", response_model=Dict[str, Any])
-async def create_topic(data: ContentTopicCreate, db: Session = Depends(get_db)):
+async def create_topic(
+    data: ContentTopicCreate,
+    db: Session = Depends(get_db),
+    _admin: dict = Depends(require_roles("admin")),
+):
     """Создать новую тему"""
     try:
         from utils.persistent_storage import persistent_storage
@@ -2114,7 +2297,12 @@ async def create_topic(data: ContentTopicCreate, db: Session = Depends(get_db)):
 
 
 @router.put("/admin/content/topic/{topic_id}", response_model=Dict[str, Any])
-async def update_topic(topic_id: int, data: Dict[str, Any], db: Session = Depends(get_db)):
+async def update_topic(
+    topic_id: int,
+    data: Dict[str, Any],
+    db: Session = Depends(get_db),
+    _admin: dict = Depends(require_roles("admin")),
+):
     """Обновить тему"""
     try:
         from utils.persistent_storage import persistent_storage
@@ -2154,7 +2342,11 @@ async def update_topic(topic_id: int, data: Dict[str, Any], db: Session = Depend
 
 
 @router.delete("/admin/content/topic/{topic_id}", response_model=Dict[str, Any])
-async def delete_topic(topic_id: int, db: Session = Depends(get_db)):
+async def delete_topic(
+    topic_id: int,
+    db: Session = Depends(get_db),
+    _admin: dict = Depends(require_roles("admin")),
+):
     """Удалить тему"""
     try:
         from utils.persistent_storage import persistent_storage
@@ -2179,7 +2371,12 @@ class TopicTaskCreate(BaseModel):
 
 
 @router.post("/admin/content/topic/{topic_id}/task", response_model=Dict[str, Any])
-async def add_topic_task(topic_id: int, data: TopicTaskCreate, db: Session = Depends(get_db)):
+async def add_topic_task(
+    topic_id: int,
+    data: TopicTaskCreate,
+    db: Session = Depends(get_db),
+    _admin: dict = Depends(require_roles("admin")),
+):
     """Добавить задание к теме"""
     try:
         from utils.persistent_storage import persistent_storage
@@ -2225,14 +2422,18 @@ class SystemSettings(BaseModel):
 
 
 @router.post("/admin/settings", response_model=Dict[str, Any])
-async def save_system_settings(settings: SystemSettings, db: Session = Depends(get_db)):
+async def save_system_settings(
+    settings: SystemSettings,
+    db: Session = Depends(get_db),
+    _admin: dict = Depends(require_roles("admin")),
+):
     """Сохранить настройки системы"""
     try:
         from utils.persistent_storage import persistent_storage
         
         current_settings = persistent_storage.get("admin_system_settings", {})
         
-        settings_dict = settings.dict(exclude_none=True)
+        settings_dict = settings.model_dump(exclude_none=True)
         current_settings.update(settings_dict)
         
         persistent_storage.set("admin_system_settings", current_settings)
@@ -2247,7 +2448,10 @@ async def save_system_settings(settings: SystemSettings, db: Session = Depends(g
 
 
 @router.get("/admin/settings", response_model=Dict[str, Any])
-async def get_system_settings(db: Session = Depends(get_db)):
+async def get_system_settings(
+    db: Session = Depends(get_db),
+    _admin: dict = Depends(require_roles("admin")),
+):
     """Получить настройки системы"""
     try:
         from utils.persistent_storage import persistent_storage
@@ -2279,7 +2483,8 @@ async def upload_materials(
     content: str,
     topic: Optional[str] = None,
     subject: Optional[str] = None,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    _admin: dict = Depends(require_roles("admin")),
 ):
     """Загрузить образовательный материал"""
     try:

@@ -236,10 +236,11 @@ export function MaterialViewer({ material, onBack, onStudyComplete, allMaterials
       const currentTimeSpent = Math.floor((Date.now() - startTimeRef.current) / 1000);
       setTimeSpent(currentTimeSpent);
       
+      const topicLabel = (material.topic || material.title || material.subject || 'Материалы').trim();
       const response = await api.post('/study/material', {
         user_id: userId,
         material_id: material.id,
-        topic: material.topic,
+        topic: topicLabel,
         subject: material.subject,
         time_spent_seconds: currentTimeSpent,
         completion_percentage: scrollProgress / 100
@@ -249,7 +250,7 @@ export function MaterialViewer({ material, onBack, onStudyComplete, allMaterials
       
       // Вызываем callback для обновления прогресса
       if (onStudyComplete) {
-        onStudyComplete(material.topic);
+        onStudyComplete(topicLabel);
       }
       
       // Показываем уведомление об успехе
