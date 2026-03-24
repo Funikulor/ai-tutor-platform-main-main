@@ -1,10 +1,18 @@
 import { useState, useEffect } from 'react';
 import { MaterialViewer } from './MaterialViewer';
 import { CourseViewer } from './CourseViewer';
-import { BookOpen, Video, FileText, ChevronRight, Search, Star, CheckCircle, GraduationCap, Layers } from 'lucide-react';
+import { BookOpen, Video, FileText, ChevronRight, Search, Star, CheckCircle, GraduationCap, Layers, Route } from 'lucide-react';
 import { motion } from 'motion/react';
 import api from '../services/api';
-import { fetchMaterials, fetchLibraryCourses, type LibraryCourse } from '../services/materials';
+import { toast } from 'sonner';
+import {
+  fetchMaterials,
+  fetchLibraryCourses,
+  fetchCurriculumOverview,
+  type LibraryCourse,
+  type CurriculumProgramSubject,
+  type CurriculumMaterialCard,
+} from '../services/materials';
 
 export interface Material {
   id: string;
@@ -28,7 +36,7 @@ interface LibraryTabProps {
 }
 
 export function LibraryTab({ selectedMaterialId, onStudyComplete }: LibraryTabProps) {
-  const [librarySection, setLibrarySection] = useState<'courses' | 'materials'>('courses');
+  const [librarySection, setLibrarySection] = useState<'courses' | 'materials' | 'program'>('courses');
   const [selectedMaterial, setSelectedMaterial] = useState<Material | null>(null);
   const [selectedCourse, setSelectedCourse] = useState<LibraryCourse | null>(null);
   const [selectedSubject, setSelectedSubject] = useState<string>('all');
@@ -40,12 +48,31 @@ export function LibraryTab({ selectedMaterialId, onStudyComplete }: LibraryTabPr
   const [coursesLoading, setCoursesLoading] = useState(true);
   const [topicMastery, setTopicMastery] = useState<Record<string, number>>({});
   const [materialRatings, setMaterialRatings] = useState<Record<string, number>>({});
+  const [programTree, setProgramTree] = useState<CurriculumProgramSubject[]>([]);
+  const [programOverviewLoading, setProgramOverviewLoading] = useState(true);
 
   useEffect(() => {
     loadMaterials();
     loadCourses();
     loadStudyProgress();
     loadMaterialRatings();
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const tree = await fetchCurriculumOverview();
+        if (!cancelled) setProgramTree(tree);
+      } catch {
+        if (!cancelled) setProgramTree([]);
+      } finally {
+        if (!cancelled) setProgramOverviewLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   useEffect(() => {
@@ -126,7 +153,13 @@ export function LibraryTab({ selectedMaterialId, onStudyComplete }: LibraryTabPr
 
   const subjects = [
     'all',
-    ...Array.from(new Set([...materials.map((m) => m.subject), ...courses.map((c) => c.subject)])),
+    ...Array.from(
+      new Set([
+        ...materials.map((m) => m.subject),
+        ...courses.map((c) => c.subject),
+        ...programTree.map((s) => s.subject),
+      ])
+    ),
   ];
 
   const filteredMaterials = materials.filter(material => {
@@ -138,6 +171,47 @@ export function LibraryTab({ selectedMaterialId, onStudyComplete }: LibraryTabPr
   });
 
   const q = searchQuery.toLowerCase();
+  const programSearchOk = (text: string) => {
+    if (!q) return true;
+    return text.toLowerCase().includes(q);
+  };
+
+  const filteredProgram = programTree
+    .filter((subj) => selectedSubject === 'all' || subj.subject === selectedSubject)
+    .map((subj) => ({
+      ...subj,
+      sections: subj.sections
+        .map((sec) => ({
+          ...sec,
+          topics: sec.topics.filter(
+            (t) =>
+              programSearchOk(t.name) ||
+              programSearchOk(t.description) ||
+              programSearchOk(subj.subject) ||
+              programSearchOk(sec.name)
+          ),
+        }))
+        .filter((sec) => sec.topics.length > 0),
+    }))
+    .filter((subj) => subj.sections.length > 0);
+
+  const openProgramMaterial = async (card: CurriculumMaterialCard) => {
+    let full = materials.find((m) => m.id === card.id);
+    if (!full) {
+      try {
+        const list = await fetchMaterials();
+        const arr = Array.isArray(list) ? list : [];
+        setMaterials(arr);
+        full = arr.find((m) => m.id === card.id);
+      } catch {
+        toast.error('Не удалось загрузить материалы');
+        return;
+      }
+    }
+    if (full) setSelectedMaterial(full);
+    else toast.error('Материал не найден в библиотеке');
+  };
+
   const filteredCourses = courses.filter((c) => {
     const subOk = selectedSubject === 'all' || c.subject === selectedSubject;
     const searchOk =
@@ -279,6 +353,18 @@ export function LibraryTab({ selectedMaterialId, onStudyComplete }: LibraryTabPr
           <Layers className="w-5 h-5" />
           Статьи, видео, PDF
         </button>
+        <button
+          type="button"
+          onClick={() => setLibrarySection('program')}
+          className={`inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium transition-colors ${
+            librarySection === 'program'
+              ? 'bg-indigo-600 text-white shadow-md'
+              : 'bg-white border border-gray-200 text-gray-700 hover:bg-gray-50'
+          }`}
+        >
+          <Route className="w-5 h-5" />
+          По программе
+        </button>
       </div>
 
       {/* Filters */}
@@ -289,7 +375,13 @@ export function LibraryTab({ selectedMaterialId, onStudyComplete }: LibraryTabPr
             <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
             <input
               type="text"
-              placeholder={librarySection === 'courses' ? 'Поиск курсов…' : 'Поиск материалов…'}
+              placeholder={
+                librarySection === 'courses'
+                  ? 'Поиск курсов…'
+                  : librarySection === 'program'
+                    ? 'Поиск по темам программы…'
+                    : 'Поиск материалов…'
+              }
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
@@ -309,7 +401,7 @@ export function LibraryTab({ selectedMaterialId, onStudyComplete }: LibraryTabPr
           </select>
 
           {/* Type Filter — только для материалов */}
-          {librarySection === 'materials' && (
+          {librarySection === 'materials' ? (
           <div className="flex gap-2 bg-gray-100 rounded-lg p-1">
             <button
               onClick={() => setSelectedType('all')}
@@ -344,9 +436,94 @@ export function LibraryTab({ selectedMaterialId, onStudyComplete }: LibraryTabPr
               PDF
             </button>
           </div>
-          )}
+          ) : null}
         </div>
       </div>
+
+      {/* Программа: каталог тем → контент */}
+      {librarySection === 'program' && (
+        <>
+          {programOverviewLoading && (
+            <div className="bg-white rounded-xl border border-gray-200 p-4 text-sm text-gray-500">
+              Загружаем программу…
+            </div>
+          )}
+          {!programOverviewLoading && filteredProgram.length === 0 && (
+            <div className="text-center py-12 bg-white rounded-xl border border-gray-200">
+              <Route className="w-14 h-14 text-gray-300 mx-auto mb-3" />
+              <p className="text-gray-700 font-medium">Пока нет привязок к программе</p>
+              <p className="text-sm text-gray-500 mt-2 max-w-md mx-auto">
+                Когда администратор привяжет к темам каталога материалы или мини-курсы из библиотеки, они появятся здесь по
+                предметам и разделам.
+              </p>
+            </div>
+          )}
+          {!programOverviewLoading && filteredProgram.length > 0 && (
+            <div className="space-y-8">
+              {filteredProgram.map((subj) => (
+                <div key={subj.id} className="bg-white rounded-xl border border-gray-200 overflow-hidden shadow-sm">
+                  <div className="px-6 py-4 bg-gradient-to-r from-emerald-50 to-teal-50 border-b border-gray-200">
+                    <h2 className="text-lg font-bold text-gray-900">{subj.subject}</h2>
+                  </div>
+                  <div className="p-6 space-y-6">
+                    {subj.sections.map((sec) => (
+                      <div key={sec.id}>
+                        <h3 className="text-sm font-semibold text-emerald-900 uppercase tracking-wide mb-3">
+                          {sec.name}
+                        </h3>
+                        <div className="space-y-4">
+                          {sec.topics.map((top) => (
+                            <div
+                              key={top.id}
+                              className="border border-gray-100 rounded-xl p-4 bg-gray-50/80 hover:bg-gray-50 transition-colors"
+                            >
+                              <div className="flex flex-wrap items-center gap-2 mb-1">
+                                <h4 className="text-base font-semibold text-gray-900">{top.name}</h4>
+                                {top.grade_hint ? (
+                                  <span className="text-xs px-2 py-0.5 bg-white border border-gray-200 rounded text-gray-600">
+                                    {top.grade_hint}
+                                  </span>
+                                ) : null}
+                              </div>
+                              {top.description ? (
+                                <p className="text-sm text-gray-600 mb-3 line-clamp-3">{top.description}</p>
+                              ) : null}
+                              <div className="flex flex-wrap gap-2">
+                                {top.materials.map((m) => (
+                                  <button
+                                    key={m.id}
+                                    type="button"
+                                    onClick={() => openProgramMaterial(m)}
+                                    className={`inline-flex items-center gap-2 px-3 py-2 rounded-lg border-2 text-sm font-medium transition-all hover:shadow ${getTypeColor(m.type || 'article')}`}
+                                  >
+                                    {getTypeIcon(m.type || 'article')}
+                                    <span className="text-left max-w-[200px] truncate">{m.title}</span>
+                                  </button>
+                                ))}
+                                {top.courses.map((c) => (
+                                  <button
+                                    key={c.id}
+                                    type="button"
+                                    onClick={() => setSelectedCourse(c)}
+                                    className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border-2 border-violet-200 bg-violet-50 text-violet-900 text-sm font-medium hover:border-violet-400 hover:shadow transition-all"
+                                  >
+                                    <GraduationCap className="w-4 h-4 shrink-0" />
+                                    <span className="text-left max-w-[200px] truncate">{c.title}</span>
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </>
+      )}
 
       {/* Courses Grid */}
       {librarySection === 'courses' && (
@@ -415,7 +592,7 @@ export function LibraryTab({ selectedMaterialId, onStudyComplete }: LibraryTabPr
       )}
 
       {/* Materials Grid */}
-      {librarySection === 'materials' && (
+      {librarySection === 'materials' ? (
         <>
       {materialsLoading && (
         <div className="bg-white rounded-xl border border-gray-200 p-4 text-sm text-gray-500">
@@ -504,7 +681,7 @@ export function LibraryTab({ selectedMaterialId, onStudyComplete }: LibraryTabPr
         </div>
       )}
         </>
-      )}
+      ) : null}
     </div>
   );
 }

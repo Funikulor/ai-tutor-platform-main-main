@@ -1,7 +1,8 @@
-import { useState, useEffect } from 'react';
-import { Plus, Edit, Trash2, Upload, BookOpen, Users, Settings, Database, X } from 'lucide-react';
+import { useState, useEffect, useCallback } from 'react';
+import { Plus, Edit, Trash2, Upload, BookOpen, Users, Settings, Database, X, Library } from 'lucide-react';
 import api from '../services/api';
 import { toast } from 'sonner';
+import { TopicLibraryStudio } from './TopicLibraryStudio';
 
 export function AdminPanel() {
   const [activeTab, setActiveTab] = useState<'content' | 'users' | 'system'>('content');
@@ -33,6 +34,11 @@ export function AdminPanel() {
         name: string;
         elements: number;
         tasks: number;
+        description?: string;
+        teacher_notes?: string;
+        grade_hint?: string;
+        library_material_ids?: string[];
+        library_course_ids?: string[];
       }>;
     }>;
   }>>([]);
@@ -49,8 +55,20 @@ export function AdminPanel() {
   const [showEditTopicModal, setShowEditTopicModal] = useState(false);
   const [showAddTaskModal, setShowAddTaskModal] = useState(false);
   const [addTaskTopic, setAddTaskTopic] = useState<{ id: number; name: string; sectionId: number } | null>(null);
+  const [topicCatalogTasks, setTopicCatalogTasks] = useState<Array<{ id: number; title: string; description?: string }>>([]);
+  const [topicCatalogTasksLoading, setTopicCatalogTasksLoading] = useState(false);
   const [seedLoading, setSeedLoading] = useState(false);
   const [seedResult, setSeedResult] = useState<{ created: number; credentials: Array<{ role: string; name: string; email: string; password: string; class_id?: string | null; parent_fio?: string | null; parent_phone?: string | null }> } | null>(null);
+  const [libraryStudioCtx, setLibraryStudioCtx] = useState<{
+    topic: {
+      id: number;
+      name: string;
+      library_material_ids?: string[];
+      library_course_ids?: string[];
+    };
+    subjectTitle: string;
+    sectionName: string;
+  } | null>(null);
 
   // Form states
   const [editingUser, setEditingUser] = useState<any>(null);
@@ -74,6 +92,28 @@ export function AdminPanel() {
     loadAdminData();
     loadSystemSettings();
   }, []);
+
+  const loadTopicCatalogTasks = useCallback(async (topicId: number) => {
+    setTopicCatalogTasksLoading(true);
+    try {
+      const { data } = await api.get<{ tasks: Array<{ id: number; title: string; description?: string }> }>(
+        `/admin/content/topic/${topicId}/tasks`
+      );
+      setTopicCatalogTasks(data.tasks || []);
+    } catch {
+      setTopicCatalogTasks([]);
+    } finally {
+      setTopicCatalogTasksLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (showEditTopicModal && editingTopic?.id != null) {
+      loadTopicCatalogTasks(editingTopic.id);
+    } else {
+      setTopicCatalogTasks([]);
+    }
+  }, [showEditTopicModal, editingTopic?.id, loadTopicCatalogTasks]);
 
   const loadAdminData = async () => {
     try {
@@ -279,7 +319,11 @@ export function AdminPanel() {
     try {
       await api.post('/admin/content/topic', {
         section_id: selectedSectionId,
-        name: formData.get('name')
+        name: formData.get('name'),
+        description: (formData.get('description') as string) || '',
+        teacher_notes: (formData.get('teacher_notes') as string) || '',
+        grade_hint: (formData.get('grade_hint') as string) || '',
+        elements: parseInt(String(formData.get('elements') || '0'), 10) || 0,
       });
       toast.success('Тема успешно создана');
       setShowTopicModal(false);
@@ -327,6 +371,7 @@ export function AdminPanel() {
       });
       toast.success('Задание добавлено');
       setShowAddTaskModal(false);
+      if (addTaskTopic) await loadTopicCatalogTasks(addTaskTopic.id);
       setAddTaskTopic(null);
       loadAdminData();
     } catch (err: any) {
@@ -341,7 +386,10 @@ export function AdminPanel() {
       await api.put(`/admin/content/topic/${editingTopic.id}`, {
         name: formData.get('name'),
         elements: parseInt(formData.get('elements') as string) || 0,
-        tasks: parseInt(formData.get('tasks') as string) || 0
+        tasks: parseInt(formData.get('tasks') as string) || 0,
+        description: (formData.get('description') as string) || '',
+        teacher_notes: (formData.get('teacher_notes') as string) || '',
+        grade_hint: (formData.get('grade_hint') as string) || '',
       });
       toast.success('Тема успешно обновлена');
       setShowEditTopicModal(false);
@@ -361,6 +409,18 @@ export function AdminPanel() {
       loadAdminData();
     } catch (err: any) {
       toast.error(err.response?.data?.detail || 'Ошибка при удалении темы');
+    }
+  };
+
+  const handleDeleteCatalogTask = async (topicId: number, taskId: number) => {
+    if (!confirm('Удалить это задание из каталога темы?')) return;
+    try {
+      await api.delete(`/admin/content/topic/${topicId}/task/${taskId}`);
+      toast.success('Задание удалено');
+      await loadTopicCatalogTasks(topicId);
+      loadAdminData();
+    } catch (err: any) {
+      toast.error(err.response?.data?.detail || 'Не удалось удалить задание');
     }
   };
 
@@ -416,52 +476,28 @@ export function AdminPanel() {
     }
   };
 
-  // Fallback структура контента
-  const fallbackContentStructure: Array<{
-    id: number;
-    subject: string;
-    sections: Array<{
-      id: number;
-      name: string;
-      topics: Array<{
-        id: number;
-        name: string;
-        elements: number;
-        tasks: number;
-      }>;
-    }>;
-  }> = [
-    {
-      id: 1,
-      subject: 'Математика',
-      sections: [
-        {
-          id: 11,
-          name: 'Алгебра',
-          topics: [
-            { id: 111, name: 'Уравнения', elements: 12, tasks: 0 },
-            { id: 112, name: 'Функции', elements: 8, tasks: 0 },
-            { id: 113, name: 'Неравенства', elements: 6, tasks: 0 }
-          ]
-        },
-        {
-          id: 12,
-          name: 'Геометрия',
-          topics: [
-            { id: 121, name: 'Треугольники', elements: 10, tasks: 0 },
-            { id: 122, name: 'Окружности', elements: 7, tasks: 0 }
-          ]
-        }
-      ]
-    }
-  ];
-
   // Modal component
-  const Modal = ({ isOpen, onClose, title, children }: { isOpen: boolean; onClose: () => void; title: string; children: React.ReactNode }) => {
+  const Modal = ({
+    isOpen,
+    onClose,
+    title,
+    children,
+    wide,
+  }: {
+    isOpen: boolean;
+    onClose: () => void;
+    title: string;
+    children: React.ReactNode;
+    wide?: boolean;
+  }) => {
     if (!isOpen) return null;
     return (
       <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-        <div className="bg-white rounded-xl shadow-xl max-w-2xl w-full mx-4 max-h-[90vh] overflow-y-auto">
+        <div
+          className={`bg-white rounded-xl shadow-xl w-full mx-4 max-h-[90vh] overflow-y-auto ${
+            wide ? 'max-w-5xl' : 'max-w-2xl'
+          }`}
+        >
           <div className="flex items-center justify-between p-6 border-b border-gray-200">
             <h3 className="text-xl font-semibold text-gray-900">{title}</h3>
             <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
@@ -596,9 +632,23 @@ export function AdminPanel() {
               </div>
             </div>
 
+            <p className="text-sm text-gray-600 mb-4 rounded-lg bg-slate-50 border border-slate-200 px-4 py-3">
+              <strong>Зачем это:</strong> внутренний <strong>каталог тем</strong> для методиста/админа (предмет → раздел → тема): что изучаем, текст для детей, заметки учителю, класс.
+              Через кнопку <strong>«Библиотека»</strong> к теме можно привязать материалы и мини-курсы — ученик откроет их в библиотеке в разделе <strong>«По программе»</strong>. Карточки «+ Задание» здесь — план урока в каталоге, <strong>не</strong> то же самое, что тесты в БД.
+              <br />
+              <span className="text-gray-500 mt-2 inline-block">
+                <strong>Где хранится:</strong> при подключённой БД (Railway Postgres) — таблицы{' '}
+                <code className="text-xs bg-white px-1 rounded border">curriculum_*</code>. Без БД — файл{' '}
+                <code className="text-xs bg-white px-1 rounded border">data.json</code>.
+              </span>
+            </p>
+
             {/* Content Structure */}
             <div className="space-y-4">
-              {(contentStructure.length > 0 ? contentStructure : fallbackContentStructure).map((subject) => (
+              {contentStructure.length === 0 && (
+                <p className="text-center text-gray-500 py-6">Каталог пуст. Обновите страницу — подставится шаблон «Математика».</p>
+              )}
+              {contentStructure.map((subject) => (
                 <div key={subject.id} className="border border-gray-200 rounded-lg">
                   <div className="p-4 bg-gradient-to-r from-blue-50 to-purple-50 border-b border-gray-200 flex items-center justify-between">
                     <div className="flex items-center gap-3">
@@ -635,26 +685,75 @@ export function AdminPanel() {
                         </div>
                         <div className="ml-4 space-y-2">
                           {section.topics.map((topic) => (
-                            <div key={topic.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-                              <div>
-                                <p className="text-gray-800">{topic.name}</p>
-                                <p className="text-xs text-gray-500">
-                                  {topic.elements} элементов • {topic.tasks} заданий
+                            <div
+                              key={topic.id}
+                              className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 p-3 bg-gray-50 rounded-lg border border-gray-100"
+                            >
+                              <div className="min-w-0 flex-1">
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <p className="text-gray-900 font-medium">{topic.name}</p>
+                                  {topic.grade_hint ? (
+                                    <span className="text-xs px-2 py-0.5 bg-white border border-gray-200 rounded text-gray-600">
+                                      {topic.grade_hint}
+                                    </span>
+                                  ) : null}
+                                </div>
+                                {topic.description ? (
+                                  <p className="text-sm text-gray-600 mt-1 line-clamp-2">{topic.description}</p>
+                                ) : (
+                                  <p className="text-xs text-gray-400 mt-1">Нет краткого описания для детей — добавьте в «Редактировать»</p>
+                                )}
+                                <p className="text-xs text-gray-500 mt-1">
+                                  {topic.elements} эл. • {topic.tasks} заданий в каталоге
+                                  {(topic.library_material_ids?.length || topic.library_course_ids?.length) ? (
+                                    <span className="ml-1 text-indigo-600">
+                                      • библиотека:{' '}
+                                      {(topic.library_material_ids?.length || 0) + (topic.library_course_ids?.length || 0)}{' '}
+                                      привязок
+                                    </span>
+                                  ) : null}
                                 </p>
                               </div>
-                              <div className="flex gap-2">
-                                <button 
+                              <div className="flex flex-wrap gap-2 shrink-0">
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    setLibraryStudioCtx({
+                                      topic: {
+                                        id: topic.id,
+                                        name: topic.name,
+                                        library_material_ids: topic.library_material_ids,
+                                        library_course_ids: topic.library_course_ids,
+                                      },
+                                      subjectTitle: subject.subject,
+                                      sectionName: section.name,
+                                    })
+                                  }
+                                  className="px-3 py-1.5 text-sm text-indigo-700 hover:bg-indigo-50 rounded transition-colors inline-flex items-center gap-1"
+                                >
+                                  <Library className="w-4 h-4" />
+                                  Библиотека
+                                </button>
+                                <button
+                                  type="button"
                                   onClick={() => handleEditTopic(topic, section.id)}
-                                  className="px-3 py-1 text-sm text-blue-600 hover:bg-blue-50 rounded transition-colors"
+                                  className="px-3 py-1.5 text-sm text-blue-600 hover:bg-blue-50 rounded transition-colors"
                                 >
                                   Редактировать
                                 </button>
-                                <button 
+                                <button
                                   type="button"
                                   onClick={() => handleAddTask(topic, section.id)}
-                                  className="px-3 py-1 text-sm text-green-600 hover:bg-green-50 rounded transition-colors"
+                                  className="px-3 py-1.5 text-sm text-green-600 hover:bg-green-50 rounded transition-colors"
                                 >
                                   + Задание
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleDeleteTopic(topic.id)}
+                                  className="px-3 py-1.5 text-sm text-red-600 hover:bg-red-50 rounded transition-colors"
+                                >
+                                  Удалить
                                 </button>
                               </div>
                             </div>
@@ -1146,11 +1245,61 @@ export function AdminPanel() {
         )}
       </Modal>
 
-      <Modal isOpen={showTopicModal} onClose={() => { setShowTopicModal(false); setSelectedSectionId(null); }} title="Создать тему">
+      <Modal
+        wide
+        isOpen={showTopicModal}
+        onClose={() => { setShowTopicModal(false); setSelectedSectionId(null); }}
+        title="Создать тему"
+      >
         <form onSubmit={handleCreateTopic} className="space-y-4">
           <div>
             <label className="block text-gray-700 mb-2">Название темы</label>
             <input type="text" name="name" required className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500" />
+          </div>
+          <div>
+            <label className="block text-gray-700 mb-2">Класс / возраст (для себя и фильтров)</label>
+            <select
+              name="grade_hint"
+              defaultValue=""
+              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+            >
+              <option value="">Не указано</option>
+              <option value="1–4 класс">1–4 класс</option>
+              <option value="5 класс">5 класс</option>
+              <option value="6 класс">6 класс</option>
+              <option value="7 класс">7 класс</option>
+              <option value="8 класс">8 класс</option>
+              <option value="9 класс">9 класс</option>
+              <option value="10–11 класс">10–11 класс</option>
+            </select>
+          </div>
+          <div>
+            <label className="block text-gray-700 mb-2">Текст для детей (кратко: о чём тема)</label>
+            <textarea
+              name="description"
+              rows={4}
+              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+              placeholder="Например: решаем линейные уравнения и задачи на движение"
+            />
+          </div>
+          <div>
+            <label className="block text-gray-700 mb-2">Методичка / заметки учителю (не показываются ученику в этом интерфейсе)</label>
+            <textarea
+              name="teacher_notes"
+              rows={3}
+              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+              placeholder="Цели урока, опоры, типичные ошибки…"
+            />
+          </div>
+          <div>
+            <label className="block text-gray-700 mb-2">Оценочное число «элементов» (материалов) вручную</label>
+            <input
+              type="number"
+              name="elements"
+              min={0}
+              defaultValue={0}
+              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+            />
           </div>
           <div className="flex gap-3">
             <button type="submit" className="flex-1 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">
@@ -1163,7 +1312,12 @@ export function AdminPanel() {
         </form>
       </Modal>
 
-      <Modal isOpen={showEditTopicModal} onClose={() => { setShowEditTopicModal(false); setEditingTopic(null); setSelectedSectionId(null); }} title="Редактировать тему">
+      <Modal
+        wide
+        isOpen={showEditTopicModal}
+        onClose={() => { setShowEditTopicModal(false); setEditingTopic(null); setSelectedSectionId(null); }}
+        title="Редактировать тему"
+      >
         {editingTopic && (
           <form onSubmit={handleUpdateTopic} className="space-y-4">
             <div>
@@ -1171,13 +1325,94 @@ export function AdminPanel() {
               <input type="text" name="name" defaultValue={editingTopic.name} required className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500" />
             </div>
             <div>
+              <label className="block text-gray-700 mb-2">Класс / возраст</label>
+              <select
+                name="grade_hint"
+                defaultValue={editingTopic.grade_hint || ''}
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+              >
+                <option value="">Не указано</option>
+                {editingTopic.grade_hint &&
+                !['1–4 класс', '5 класс', '6 класс', '7 класс', '8 класс', '9 класс', '10–11 класс'].includes(
+                  editingTopic.grade_hint
+                ) ? (
+                  <option value={editingTopic.grade_hint}>{editingTopic.grade_hint} (своё)</option>
+                ) : null}
+                <option value="1–4 класс">1–4 класс</option>
+                <option value="5 класс">5 класс</option>
+                <option value="6 класс">6 класс</option>
+                <option value="7 класс">7 класс</option>
+                <option value="8 класс">8 класс</option>
+                <option value="9 класс">9 класс</option>
+                <option value="10–11 класс">10–11 класс</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-gray-700 mb-2">Текст для детей</label>
+              <textarea
+                name="description"
+                rows={4}
+                defaultValue={editingTopic.description || ''}
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+            <div>
+              <label className="block text-gray-700 mb-2">Методичка для учителя</label>
+              <textarea
+                name="teacher_notes"
+                rows={3}
+                defaultValue={editingTopic.teacher_notes || ''}
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+            <div>
               <label className="block text-gray-700 mb-2">Количество элементов</label>
               <input type="number" name="elements" defaultValue={editingTopic.elements} min="0" className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500" />
             </div>
             <div>
-              <label className="block text-gray-700 mb-2">Количество заданий</label>
+              <label className="block text-gray-700 mb-2">Счётчик заданий в каталоге (можно подправить вручную)</label>
               <input type="number" name="tasks" defaultValue={editingTopic.tasks} min="0" className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500" />
             </div>
+
+            <div className="border border-gray-200 rounded-lg p-4 bg-gray-50">
+              <div className="flex items-center justify-between mb-2">
+                <h4 className="text-gray-800 text-sm font-medium">Карточки заданий в каталоге</h4>
+                <button
+                  type="button"
+                  onClick={() => loadTopicCatalogTasks(editingTopic.id)}
+                  className="text-xs text-blue-600 hover:underline"
+                >
+                  Обновить список
+                </button>
+              </div>
+              {topicCatalogTasksLoading ? (
+                <p className="text-sm text-gray-500">Загрузка…</p>
+              ) : topicCatalogTasks.length === 0 ? (
+                <p className="text-sm text-gray-500">Пока нет. Нажмите «+ Задание» в списке тем.</p>
+              ) : (
+                <ul className="space-y-2 max-h-48 overflow-y-auto">
+                  {topicCatalogTasks.map((t) => (
+                    <li
+                      key={t.id}
+                      className="flex items-start justify-between gap-2 text-sm bg-white border border-gray-100 rounded p-2"
+                    >
+                      <div className="min-w-0">
+                        <p className="font-medium text-gray-800">{t.title}</p>
+                        {t.description ? <p className="text-gray-600 text-xs mt-0.5">{t.description}</p> : null}
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteCatalogTask(editingTopic.id, t.id)}
+                        className="text-red-600 text-xs shrink-0 hover:underline"
+                      >
+                        Удалить
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+
             <div className="flex gap-3">
               <button type="submit" className="flex-1 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">
                 Сохранить
@@ -1232,6 +1467,26 @@ export function AdminPanel() {
             </button>
           </div>
         </form>
+      </Modal>
+
+      <Modal
+        wide
+        isOpen={!!libraryStudioCtx}
+        onClose={() => setLibraryStudioCtx(null)}
+        title={libraryStudioCtx ? `Учебный контент: ${libraryStudioCtx.topic.name}` : ''}
+      >
+        {libraryStudioCtx ? (
+          <TopicLibraryStudio
+            key={libraryStudioCtx.topic.id}
+            topic={libraryStudioCtx.topic}
+            subjectTitle={libraryStudioCtx.subjectTitle}
+            sectionName={libraryStudioCtx.sectionName}
+            onClose={() => setLibraryStudioCtx(null)}
+            onSaved={() => {
+              loadAdminData();
+            }}
+          />
+        ) : null}
       </Modal>
 
       <Modal isOpen={showUploadModal} onClose={() => setShowUploadModal(false)} title="Загрузить материал">

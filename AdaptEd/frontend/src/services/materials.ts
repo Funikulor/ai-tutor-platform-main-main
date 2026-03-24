@@ -40,3 +40,44 @@ export async function fetchLibraryCourses(): Promise<LibraryCourse[]> {
   return Array.isArray(data) ? data : [];
 }
 
+/** Карточка материала в обзоре программы (как в пикере; полного content может не быть) */
+export interface CurriculumMaterialCard {
+  id: string;
+  title: string;
+  description: string;
+  subject: string;
+  topic: string;
+  type: string;
+  difficulty: string;
+  duration?: string;
+  rating?: number;
+}
+
+export interface CurriculumProgramTopic {
+  id: number;
+  name: string;
+  description: string;
+  grade_hint: string;
+  materials: CurriculumMaterialCard[];
+  courses: LibraryCourse[];
+}
+
+export interface CurriculumProgramSection {
+  id: number;
+  name: string;
+  topics: CurriculumProgramTopic[];
+}
+
+export interface CurriculumProgramSubject {
+  id: number;
+  subject: string;
+  sections: CurriculumProgramSection[];
+}
+
+export async function fetchCurriculumOverview(): Promise<CurriculumProgramSubject[]> {
+  const { data } = await api.get<{ subjects: CurriculumProgramSubject[] }>(
+    '/library/curriculum-overview'
+  );
+  return Array.isArray(data?.subjects) ? data.subjects : [];
+}
+

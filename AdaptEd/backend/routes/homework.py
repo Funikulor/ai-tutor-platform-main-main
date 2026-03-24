@@ -4,9 +4,10 @@ API маршруты для домашних заданий
 from fastapi import APIRouter, HTTPException, Depends
 from routes.auth import get_current_user, require_roles, assert_can_view_user_data
 from utils.auth_service import role_to_str
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 from typing import List, Optional, Dict, Any
 from datetime import datetime, timedelta
+import copy
 import json
 import re
 from collections import defaultdict
@@ -1545,172 +1546,160 @@ async def get_materials_ratings(
         }
 
 
+# Каталог тем для админки: при наличии БД (Railway Postgres, локальный SQLite) — таблицы curriculum_*.
+# Иначе fallback: persistent_storage / data.json.
+# Пока каталог пуст — подставляем стартовый шаблон с фиксированными id (только для файлового режима).
+DEFAULT_ADMIN_CONTENT_STRUCTURE: List[Dict[str, Any]] = [
+    {
+        "id": 1,
+        "subject": "Математика",
+        "sections": [
+            {
+                "id": 11,
+                "name": "Алгебра",
+                "topics": [
+                    {
+                        "id": 111,
+                        "name": "Уравнения",
+                        "elements": 12,
+                        "tasks": 0,
+                        "description": "",
+                        "teacher_notes": "",
+                        "grade_hint": "",
+                    },
+                    {
+                        "id": 112,
+                        "name": "Функции",
+                        "elements": 8,
+                        "tasks": 0,
+                        "description": "",
+                        "teacher_notes": "",
+                        "grade_hint": "",
+                    },
+                    {
+                        "id": 113,
+                        "name": "Неравенства",
+                        "elements": 6,
+                        "tasks": 0,
+                        "description": "",
+                        "teacher_notes": "",
+                        "grade_hint": "",
+                    },
+                ],
+            },
+            {
+                "id": 12,
+                "name": "Геометрия",
+                "topics": [
+                    {
+                        "id": 121,
+                        "name": "Треугольники",
+                        "elements": 10,
+                        "tasks": 0,
+                        "description": "",
+                        "teacher_notes": "",
+                        "grade_hint": "",
+                    },
+                    {
+                        "id": 122,
+                        "name": "Окружности",
+                        "elements": 7,
+                        "tasks": 0,
+                        "description": "",
+                        "teacher_notes": "",
+                        "grade_hint": "",
+                    },
+                ],
+            },
+        ],
+    },
+]
+
+
+def _ensure_admin_catalog_seeded() -> None:
+    from utils.persistent_storage import persistent_storage
+
+    raw = persistent_storage.get("admin_content_structure")
+    if not raw:
+        persistent_storage.set(
+            "admin_content_structure",
+            copy.deepcopy(DEFAULT_ADMIN_CONTENT_STRUCTURE),
+        )
+
+
 @router.get("/admin/content-structure", response_model=Dict[str, Any])
 async def get_content_structure(
     db: Session = Depends(get_db),
     _admin: dict = Depends(require_roles("admin")),
 ):
     """
-    Получить структуру образовательного контента для панели администратора
-    Анализирует реальные материалы и задания из системы
+    Каталог предмет → раздел → тема для админки.
+    Статистика по ученикам подмешивается только в ответ (копия).
     """
     try:
-        # Получаем все профили учеников
+        from utils.persistent_storage import persistent_storage
+        from services.curriculum_catalog import ensure_catalog_ready, structure_to_nested_list
+
         all_profiles = orchestrator.profiler.get_all_profiles()
-        
-        # Собираем статистику по темам из заданий
-        topic_stats = defaultdict(lambda: {
-            "tasks_count": 0,
-            "correct_count": 0,
-            "materials_count": 0,
-            "subjects": set()
-        })
-        
-        # Анализируем материалы из истории изучения и заданий
+        topic_stats: Dict[str, Dict[str, Any]] = defaultdict(
+            lambda: {
+                "tasks_count": 0,
+                "correct_count": 0,
+                "materials_count": 0,
+                "subjects": set(),
+            }
+        )
+
         for user_id, profile in all_profiles.items():
-            # Анализируем задания
             if profile.task_history:
                 for task in profile.task_history:
                     if task.topic:
                         topic_stats[task.topic]["tasks_count"] += 1
                         if task.is_correct:
                             topic_stats[task.topic]["correct_count"] += 1
-            
-            # Анализируем изученные материалы
             if profile.material_study_history:
                 for material in profile.material_study_history:
                     if material.topic:
                         topic_stats[material.topic]["materials_count"] += 1
                         if material.subject:
                             topic_stats[material.topic]["subjects"].add(material.subject)
-        
-        # Маппинг тем к предметам и разделам (на основе реальных материалов из LibraryTab)
-        topic_mapping = {
-            "Алгебра": {"subject": "Математика", "section": "Алгебра"},
-            "Геометрия": {"subject": "Математика", "section": "Геометрия"},
-            "Арифметика": {"subject": "Математика", "section": "Арифметика"},
-            "Уравнения": {"subject": "Математика", "section": "Алгебра"},
-            "Функции": {"subject": "Математика", "section": "Алгебра"},
-            "Неравенства": {"subject": "Математика", "section": "Алгебра"},
-            "Треугольники": {"subject": "Математика", "section": "Геометрия"},
-            "Окружности": {"subject": "Математика", "section": "Геометрия"},
-            "Теорема Пифагора": {"subject": "Математика", "section": "Геометрия"},
-            "Квадратные уравнения": {"subject": "Математика", "section": "Алгебра"},
-        }
-        
-        # Формируем структуру контента на основе реальных данных
-        subject_structure = defaultdict(lambda: {
-            "sections": defaultdict(lambda: {
-                "topics": []
-            })
-        })
-        
-        # Добавляем темы из реальных данных
-        for topic, stats in topic_stats.items():
-            mapping = topic_mapping.get(topic, {"subject": "Математика", "section": "Другое"})
-            subject = mapping["subject"]
-            section = mapping["section"]
-            
-            # Подсчитываем элементы (материалы + задания)
-            elements = stats["materials_count"] + max(1, stats["tasks_count"] // 4)  # Примерно 4 задания = 1 элемент
-            
-            subject_structure[subject]["sections"][section]["topics"].append({
-                "id": abs(hash(topic)) % 10000,  # Простой ID
-                "name": topic,
-                "elements": max(1, elements),
-                "tasks": stats["tasks_count"]
-            })
-        
-        # Добавляем известные материалы из LibraryTab (если их нет в статистике)
-        known_materials = {
-            "Алгебра": {"subject": "Математика", "section": "Алгебра", "elements": 12},
-            "Геометрия": {"subject": "Математика", "section": "Геометрия", "elements": 10},
-        }
-        
-        for topic, info in known_materials.items():
-            if topic not in topic_stats:
-                subject_structure[info["subject"]]["sections"][info["section"]]["topics"].append({
-                    "id": abs(hash(topic)) % 10000,
-                    "name": topic,
-                    "elements": info["elements"],
-                    "tasks": 0
-                })
-        
-        # Преобразуем в нужный формат
-        content_structure = []
-        for subject_name, subject_data in subject_structure.items():
-            sections_list = []
-            for section_name, section_data in subject_data["sections"].items():
-                if section_data["topics"]:  # Добавляем только если есть темы
-                    sections_list.append({
-                        "id": abs(hash(f"{subject_name}_{section_name}")) % 10000,
-                        "name": section_name,
-                        "topics": section_data["topics"]
-                    })
-            
-            if sections_list:  # Добавляем только если есть разделы
-                content_structure.append({
-                    "id": abs(hash(subject_name)) % 10000,
-                    "subject": subject_name,
-                    "sections": sections_list
-                })
-        
-        # Проверяем сохраненную структуру контента из админ-панели
-        from utils.persistent_storage import persistent_storage
-        admin_content = persistent_storage.get("admin_content_structure", None)
-        
-        # Если есть админ-контент, используем его как основу и дополняем статистикой
-        if admin_content and len(admin_content) > 0:
-            # Создаем словарь для быстрого поиска статистики по темам
-            topic_stats_dict = {topic: stats for topic, stats in topic_stats.items()}
-            
-            # Обновляем статистику в админ-контенте
-            for admin_subject in admin_content:
-                for admin_section in admin_subject.get('sections', []):
-                    for admin_topic in admin_section.get('topics', []):
-                        topic_name = admin_topic.get('name')
-                        if topic_name in topic_stats_dict:
-                            stats = topic_stats_dict[topic_name]
-                            # Обновляем статистику, сохраняя значения из админ-панели если они больше
-                            admin_topic['tasks'] = max(admin_topic.get('tasks', 0), stats['tasks_count'])
-                            # Обновляем элементы на основе статистики
-                            if stats['materials_count'] > 0:
-                                admin_topic['elements'] = max(admin_topic.get('elements', 0), stats['materials_count'])
-            
-            content_structure = admin_content
-        # Если нет данных, возвращаем базовую структуру на основе известных материалов
-        elif not content_structure:
-            content_structure = [
-                {
-                    "id": 1,
-                    "subject": "Математика",
-                    "sections": [
-                        {
-                            "id": 11,
-                            "name": "Алгебра",
-                            "topics": [
-                                {"id": 111, "name": "Уравнения", "elements": 12, "tasks": 0},
-                                {"id": 112, "name": "Функции", "elements": 8, "tasks": 0},
-                                {"id": 113, "name": "Неравенства", "elements": 6, "tasks": 0}
-                            ]
-                        },
-                        {
-                            "id": 12,
-                            "name": "Геометрия",
-                            "topics": [
-                                {"id": 121, "name": "Треугольники", "elements": 10, "tasks": 0},
-                                {"id": 122, "name": "Окружности", "elements": 7, "tasks": 0}
-                            ]
-                        }
-                    ]
-                }
-            ]
-        
+
+        if has_db() and db is not None:
+            ensure_catalog_ready(db, persistent_storage)
+            content_structure = copy.deepcopy(structure_to_nested_list(db))
+        else:
+            _ensure_admin_catalog_seeded()
+            content_structure = copy.deepcopy(
+                persistent_storage.get("admin_content_structure", []) or []
+            )
+
+        topic_stats_dict = {t: dict(s) for t, s in topic_stats.items()}
+
+        for admin_subject in content_structure:
+            for admin_section in admin_subject.get("sections", []):
+                for admin_topic in admin_section.get("topics", []):
+                    topic_name = admin_topic.get("name")
+                    if not topic_name or topic_name not in topic_stats_dict:
+                        continue
+                    stats = topic_stats_dict[topic_name]
+                    admin_topic["tasks"] = max(
+                        admin_topic.get("tasks", 0), int(stats["tasks_count"])
+                    )
+                    if stats["materials_count"] > 0:
+                        admin_topic["elements"] = max(
+                            admin_topic.get("elements", 0),
+                            int(stats["materials_count"]),
+                        )
+
         return {
             "structure": content_structure,
             "total_subjects": len(content_structure),
             "total_sections": sum(len(s["sections"]) for s in content_structure),
-            "total_topics": sum(len(sec["topics"]) for s in content_structure for sec in s["sections"])
+            "total_topics": sum(
+                len(sec["topics"])
+                for s in content_structure
+                for sec in s["sections"]
+            ),
         }
     except Exception as e:
         print(f"Error in get_content_structure: {e}")
@@ -2057,6 +2046,42 @@ class ContentSectionCreate(BaseModel):
 class ContentTopicCreate(BaseModel):
     section_id: int
     name: str
+    description: Optional[str] = None
+    teacher_notes: Optional[str] = None
+    grade_hint: Optional[str] = None
+    elements: Optional[int] = None
+
+
+class TopicLibraryLinksBody(BaseModel):
+    material_ids: List[str] = Field(default_factory=list)
+    course_ids: List[str] = Field(default_factory=list)
+
+
+@router.put("/admin/content/topic/{topic_id}/library", response_model=Dict[str, Any])
+async def put_topic_library_links(
+    topic_id: int,
+    body: TopicLibraryLinksBody,
+    db: Session = Depends(get_db),
+    _admin: dict = Depends(require_roles("admin")),
+):
+    """Привязать к теме каталога материалы и мини-курсы из библиотеки (только при БД)."""
+    from utils.persistent_storage import persistent_storage
+    from services.curriculum_catalog import ensure_catalog_ready, set_topic_library_links
+
+    if not has_db() or db is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Привязка к библиотеке доступна только при подключённой базе данных",
+        )
+    ensure_catalog_ready(db, persistent_storage)
+    if not set_topic_library_links(db, topic_id, body.material_ids, body.course_ids):
+        raise HTTPException(status_code=404, detail="Тема не найдена")
+    return {
+        "ok": True,
+        "topic_id": topic_id,
+        "material_ids": body.material_ids,
+        "course_ids": body.course_ids,
+    }
 
 
 @router.post("/admin/content/subject", response_model=Dict[str, Any])
@@ -2068,22 +2093,19 @@ async def create_subject(
     """Создать новый предмет"""
     try:
         from utils.persistent_storage import persistent_storage
-        
+        from services.curriculum_catalog import create_subject_db, ensure_catalog_ready
+
+        if has_db() and db is not None:
+            ensure_catalog_ready(db, persistent_storage)
+            return create_subject_db(db, data.subject)
+
+        _ensure_admin_catalog_seeded()
         content_structure = persistent_storage.get("admin_content_structure", [])
-        
-        # Генерируем ID
         max_id = max([s.get('id', 0) for s in content_structure], default=0)
         new_id = max_id + 1
-        
-        new_subject = {
-            "id": new_id,
-            "subject": data.subject,
-            "sections": []
-        }
-        
+        new_subject = {"id": new_id, "subject": data.subject, "sections": []}
         content_structure.append(new_subject)
         persistent_storage.set("admin_content_structure", content_structure)
-        
         return new_subject
     except Exception as e:
         print(f"Error in create_subject: {e}")
@@ -2100,18 +2122,26 @@ async def update_subject(
     """Обновить предмет"""
     try:
         from utils.persistent_storage import persistent_storage
-        
+        from services.curriculum_catalog import ensure_catalog_ready, update_subject_db
+
+        if has_db() and db is not None:
+            ensure_catalog_ready(db, persistent_storage)
+            title = data.get("subject")
+            if title is None:
+                raise HTTPException(status_code=400, detail="Укажите название предмета")
+            out = update_subject_db(db, subject_id, str(title))
+            if not out:
+                raise HTTPException(status_code=404, detail="Предмет не найден")
+            return out
+
+        _ensure_admin_catalog_seeded()
         content_structure = persistent_storage.get("admin_content_structure", [])
-        
         subject = next((s for s in content_structure if s.get('id') == subject_id), None)
         if not subject:
             raise HTTPException(status_code=404, detail="Предмет не найден")
-        
         if 'subject' in data:
             subject['subject'] = data['subject']
-        
         persistent_storage.set("admin_content_structure", content_structure)
-        
         return subject
     except HTTPException:
         raise
@@ -2129,16 +2159,21 @@ async def delete_subject(
     """Удалить предмет"""
     try:
         from utils.persistent_storage import persistent_storage
-        
+        from services.curriculum_catalog import delete_subject_db, ensure_catalog_ready
+
+        if has_db() and db is not None:
+            ensure_catalog_ready(db, persistent_storage)
+            if not delete_subject_db(db, subject_id):
+                raise HTTPException(status_code=404, detail="Предмет не найден")
+            return {"message": "Предмет удален", "id": subject_id}
+
+        _ensure_admin_catalog_seeded()
         content_structure = persistent_storage.get("admin_content_structure", [])
-        
         subject = next((s for s in content_structure if s.get('id') == subject_id), None)
         if not subject:
             raise HTTPException(status_code=404, detail="Предмет не найден")
-        
         content_structure = [s for s in content_structure if s.get('id') != subject_id]
         persistent_storage.set("admin_content_structure", content_structure)
-        
         return {"message": "Предмет удален", "id": subject_id}
     except HTTPException:
         raise
@@ -2156,29 +2191,27 @@ async def create_section(
     """Создать новый раздел"""
     try:
         from utils.persistent_storage import persistent_storage
-        
+        from services.curriculum_catalog import create_section_db, ensure_catalog_ready
+
+        if has_db() and db is not None:
+            ensure_catalog_ready(db, persistent_storage)
+            out = create_section_db(db, data.subject_id, str(data.name))
+            if not out:
+                raise HTTPException(status_code=404, detail="Предмет не найден")
+            return out
+
+        _ensure_admin_catalog_seeded()
         content_structure = persistent_storage.get("admin_content_structure", [])
-        
         subject = next((s for s in content_structure if s.get('id') == data.subject_id), None)
         if not subject:
             raise HTTPException(status_code=404, detail="Предмет не найден")
-        
-        # Генерируем ID
         max_id = max([sec.get('id', 0) for sec in subject.get('sections', [])], default=0)
         new_id = max(max_id + 1, data.subject_id * 10 + len(subject.get('sections', [])) + 1)
-        
-        new_section = {
-            "id": new_id,
-            "name": data.name,
-            "topics": []
-        }
-        
+        new_section = {"id": new_id, "name": data.name, "topics": []}
         if 'sections' not in subject:
             subject['sections'] = []
         subject['sections'].append(new_section)
-        
         persistent_storage.set("admin_content_structure", content_structure)
-        
         return new_section
     except HTTPException:
         raise
@@ -2197,9 +2230,20 @@ async def update_section(
     """Обновить раздел"""
     try:
         from utils.persistent_storage import persistent_storage
-        
+        from services.curriculum_catalog import ensure_catalog_ready, update_section_db
+
+        if has_db() and db is not None:
+            ensure_catalog_ready(db, persistent_storage)
+            nm = data.get("name")
+            if nm is None:
+                raise HTTPException(status_code=400, detail="Укажите название раздела")
+            out = update_section_db(db, section_id, str(nm))
+            if not out:
+                raise HTTPException(status_code=404, detail="Раздел не найден")
+            return out
+
+        _ensure_admin_catalog_seeded()
         content_structure = persistent_storage.get("admin_content_structure", [])
-        
         section = None
         for subject in content_structure:
             for sec in subject.get('sections', []):
@@ -2208,15 +2252,11 @@ async def update_section(
                     break
             if section:
                 break
-        
         if not section:
             raise HTTPException(status_code=404, detail="Раздел не найден")
-        
         if 'name' in data:
             section['name'] = data['name']
-        
         persistent_storage.set("admin_content_structure", content_structure)
-        
         return section
     except HTTPException:
         raise
@@ -2234,15 +2274,22 @@ async def delete_section(
     """Удалить раздел"""
     try:
         from utils.persistent_storage import persistent_storage
-        
+        from services.curriculum_catalog import delete_section_db, ensure_catalog_ready
+
+        if has_db() and db is not None:
+            ensure_catalog_ready(db, persistent_storage)
+            if not delete_section_db(db, section_id):
+                raise HTTPException(status_code=404, detail="Раздел не найден")
+            return {"message": "Раздел удален", "id": section_id}
+
+        _ensure_admin_catalog_seeded()
         content_structure = persistent_storage.get("admin_content_structure", [])
-        
         for subject in content_structure:
             subject['sections'] = [sec for sec in subject.get('sections', []) if sec.get('id') != section_id]
-        
         persistent_storage.set("admin_content_structure", content_structure)
-        
         return {"message": "Раздел удален", "id": section_id}
+    except HTTPException:
+        raise
     except Exception as e:
         print(f"Error in delete_section: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -2257,9 +2304,30 @@ async def create_topic(
     """Создать новую тему"""
     try:
         from utils.persistent_storage import persistent_storage
-        
+        from services.curriculum_catalog import create_topic_db, ensure_catalog_ready
+
+        name = (data.name or "").strip()
+        if not name:
+            raise HTTPException(status_code=400, detail="Укажите название темы")
+        el = data.elements if data.elements is not None else 0
+
+        if has_db() and db is not None:
+            ensure_catalog_ready(db, persistent_storage)
+            out = create_topic_db(
+                db,
+                data.section_id,
+                name,
+                description=data.description or "",
+                teacher_notes=data.teacher_notes or "",
+                grade_hint=data.grade_hint or "",
+                elements=el,
+            )
+            if not out:
+                raise HTTPException(status_code=404, detail="Раздел не найден")
+            return out
+
+        _ensure_admin_catalog_seeded()
         content_structure = persistent_storage.get("admin_content_structure", [])
-        
         section = None
         for subject in content_structure:
             for sec in subject.get('sections', []):
@@ -2268,27 +2336,23 @@ async def create_topic(
                     break
             if section:
                 break
-        
         if not section:
             raise HTTPException(status_code=404, detail="Раздел не найден")
-        
-        # Генерируем ID
         max_id = max([t.get('id', 0) for t in section.get('topics', [])], default=0)
         new_id = max(max_id + 1, data.section_id * 10 + len(section.get('topics', [])) + 1)
-        
         new_topic = {
             "id": new_id,
-            "name": data.name,
-            "elements": 0,
-            "tasks": 0
+            "name": name,
+            "elements": max(0, int(el)),
+            "tasks": 0,
+            "description": (data.description or "").strip(),
+            "teacher_notes": (data.teacher_notes or "").strip(),
+            "grade_hint": (data.grade_hint or "").strip(),
         }
-        
         if 'topics' not in section:
             section['topics'] = []
         section['topics'].append(new_topic)
-        
         persistent_storage.set("admin_content_structure", content_structure)
-        
         return new_topic
     except HTTPException:
         raise
@@ -2307,9 +2371,17 @@ async def update_topic(
     """Обновить тему"""
     try:
         from utils.persistent_storage import persistent_storage
-        
+        from services.curriculum_catalog import ensure_catalog_ready, update_topic_db
+
+        if has_db() and db is not None:
+            ensure_catalog_ready(db, persistent_storage)
+            out = update_topic_db(db, topic_id, data)
+            if not out:
+                raise HTTPException(status_code=404, detail="Тема не найдена")
+            return out
+
+        _ensure_admin_catalog_seeded()
         content_structure = persistent_storage.get("admin_content_structure", [])
-        
         topic = None
         for subject in content_structure:
             for section in subject.get('sections', []):
@@ -2321,19 +2393,21 @@ async def update_topic(
                     break
             if topic:
                 break
-        
         if not topic:
             raise HTTPException(status_code=404, detail="Тема не найдена")
-        
-        if 'name' in data:
-            topic['name'] = data['name']
-        if 'elements' in data:
-            topic['elements'] = data['elements']
-        if 'tasks' in data:
-            topic['tasks'] = data['tasks']
-        
+        if 'name' in data and data['name'] is not None:
+            topic['name'] = str(data['name']).strip()
+        if 'elements' in data and data['elements'] is not None:
+            topic['elements'] = max(0, int(data['elements']))
+        if 'tasks' in data and data['tasks'] is not None:
+            topic['tasks'] = max(0, int(data['tasks']))
+        if 'description' in data and data['description'] is not None:
+            topic['description'] = str(data['description']).strip()
+        if 'teacher_notes' in data and data['teacher_notes'] is not None:
+            topic['teacher_notes'] = str(data['teacher_notes']).strip()
+        if 'grade_hint' in data and data['grade_hint'] is not None:
+            topic['grade_hint'] = str(data['grade_hint']).strip()
         persistent_storage.set("admin_content_structure", content_structure)
-        
         return topic
     except HTTPException:
         raise
@@ -2351,16 +2425,29 @@ async def delete_topic(
     """Удалить тему"""
     try:
         from utils.persistent_storage import persistent_storage
-        
+        from services.curriculum_catalog import delete_topic_db, ensure_catalog_ready
+
+        if has_db() and db is not None:
+            ensure_catalog_ready(db, persistent_storage)
+            if not delete_topic_db(db, topic_id):
+                raise HTTPException(status_code=404, detail="Тема не найдена")
+            return {"message": "Тема удалена", "id": topic_id}
+
+        _ensure_admin_catalog_seeded()
         content_structure = persistent_storage.get("admin_content_structure", [])
-        
         for subject in content_structure:
             for section in subject.get('sections', []):
                 section['topics'] = [t for t in section.get('topics', []) if t.get('id') != topic_id]
-        
         persistent_storage.set("admin_content_structure", content_structure)
-        
+        tasks_key = "admin_topic_tasks"
+        tasks_by_topic = persistent_storage.get(tasks_key, {})
+        tk = f"topic_{topic_id}"
+        if tk in tasks_by_topic:
+            del tasks_by_topic[tk]
+            persistent_storage.set(tasks_key, tasks_by_topic)
         return {"message": "Тема удалена", "id": topic_id}
+    except HTTPException:
+        raise
     except Exception as e:
         print(f"Error in delete_topic: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -2381,21 +2468,25 @@ async def add_topic_task(
     """Добавить задание к теме"""
     try:
         from utils.persistent_storage import persistent_storage
-        
+        from services.curriculum_catalog import add_topic_task_db, ensure_catalog_ready
+
+        if has_db() and db is not None:
+            ensure_catalog_ready(db, persistent_storage)
+            res = add_topic_task_db(db, topic_id, data.title, data.description or "")
+            if not res:
+                raise HTTPException(status_code=404, detail="Тема не найдена")
+            new_id, _ = res
+            return {"message": "Задание добавлено", "id": new_id, "topic_id": topic_id}
+
+        _ensure_admin_catalog_seeded()
         key = "admin_topic_tasks"
         tasks_by_topic = persistent_storage.get(key, {})
         topic_key = f"topic_{topic_id}"
         tasks = list(tasks_by_topic.get(topic_key, []))
         new_id = max([t.get("id", 0) for t in tasks], default=0) + 1
-        tasks.append({
-            "id": new_id,
-            "title": data.title,
-            "description": data.description or "",
-        })
+        tasks.append({"id": new_id, "title": data.title, "description": data.description or ""})
         tasks_by_topic[topic_key] = tasks
         persistent_storage.set(key, tasks_by_topic)
-        
-        # Обновить счётчик заданий в структуре контента
         content_structure = persistent_storage.get("admin_content_structure", [])
         for subject in content_structure:
             for section in subject.get("sections", []):
@@ -2404,10 +2495,80 @@ async def add_topic_task(
                         topic["tasks"] = topic.get("tasks", 0) + 1
                         break
         persistent_storage.set("admin_content_structure", content_structure)
-        
         return {"message": "Задание добавлено", "id": new_id, "topic_id": topic_id}
+    except HTTPException:
+        raise
     except Exception as e:
         print(f"Error in add_topic_task: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/admin/content/topic/{topic_id}/tasks", response_model=Dict[str, Any])
+async def list_topic_tasks(
+    topic_id: int,
+    db: Session = Depends(get_db),
+    _admin: dict = Depends(require_roles("admin")),
+):
+    """Список учебных карточек заданий, привязанных к теме в каталоге админки."""
+    try:
+        from utils.persistent_storage import persistent_storage
+        from services.curriculum_catalog import ensure_catalog_ready, list_topic_tasks_db
+
+        if has_db() and db is not None:
+            ensure_catalog_ready(db, persistent_storage)
+            return {"topic_id": topic_id, "tasks": list_topic_tasks_db(db, topic_id)}
+
+        _ensure_admin_catalog_seeded()
+        tasks_by_topic = persistent_storage.get("admin_topic_tasks", {})
+        topic_key = f"topic_{topic_id}"
+        tasks = list(tasks_by_topic.get(topic_key, []))
+        return {"topic_id": topic_id, "tasks": tasks}
+    except Exception as e:
+        print(f"Error in list_topic_tasks: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.delete("/admin/content/topic/{topic_id}/task/{task_id}", response_model=Dict[str, Any])
+async def delete_topic_task(
+    topic_id: int,
+    task_id: int,
+    db: Session = Depends(get_db),
+    _admin: dict = Depends(require_roles("admin")),
+):
+    """Удалить карточку задания у темы."""
+    try:
+        from utils.persistent_storage import persistent_storage
+        from services.curriculum_catalog import delete_topic_task_db, ensure_catalog_ready
+
+        if has_db() and db is not None:
+            ensure_catalog_ready(db, persistent_storage)
+            if not delete_topic_task_db(db, topic_id, task_id):
+                raise HTTPException(status_code=404, detail="Задание не найдено")
+            return {"message": "Задание удалено", "topic_id": topic_id, "task_id": task_id}
+
+        _ensure_admin_catalog_seeded()
+        key = "admin_topic_tasks"
+        tasks_by_topic = persistent_storage.get(key, {})
+        topic_key = f"topic_{topic_id}"
+        tasks = list(tasks_by_topic.get(topic_key, []))
+        new_tasks = [t for t in tasks if t.get("id") != task_id]
+        if len(new_tasks) == len(tasks):
+            raise HTTPException(status_code=404, detail="Задание не найдено")
+        tasks_by_topic[topic_key] = new_tasks
+        persistent_storage.set(key, tasks_by_topic)
+        content_structure = persistent_storage.get("admin_content_structure", [])
+        for subject in content_structure:
+            for section in subject.get("sections", []):
+                for topic in section.get("topics", []):
+                    if topic.get("id") == topic_id:
+                        topic["tasks"] = max(0, topic.get("tasks", 0) - 1)
+                        break
+        persistent_storage.set("admin_content_structure", content_structure)
+        return {"message": "Задание удалено", "topic_id": topic_id, "task_id": task_id}
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Error in delete_topic_task: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

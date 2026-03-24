@@ -4,13 +4,16 @@ API маршруты библиотеки материалов и мини-ку�
 from pathlib import Path
 import hashlib
 import json
+import secrets
 from typing import Any, Dict, List, Optional, Tuple
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
+from sqlalchemy.orm import Session, joinedload
 
-from routes.auth import assert_can_view_user_data, get_current_user
+from routes.auth import assert_can_view_user_data, get_current_user, require_roles
 from utils.answer_parse import numeric_answers_equal
+from utils.db import get_db, has_db
 from utils.orchestrator_singleton import get_orchestrator
 from utils.persistent_storage import persistent_storage
 
@@ -108,16 +111,42 @@ def _hydrate_course(course: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def _load_courses_raw() -> List[Dict[str, Any]]:
+    """Курсы из JSON-файла + курсы, созданные в админке (admin_library_courses в data.json)."""
     p = _courses_path()
-    if not p.exists():
-        return []
-    try:
-        data = json.loads(p.read_text(encoding="utf-8"))
-        if not isinstance(data, list):
-            return []
-        return [_hydrate_course(c) for c in data]
-    except Exception:
-        return []
+    data: List[Dict[str, Any]] = []
+    if p.exists():
+        try:
+            raw = json.loads(p.read_text(encoding="utf-8"))
+            if isinstance(raw, list):
+                data = raw
+        except Exception:
+            pass
+    by_id: Dict[str, Dict[str, Any]] = {}
+    for c in data:
+        cid = c.get("id")
+        if cid:
+            by_id[str(cid)] = _hydrate_course(c)
+    extra = persistent_storage.get("admin_library_courses", [])
+    if isinstance(extra, list):
+        for c in extra:
+            cid = c.get("id")
+            if cid:
+                by_id[str(cid)] = _hydrate_course(c)
+    return list(by_id.values())
+
+
+def _material_card(m: Dict[str, Any]) -> Dict[str, Any]:
+    return {
+        "id": m.get("id"),
+        "title": m.get("title", ""),
+        "description": m.get("description", ""),
+        "subject": m.get("subject", ""),
+        "topic": m.get("topic", ""),
+        "type": m.get("type", "article"),
+        "difficulty": m.get("difficulty", "beginner"),
+        "duration": m.get("duration"),
+        "rating": m.get("rating", 4.5),
+    }
 
 
 def _checkpoint_task_id(course_id: str, lesson_id: str) -> int:
@@ -274,4 +303,184 @@ async def submit_library_checkpoint(
         "feedback": feedback,
         "topic": topic,
     }
+
+
+# --- Программа: каталог тем → материалы и курсы в библиотеке ---
+
+
+@router.get("/library/curriculum-overview", response_model=Dict[str, Any])
+async def library_curriculum_overview(db: Session = Depends(get_db)):
+    """
+    Дерево программы для ученика: предмет → раздел → тема → привязанные материалы и мини-курсы.
+    """
+    try:
+        if not has_db() or db is None:
+            return {"subjects": []}
+
+        from models.curriculum import CurriculumSection, CurriculumSubject
+        from services.curriculum_catalog import ensure_catalog_ready
+
+        ensure_catalog_ready(db, persistent_storage)
+        materials = _ensure_materials()
+        mat_by_id = {str(m["id"]): m for m in materials if m.get("id")}
+        courses_by_id = {str(c["id"]): c for c in _load_courses_raw() if c.get("id")}
+
+        subjects_out: List[Dict[str, Any]] = []
+        q = (
+            db.query(CurriculumSubject)
+            .options(
+                joinedload(CurriculumSubject.sections).joinedload(CurriculumSection.topics)
+            )
+            .order_by(CurriculumSubject.sort_order, CurriculumSubject.id)
+        )
+
+        for subj in q:
+            sec_list: List[Dict[str, Any]] = []
+            for sec in subj.sections:
+                topics_out: List[Dict[str, Any]] = []
+                for top in sec.topics:
+                    mids = list(top.library_material_ids or [])
+                    cids = list(top.library_course_ids or [])
+                    mats = [
+                        _material_card(mat_by_id[sk])
+                        for mid in mids
+                        if (sk := str(mid)) in mat_by_id
+                    ]
+                    crs = [
+                        _course_to_public(courses_by_id[sk])
+                        for cid in cids
+                        if (sk := str(cid)) in courses_by_id
+                    ]
+                    if not mats and not crs:
+                        continue
+                    topics_out.append(
+                        {
+                            "id": top.id,
+                            "name": top.name,
+                            "description": (top.description or "")[:2000],
+                            "grade_hint": top.grade_hint or "",
+                            "materials": mats,
+                            "courses": crs,
+                        }
+                    )
+                if topics_out:
+                    sec_list.append({"id": sec.id, "name": sec.name, "topics": topics_out})
+            if sec_list:
+                subjects_out.append({"id": subj.id, "subject": subj.title, "sections": sec_list})
+
+        return {"subjects": subjects_out}
+    except Exception as e:
+        print(f"Error in library_curriculum_overview: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/admin/library/picker", response_model=Dict[str, Any])
+async def admin_library_picker(_admin: dict = Depends(require_roles("admin"))):
+    """Справочник id для привязки к теме каталога."""
+    mats = _ensure_materials()
+    courses = _load_courses_raw()
+    return {
+        "materials": [
+            {
+                "id": m["id"],
+                "title": m.get("title", ""),
+                "topic": m.get("topic", ""),
+                "subject": m.get("subject", ""),
+                "type": m.get("type", "article"),
+            }
+            for m in mats
+            if m.get("id")
+        ],
+        "courses": [
+            {
+                "id": c["id"],
+                "title": c.get("title", ""),
+                "topic": c.get("topic", ""),
+                "subject": c.get("subject", ""),
+            }
+            for c in courses
+            if c.get("id")
+        ],
+    }
+
+
+class AdminLibraryMaterialCreate(BaseModel):
+    title: str = Field(..., min_length=1)
+    description: str = ""
+    content: str = ""
+    subject: str = "Математика"
+    topic: str = ""
+    type: str = "article"
+    difficulty: str = "beginner"
+    duration: str = "15 мин"
+
+
+@router.post("/admin/library/materials", response_model=Dict[str, Any])
+async def admin_create_library_material(
+    body: AdminLibraryMaterialCreate,
+    _admin: dict = Depends(require_roles("admin")),
+):
+    """Добавить статью/карточку в библиотеку (в data.json)."""
+    try:
+        materials = list(_ensure_materials())
+        new_id = f"mat-{secrets.token_hex(5)}"
+        row = {
+            "id": new_id,
+            "type": body.type if body.type in ("article", "video", "pdf") else "article",
+            "title": body.title.strip(),
+            "description": (body.description or "").strip(),
+            "subject": (body.subject or "Математика").strip(),
+            "topic": (body.topic or body.title[:80]).strip(),
+            "difficulty": body.difficulty
+            if body.difficulty in ("beginner", "intermediate", "advanced")
+            else "beginner",
+            "duration": (body.duration or "").strip() or "15 мин",
+            "rating": 5.0,
+            "content": body.content or "",
+        }
+        materials.append(row)
+        persistent_storage.set("library_materials", materials)
+        return {"id": new_id, "material": row}
+    except Exception as e:
+        print(f"Error in admin_create_library_material: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/admin/library/courses", response_model=Dict[str, Any])
+async def admin_upsert_library_course(
+    course: Dict[str, Any],
+    _admin: dict = Depends(require_roles("admin")),
+):
+    """
+    Создать или обновить мини-курс (полная структура как в library_courses.json).
+    Хранится в admin_library_courses; id должен быть уникальным.
+    """
+    cid = (course.get("id") or "").strip()
+    if not cid:
+        raise HTTPException(status_code=400, detail="Поле id обязательно")
+    if not course.get("title"):
+        raise HTTPException(status_code=400, detail="Укажите title")
+    lessons = course.get("lessons")
+    if not isinstance(lessons, list) or len(lessons) < 1:
+        raise HTTPException(status_code=400, detail="Добавьте хотя бы один урок")
+
+    stored = list(persistent_storage.get("admin_library_courses", []) or [])
+    stored = [c for c in stored if str(c.get("id")) != cid]
+    stored.append(course)
+    persistent_storage.set("admin_library_courses", stored)
+    return {"message": "Курс сохранён", "id": cid}
+
+
+@router.delete("/admin/library/courses/{course_id}", response_model=Dict[str, Any])
+async def admin_delete_library_course(
+    course_id: str,
+    _admin: dict = Depends(require_roles("admin")),
+):
+    """Удалить только курс из admin_library_courses (штатные JSON-файлы не трогаем)."""
+    stored = list(persistent_storage.get("admin_library_courses", []) or [])
+    new_list = [c for c in stored if str(c.get("id")) != course_id]
+    if len(new_list) == len(stored):
+        raise HTTPException(status_code=404, detail="Курс не найден среди созданных в админке")
+    persistent_storage.set("admin_library_courses", new_list)
+    return {"message": "Курс удалён", "id": course_id}
 

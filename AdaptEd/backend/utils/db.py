@@ -68,6 +68,12 @@ def init_db():
 		from models.homework import Homework, HomeworkSubmission  # noqa: F401
 		from models.test import Test, TestQuestion, TestSubmission  # noqa: F401
 		from models.user_db import User  # noqa: F401
+		from models.curriculum import (  # noqa: F401
+			CurriculumSubject,
+			CurriculumSection,
+			CurriculumTopic,
+			CurriculumTopicTask,
+		)
 		Base.metadata.create_all(bind=_engine)
 		try:
 			from sqlalchemy import text
@@ -103,6 +109,24 @@ def init_db():
 				_ensure_column(conn, "homeworks", "test_id", "INTEGER")
 				_ensure_column(conn, "homeworks", "assignment_type", "VARCHAR(50)")
 				_ensure_column(conn, "homework_submissions", "test_submission_id", "INTEGER")
+				# Каталог → библиотека (JSON в SQLite как TEXT, в Postgres — JSONB через IF NOT EXISTS)
+				if DATABASE_URL and "sqlite" in DATABASE_URL:
+					_ensure_column(conn, "curriculum_topics", "library_material_ids", "TEXT")
+					_ensure_column(conn, "curriculum_topics", "library_course_ids", "TEXT")
+				else:
+					try:
+						conn.execute(
+							text(
+								"ALTER TABLE curriculum_topics ADD COLUMN IF NOT EXISTS library_material_ids JSONB DEFAULT '[]'::jsonb"
+							)
+						)
+						conn.execute(
+							text(
+								"ALTER TABLE curriculum_topics ADD COLUMN IF NOT EXISTS library_course_ids JSONB DEFAULT '[]'::jsonb"
+							)
+						)
+					except Exception:
+						pass
 				conn.commit()
 		except Exception:
 			pass
