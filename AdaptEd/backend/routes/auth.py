@@ -5,7 +5,7 @@ from fastapi import APIRouter, HTTPException, Depends, Header
 from typing import Optional
 from pydantic import BaseModel
 from models.auth import UserRegistration, UserLogin, Token, User, UserRole
-from utils.auth_service import auth_service
+from utils.auth_service import auth_service, role_to_str
 
 
 class ProfileUpdate(BaseModel):
@@ -41,7 +41,7 @@ def require_roles(*allowed_roles: str):
     allowed = tuple(allowed_roles)
 
     async def role_checker(current_user: dict = Depends(get_current_user)) -> dict:
-        role = str(current_user.get("role", ""))
+        role = role_to_str(current_user.get("role"))
         if role not in allowed:
             raise HTTPException(status_code=403, detail="Недостаточно прав")
         return current_user
@@ -51,7 +51,7 @@ def require_roles(*allowed_roles: str):
 
 def assert_can_view_user_data(current_user: dict, target_user_id: str) -> None:
     """Ученик/родитель — только свои данные; учитель и админ — любые."""
-    role = str(current_user.get("role", ""))
+    role = role_to_str(current_user.get("role"))
     uid = str(current_user.get("user_id", ""))
     if role in ("admin", "teacher"):
         return

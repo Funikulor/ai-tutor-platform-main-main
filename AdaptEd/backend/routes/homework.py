@@ -3,6 +3,7 @@ API маршруты для домашних заданий
 """
 from fastapi import APIRouter, HTTPException, Depends
 from routes.auth import get_current_user, require_roles, assert_can_view_user_data
+from utils.auth_service import role_to_str
 from pydantic import BaseModel, ConfigDict
 from typing import List, Optional, Dict, Any
 from datetime import datetime, timedelta
@@ -86,7 +87,7 @@ async def list_homeworks(
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user),
 ):
-    role = str(current_user.get("role", ""))
+    role = role_to_str(current_user.get("role"))
     if role in ("student", "parent"):
         effective_filter = str(current_user.get("user_id", ""))
     elif role in ("teacher", "admin"):
@@ -245,7 +246,7 @@ async def submit_homework_db(
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user),
 ):
-    role = str(current_user.get("role", ""))
+    role = role_to_str(current_user.get("role"))
     uid = str(current_user.get("user_id", ""))
     if role not in ("teacher", "admin") and payload.user_id != uid:
         raise HTTPException(status_code=403, detail="Нельзя сдать задание от имени другого пользователя")
@@ -384,7 +385,7 @@ async def list_submissions(
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user),
 ):
-    role = str(current_user.get("role", ""))
+    role = role_to_str(current_user.get("role"))
     uid = str(current_user.get("user_id", ""))
 
     # Пробуем использовать БД

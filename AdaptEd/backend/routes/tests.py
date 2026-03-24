@@ -16,6 +16,7 @@ from services.student_analytics import get_analytics_service
 from utils.answer_parse import numeric_answers_equal
 from utils.db import get_db, has_db
 from routes.auth import get_current_user, require_roles, assert_can_view_user_data
+from utils.auth_service import role_to_str
 
 router = APIRouter()
 
@@ -468,7 +469,7 @@ async def submit_test(
 ):
 	if not has_db() or db is None:
 		raise HTTPException(status_code=503, detail="Database is not configured")
-	role = str(current_user.get("role", ""))
+	role = role_to_str(current_user.get("role"))
 	if role not in ("teacher", "admin"):
 		assert_can_view_user_data(current_user, str(payload.user_id))
 	test = db.get(Test, test_id)

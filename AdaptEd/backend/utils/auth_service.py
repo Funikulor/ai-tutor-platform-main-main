@@ -2,6 +2,7 @@
 Сервис авторизации с поддержкой БД
 """
 import base64
+import enum
 import hashlib
 import hmac
 import json
@@ -14,6 +15,24 @@ from models.auth import User, UserRole
 from models.user_db import User as UserDB
 from utils.persistent_storage import persistent_storage
 from utils.db import get_db, has_db
+
+
+def role_to_str(role) -> str:
+    """
+    Строка роли для API и проверок прав.
+    UserRoleEnum наследует str, поэтому сначала проверяем enum, иначе isinstance(role, str) вернёт True
+    и вернётся сам член enum, а не 'admin'. str(UserRoleEnum.ADMIN) даёт 'UserRoleEnum.ADMIN'.
+    """
+    if role is None:
+        return ""
+    if isinstance(role, enum.Enum):
+        return str(role.value)
+    if isinstance(role, str):
+        return role
+    val = getattr(role, "value", None)
+    if val is not None:
+        return str(val)
+    return str(role)
 
 
 class AuthService:
@@ -170,7 +189,7 @@ class AuthService:
                         return {
                             "token": token,
                             "user_id": user_db.user_id,
-                            "role": user_db.role
+                            "role": role_to_str(user_db.role),
                         }
                 except Exception as e:
                     print(f"[Auth] Ошибка аутентификации в БД: {e}")
@@ -233,7 +252,7 @@ class AuthService:
                             "user_id": user_db.user_id,
                             "email": user_db.email,
                             "full_name": user_db.full_name,
-                            "role": user_db.role,
+                            "role": role_to_str(user_db.role),
                             "class_id": user_db.class_id,
                             "phone": user_db.phone,
                             "parent_fio": getattr(user_db, 'parent_fio', None),
@@ -252,7 +271,7 @@ class AuthService:
                 "user_id": user_id,
                 "email": user_data.get("email"),
                 "full_name": user_data.get("full_name"),
-                "role": user_data.get("role"),
+                "role": role_to_str(user_data.get("role")),
                 "class_id": user_data.get("class_id"),
                 "phone": user_data.get("phone"),
                 "parent_fio": user_data.get("parent_fio"),
@@ -282,7 +301,7 @@ class AuthService:
                             "user_id": user_db.user_id,
                             "email": user_db.email,
                             "full_name": user_db.full_name,
-                            "role": user_db.role,
+                            "role": role_to_str(user_db.role),
                             "class_id": user_db.class_id,
                             "phone": user_db.phone,
                             "parent_fio": getattr(user_db, 'parent_fio', None),
@@ -318,7 +337,7 @@ class AuthService:
                             "user_id": user_db.user_id,
                             "email": user_db.email,
                             "full_name": user_db.full_name,
-                            "role": user_db.role,
+                            "role": role_to_str(user_db.role),
                             "class_id": user_db.class_id,
                             "phone": user_db.phone,
                             "parent_fio": getattr(user_db, 'parent_fio', None),
