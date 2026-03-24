@@ -46,6 +46,9 @@ interface ChatContextPayload {
   homework_id?: number;
   test_submission_id?: number;
   question_id?: number;
+  /** Мини-курс библиотеки: бэкенд подставит текст шага и контроль из JSON курса */
+  library_course_id?: string;
+  library_lesson_index?: number;
   label?: string;
 }
 

@@ -140,6 +140,33 @@ export function CourseViewer({ course, onBack, onProgress }: CourseViewerProps) 
     }
   }, [canOpen, activeIdx]);
 
+  const activeLessonStableId = course.lessons?.[activeIdx]?.id;
+
+  useEffect(() => {
+    const list = course.lessons ?? [];
+    const les = list[activeIdx];
+    const label = les
+      ? `Мини-курс: ${course.title} · шаг ${activeIdx + 1} — ${les.title}`
+      : `Мини-курс: ${course.title}`;
+    window.dispatchEvent(
+      new CustomEvent('ai-chat-context', {
+        detail: {
+          context: {
+            library_course_id: course.id,
+            library_lesson_index: activeIdx,
+            label,
+          },
+        },
+      })
+    );
+  }, [course.id, course.title, activeIdx, activeLessonStableId]);
+
+  useEffect(() => {
+    return () => {
+      window.dispatchEvent(new CustomEvent('ai-chat-context', { detail: { context: null } }));
+    };
+  }, [course.id]);
+
   const lesson: LibraryLesson | undefined = lessons[activeIdx];
   const cp = lesson?.checkpoint;
 
@@ -218,6 +245,9 @@ export function CourseViewer({ course, onBack, onProgress }: CourseViewerProps) 
           <span>{course.subject}</span>
         </div>
       </div>
+      <p className="text-xs text-gray-500 -mt-2 mb-1 max-w-3xl">
+        AI-помощник подставляет в чат текст этого шага и формулировку контрольного вопроса — спрашивай, если что-то непонятно.
+      </p>
 
       {/* Светлая карточка + тёмный текст: градиент с белым текстом на части экранов «пропадает» и даёт невидимый заголовок */}
       <div className="rounded-2xl overflow-hidden border-2 border-indigo-200/80 bg-white shadow-md ring-1 ring-gray-100">

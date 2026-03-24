@@ -518,6 +518,82 @@ class AssistantService:
 			except Exception:
 				pass
 
+	def _get_library_course_context(self, context: Optional[Dict[str, Any]]) -> str:
+		"""Текст урока и контрольного вопроса мини-курса из библиотеки (как в JSON курса)."""
+		if not context:
+			return ""
+		cid = context.get("library_course_id")
+		if not cid:
+			return ""
+		idx = context.get("library_lesson_index", 0)
+		try:
+			idx = int(idx)
+		except (TypeError, ValueError):
+			idx = 0
+		try:
+			from routes.materials import _load_courses_raw  # noqa: WPS433
+
+			raw_courses = _load_courses_raw()
+		except Exception:
+			return ""
+		course = next((c for c in raw_courses if str(c.get("id")) == str(cid)), None)
+		if not course:
+			return ""
+		lessons = course.get("lessons") or []
+		if lessons:
+			idx = max(0, min(idx, len(lessons) - 1))
+		else:
+			idx = 0
+		lesson = lessons[idx] if lessons else None
+
+		lines: List[str] = [
+			"[Мини-курс библиотеки платформы — про содержание шага и контрольные вопросы отвечай СТРОГО по этому блоку. "
+			"Не выдумывай другие формулировки вопросов и не подменяй текст проверки.]",
+			f"Курс: {course.get('title', '')}",
+			f"Описание: {course.get('description', '')}",
+			f"Предмет: {course.get('subject', '')}. Тема курса: {course.get('topic', '')}.",
+			f"Открыт шаг {idx + 1} из {len(lessons) if lessons else 0}.",
+		]
+		if lesson:
+			lines.append(f"Заголовок шага: {lesson.get('title', '')}")
+			content = (lesson.get("content") or "").strip()
+			if len(content) > 14000:
+				content = content[:14000] + "\n…[фрагмент урока сокращён для чата]"
+			if content:
+				lines.append("Текст урока (как в курсе):\n" + content)
+			ch = lesson.get("checkpoint") or {}
+			cpt = ch.get("type") or "single_choice"
+			lines.append(f"Контроль после шага — тип: {cpt}")
+			q = (ch.get("question") or "").strip()
+			if q:
+				lines.append(f"Вопрос (дословно): {q}")
+			if cpt == "single_choice":
+				opts = ch.get("options") or []
+				for i, opt in enumerate(opts):
+					lines.append(f"  Вариант {i}: {opt}")
+				ci = ch.get("correct_index")
+				if ci is not None:
+					lines.append(
+						f"  [Справка для ассистента] Верный индекс варианта: {ci}. "
+						"Не называй его ученику, пока он не попросил ответ явно или не решил сам; веди подсказками."
+					)
+			elif cpt == "numeric":
+				ca = ch.get("correct_answer")
+				if ca is not None:
+					lines.append(
+						f"  [Справка для ассистента] Верный ответ: {ca}. "
+						"Не озвучивай сразу; помогай вычислить шагами."
+					)
+			elif cpt == "short_text":
+				acc = ch.get("acceptable_answers") or []
+				if acc:
+					lines.append(
+						f"  [Справка для ассистента] Допустимые ответы: {acc}. "
+						"Не зачитывай список ученику; подсказывай логику."
+					)
+
+		return "\n".join(lines)
+
 	def _get_test_context(self, context: Optional[Dict[str, Any]]) -> str:
 		"""Подмешивает в чат полный контекст конкретного теста/отправки."""
 		if not context or not has_db():
@@ -625,6 +701,7 @@ class AssistantService:
 		if user_id:
 			homeworks_ctx = self._get_homeworks_context(user_id)
 		test_ctx = self._get_test_context(context)
+		library_course_ctx = self._get_library_course_context(context)
 
 		# Имя ученика (если есть)
 		name_text = f"\nИмя ученика: {user_name}." if user_name else ""
@@ -647,11 +724,21 @@ class AssistantService:
 					"role": "system",
 					"content": test_ctx + "\nЕсли ученик просит помочь, опирайся только на этот тестовый контекст и объясняй по шагам.",
 				})
+			if library_course_ctx:
+				formatted_messages.append({
+					"role": "system",
+					"content": library_course_ctx
+					+ "\nЕсли спрашивают про контроль после шага — формулировку вопроса и варианты бери только из блока выше. "
+					"Помогай учиться вместе с курсом: поясняй идеи урока, не подменяй проверку выдуманными задачами.",
+				})
 			return self._generate("", max_new_tokens=1024, messages=formatted_messages)
 		else:
 			# Для других провайдеров используем старый формат
 			history = "\n".join([f"{m.get('role','user')}: {m.get('content','')}" for m in messages[-5:]])
-			prompt = f"{base_system}{personality_context}\n{homeworks_ctx}\n{test_ctx}\n{history}\nassistant:"
+			lib_extra = ""
+			if library_course_ctx:
+				lib_extra = "\n" + library_course_ctx + "\n(Отвечай по мини-курсу только из этого контекста.)\n"
+			prompt = f"{base_system}{personality_context}\n{homeworks_ctx}\n{test_ctx}{lib_extra}\n{history}\nassistant:"
 			return self._generate(prompt, max_new_tokens=1024)
 
 	def hint(self, task_text: str, student_level: Optional[str] = None) -> str:
