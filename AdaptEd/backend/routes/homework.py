@@ -1419,8 +1419,8 @@ async def get_recommendations(
                 },
                 {
                     "type": "video",
-                    "title": "Решение задач повышенной сложности",
-                    "description": "Видеокурс от ведущих преподавателей",
+                    "title": "Площадь снежинки Коха (Khan Academy, русский)",
+                    "description": "Русская лекция Khan Academy: фрактал Коха, площадь и ряд",
                     "relevance": 78,
                     "materialId": "math-advanced-problems"
                 }

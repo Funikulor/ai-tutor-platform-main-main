@@ -73,8 +73,8 @@ export function RecommendationPanel({ error, onMaterialClick }: RecommendationPa
           },
           {
             type: 'video',
-            title: 'Решение задач повышенной сложности',
-            description: 'Видеокурс от ведущих преподавателей',
+            title: 'Площадь снежинки Коха (Khan Academy, русский)',
+            description: 'Русская лекция: фрактал Коха, площадь и ряд',
             relevance: 78,
             materialId: 'math-advanced-problems'
           }

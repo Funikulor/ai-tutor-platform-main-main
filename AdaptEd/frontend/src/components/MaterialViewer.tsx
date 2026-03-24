@@ -350,19 +350,40 @@ export function MaterialViewer({ material, onBack, onStudyComplete, allMaterials
     }
   };
 
+  const youtubeEmbedSrc = (raw?: string): string | null => {
+    if (!raw?.trim()) return null;
+    const u = raw.trim();
+    if (u.includes('youtube.com/embed/')) return u;
+    const m = u.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/)([a-zA-Z0-9_-]{11})/);
+    if (m) return `https://www.youtube.com/embed/${m[1]}?rel=0`;
+    return u.startsWith('http') ? u : null;
+  };
+
   const renderContent = () => {
     if (material.type === 'video') {
+      const embed = youtubeEmbedSrc(material.videoUrl);
       return (
         <div className="space-y-6">
-          <div className="bg-gray-900 rounded-xl aspect-video flex items-center justify-center">
-            <div className="text-center text-white">
-              <Video className="w-16 h-16 mx-auto mb-4 opacity-50" />
-              <p className="text-gray-400">Видео будет загружено здесь</p>
-              {material.videoUrl && (
-                <p className="text-sm text-gray-500 mt-2">{material.videoUrl}</p>
-              )}
+          {embed ? (
+            <div className="rounded-xl overflow-hidden border border-gray-200 shadow-sm bg-black aspect-video">
+              <iframe
+                className="w-full h-full min-h-[200px]"
+                src={embed}
+                title={material.title}
+                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                allowFullScreen
+                loading="lazy"
+                referrerPolicy="strict-origin-when-cross-origin"
+              />
             </div>
-          </div>
+          ) : (
+            <div className="bg-gray-900 rounded-xl aspect-video flex items-center justify-center">
+              <div className="text-center text-white px-4">
+                <Video className="w-16 h-16 mx-auto mb-4 opacity-50" />
+                <p className="text-gray-400">Ссылка на видео не задана</p>
+              </div>
+            </div>
+          )}
           <div className="prose max-w-none">
             <h2>О видеокурсе</h2>
             <p>{material.description}</p>

@@ -54,15 +54,15 @@
   {
     "id": "math-advanced-problems",
     "type": "video",
-    "title": "Решение задач повышенной сложности",
-    "description": "Видеокурс с пошаговым разбором сложных задач",
+    "title": "Площадь снежинки Коха (Khan Academy, русский)",
+    "description": "Русская озвучка Khan Academy (канал KhanAcademyRussian): как посчитать площадь фрактала «снежинка Коха» через сумму ряда, почему периметр бесконечен, а площадь конечна. ~14 минут, уровень выше стандартной школьной геометрии.",
     "subject": "Математика",
-    "topic": "Смешанные темы",
+    "topic": "Геометрия и ряды",
     "difficulty": "advanced",
-    "duration": "45 мин",
-    "rating": 4.7,
+    "duration": "~14 мин",
+    "rating": 4.9,
     "related_ids": ["math-pythagorean", "math-quadratic", "math-algebra-basics"],
-    "videoUrl": "https://www.youtube.com/embed/dQw4w9WgXcQ"
+    "videoUrl": "https://www.youtube.com/embed/skKxNSrg8U8?rel=0"
   },
   {
     "id": "math-fractions-pdf",
