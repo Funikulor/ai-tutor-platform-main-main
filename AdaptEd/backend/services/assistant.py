@@ -2,7 +2,7 @@ from typing import Any, Dict, List, Optional
 import os
 import json
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 
 try:
 	from transformers import pipeline, AutoTokenizer, AutoModelForCausalLM  # type: ignore
@@ -484,39 +484,85 @@ class AssistantService:
 		
 		return "Извините, модель временно недоступна. Убедитесь, что API ключ задан: локально — в .env (OPENAI_API_KEY или PROXYAPI_KEY), на Railway — в разделе Variables. Также проверьте настройки провайдера (ASSISTANT_PROVIDER)."
 
-	def _get_homeworks_context(self, user_id: str) -> str:
-		"""Краткий контекст по активным ДЗ ученика (из БД, если доступно)."""
-		if not has_db():
-			return ""
-		sess = get_db()
-		if sess is None:
-			return ""
-		try:
-			from models.homework import Homework  # type: ignore
-			rows = (
-				sess.query(Homework)
-				.filter(Homework.assigned_to == user_id)
-				.filter(Homework.status.in_(["new", "in_progress", "submitted"]))
-				.order_by(Homework.due_date.asc().nulls_last())
-				.limit(5)
-				.all()
-			)
-			if not rows:
-				return ""
-			lines = []
-			for hw in rows:
-				title = hw.title or "Задание"
-				status = hw.status or "new"
-				due = hw.due_date.strftime("%Y-%m-%d") if hw.due_date else "без дедлайна"
-				lines.append(f"- {title} (статус: {status}, дедлайн: {due})")
-			return "\nАктивные домашние задания:\n" + "\n".join(lines)
-		except Exception:
-			return ""
-		finally:
+	def _hw_due_display(self, due: Any) -> str:
+		if due is None:
+			return "без дедлайна"
+		if hasattr(due, "strftime"):
 			try:
-				sess.close()
+				return due.strftime("%Y-%m-%d")
 			except Exception:
-				pass
+				return str(due)
+		s = str(due).strip()
+		if len(s) >= 10 and s[4:5] == "-" and s[7:8] == "-":
+			return s[:10]
+		return s[:48] if s else "без дедлайна"
+
+	def _get_homeworks_context(self, user_id: str) -> str:
+		"""Активные ДЗ ученика: Postgres + fallback persistent_storage (как в GET /homeworks)."""
+		uid = str(user_id)
+		lines: List[str] = []
+		seen_ids = set()
+		active_statuses = ("new", "in_progress", "submitted")
+		today_utc = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+		header = (
+			f"Сегодняшняя дата по UTC: {today_utc}. "
+			"Сравнивай дедлайны с этой датой, если ученик спрашивает про «сегодня».\n"
+		)
+
+		if has_db():
+			sess = get_db()
+			if sess is not None:
+				try:
+					from models.homework import Homework  # type: ignore
+					rows = (
+						sess.query(Homework)
+						.filter(Homework.assigned_to == uid)
+						.filter(Homework.status.in_(active_statuses))
+						.order_by(Homework.due_date.asc().nulls_last())
+						.limit(12)
+						.all()
+					)
+					for hw in rows:
+						title = hw.title or "Задание"
+						status = hw.status or "new"
+						due_s = self._hw_due_display(hw.due_date)
+						lines.append(f"- {title} (статус: {status}, дедлайн: {due_s})")
+						if hw.id is not None:
+							seen_ids.add(hw.id)
+				except Exception:
+					pass
+				finally:
+					try:
+						sess.close()
+					except Exception:
+						pass
+
+		try:
+			for hw in persistent_storage.get("homeworks", []) or []:
+				if str(hw.get("assigned_to", "")) != uid:
+					continue
+				st = hw.get("status") or "new"
+				if st not in active_statuses:
+					continue
+				hid = hw.get("id")
+				if hid is not None and hid in seen_ids:
+					continue
+				title = hw.get("title") or "Задание"
+				due_s = self._hw_due_display(hw.get("due_date"))
+				lines.append(f"- {title} (статус: {st}, дедлайн: {due_s})")
+				if hid is not None:
+					seen_ids.add(hid)
+		except Exception:
+			pass
+
+		if not lines:
+			return (
+				header
+				+ "Активные домашние задания по данным платформы: список пуст (ученику не назначено незавершённых ДЗ или это не ученическая учётная запись). "
+				"На вопросы «есть ли ДЗ» отвечай: по системе сейчас ничего не числится — не выдумывай задания.\n"
+			)
+
+		return header + "Активные домашние задания:\n" + "\n".join(lines[:15])
 
 	def _get_library_course_context(self, context: Optional[Dict[str, Any]]) -> str:
 		"""Текст урока и контрольного вопроса мини-курса из библиотеки (как в JSON курса)."""

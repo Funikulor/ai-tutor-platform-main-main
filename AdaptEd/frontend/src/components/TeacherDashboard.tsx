@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import { Users, TrendingUp, AlertCircle, Download, Filter, BarChart3, FileText, PenSquare, ClipboardList, X, Phone } from 'lucide-react';
 import { TeacherTestsTab } from './TeacherTestsTab';
+import { AIChatPanel } from './AIChatPanel';
 import api from '../services/api';
 import { toast } from 'sonner';
 
@@ -73,6 +74,7 @@ export function TeacherDashboard() {
   const [detailStudent, setDetailStudent] = useState<StudentRow | null>(null);
   const [tablePage, setTablePage] = useState(0);
   const performanceTableRef = useRef<HTMLDivElement>(null);
+  const [isChatMinimized, setIsChatMinimized] = useState(true);
 
   const visibleStudents = useMemo(() => {
     return classData.filter((student) => {
@@ -740,6 +742,11 @@ export function TeacherDashboard() {
       )}
         </>
       )}
+
+      <AIChatPanel
+        isMinimized={isChatMinimized}
+        onToggleMinimize={() => setIsChatMinimized(!isChatMinimized)}
+      />
     </div>
   );
 }
