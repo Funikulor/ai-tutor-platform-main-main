@@ -1,10 +1,18 @@
 #!/usr/bin/env python3
 """
 Заполнение БД пользователями из seed_credentials.txt.
-Запуск из корня backend: python -m scripts.seed_from_credentials
+Запуск из корня backend:
+  python -m scripts.seed_from_credentials
+  python -m scripts.seed_from_credentials --reset   # удалить всех student/teacher, затем создать заново
 
 Не трогает админа — админ создаётся отдельно (scripts/create_admin.py).
+
+Почему «сначала вход работал, потом нет» (это не из-за чат-бота):
+  — На Railway у сервиса backend обязательно должен быть задан DATABASE_URL на Postgres.
+    Если его нет, приложение пишет в SQLite внутри контейнера: при каждом redeploy файл пустеет — пользователей как не бывало.
+  — Смена пароля/URL у плагина Postgres в Railway тоже меняет «куда» смотрит приложение.
 """
+import argparse
 import hashlib
 import os
 import re
@@ -91,7 +99,18 @@ def parse_credentials_file(path: str):
     return result
 
 
-def main():
+def delete_all_students_and_teachers(db) -> int:
+    """Удаляет всех пользователей с ролями student и teacher. Админ, parent и прочие не трогает."""
+    q = db.query(User).filter(
+        User.role.in_([UserRoleEnum.STUDENT, UserRoleEnum.TEACHER])
+    )
+    n = q.count()
+    q.delete(synchronize_session=False)
+    db.commit()
+    return n
+
+
+def main(reset_first: bool = False):
     if not has_db():
         print("Ошибка: DATABASE_URL не задан или БД недоступна. Проверьте .env")
         sys.exit(1)
@@ -110,6 +129,11 @@ def main():
     except Exception as e:
         print(f"Предупреждение при миграции колонок: {e}")
         db.rollback()
+
+    if reset_first:
+        removed = delete_all_students_and_teachers(db)
+        print(f"Удалено учётных записей (ученик + учитель): {removed}\n")
+
     created, updated = 0, 0
     for e in entries:
         try:
@@ -152,5 +176,12 @@ def main():
 
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Сид учеников/учителей из seed_credentials.txt")
+    parser.add_argument(
+        "--reset",
+        action="store_true",
+        help="Сначала удалить всех пользователей с ролями student и teacher, затем создать из файла",
+    )
+    args = parser.parse_args()
     print("Заполнение БД из seed_credentials.txt...\n")
-    main()
+    main(reset_first=args.reset)

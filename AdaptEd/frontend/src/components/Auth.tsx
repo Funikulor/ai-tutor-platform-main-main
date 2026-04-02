@@ -16,13 +16,16 @@ export function Auth({ onSuccess }: AuthProps) {
   const [loginPassword, setLoginPassword] = useState('');
 
   const checkBackend = useCallback(async () => {
+    // Railway: холодный старт + импорт приложения может занять >15 с
+    const healthTimeout = import.meta.env.PROD ? 60000 : 20000;
+
     try {
       // Логируем для отладки
       const baseURL = (api.defaults.baseURL || '') as string;
       console.log('Checking backend at:', baseURL || '/');
-      
-      // Проверяем доступность backend через корневой endpoint
-      const response = await api.get('/', { timeout: 15000 });
+
+      // Лёгкий /health вместо / — не тянем index.html и не смешиваем с SPA
+      const response = await api.get('/health', { timeout: healthTimeout });
       if (response.status === 200 && response.data) {
         console.log('✅ Backend is online:', response.data);
         setBackendStatus('online');
@@ -52,7 +55,7 @@ export function Auth({ onSuccess }: AuthProps) {
         console.log('⏳ Retrying backend check in 3 seconds...');
         // Даем еще одну попытку через 3 секунды
         setTimeout(() => {
-          api.get('/', { timeout: 15000 })
+          api.get('/health', { timeout: healthTimeout })
             .then(() => {
               console.log('✅ Backend is online (after retry)');
               setBackendStatus('online');
@@ -70,7 +73,8 @@ export function Auth({ onSuccess }: AuthProps) {
 
   useEffect(() => {
     checkBackend();
-    const interval = setInterval(checkBackend, 15000);
+    const intervalMs = import.meta.env.PROD ? 45000 : 20000;
+    const interval = setInterval(checkBackend, intervalMs);
     return () => clearInterval(interval);
   }, [checkBackend]);
 

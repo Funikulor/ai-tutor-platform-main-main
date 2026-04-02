@@ -1,6 +1,7 @@
 import os
 from contextlib import asynccontextmanager
 from pathlib import Path
+from typing import Optional
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -97,9 +98,18 @@ def _get_allowed_origins() -> list[str]:
             unique.append(origin)
     return unique
 
+
+def _railway_cors_regex() -> Optional[str]:
+    """Любой публичный URL вида https://<service>.up.railway.app (деплой фронта)."""
+    if os.getenv("CORS_DISABLE_RAILWAY_REGEX", "").lower() in ("1", "true", "yes"):
+        return None
+    return r"^https://[\w.-]+\.up\.railway\.app$"
+
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_get_allowed_origins(),
+    allow_origin_regex=_railway_cors_regex(),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -149,6 +159,12 @@ def debug_storage():
         "data_file_exists": data_file.is_file(),
     }
 
+@app.get("/health")
+def health():
+    """Быстрая проверка живости API (без БД и тяжёлых зависимостей) — для фронта и Railway."""
+    return {"status": "ok"}
+
+
 @app.get("/batcher-stats")
 def get_batcher_stats():
     """Статистика батчеров — только при DEBUG."""
@@ -187,6 +203,7 @@ def serve_spa(full_path: str):
         "materials/",
         "debug",
         "batcher-stats",
+        "health",
         "docs",
         "redoc",
         "openapi.json",

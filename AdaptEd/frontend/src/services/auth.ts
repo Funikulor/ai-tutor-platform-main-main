@@ -5,7 +5,7 @@ export const authService = {
     const { data } = await api.post(
       '/auth/login',
       { email, password },
-      { timeout: 10000 }
+      { timeout: 30000 }
     );
     if (data.access_token) {
       localStorage.setItem('token', data.access_token);
@@ -32,7 +32,7 @@ export const authService = {
     class_id?: string;
     phone?: string;
   }) {
-    const { data } = await api.post('/auth/register', userData, { timeout: 10000 });
+    const { data } = await api.post('/auth/register', userData, { timeout: 30000 });
     return data;
   },
 
@@ -40,7 +40,7 @@ export const authService = {
     if (!localStorage.getItem('token')) return null;
 
     try {
-      const { data } = await api.get('/auth/me', { timeout: 10000 });
+      const { data } = await api.get('/auth/me', { timeout: 20000 });
       if (data?.full_name) {
         localStorage.setItem('full_name', data.full_name);
       }
