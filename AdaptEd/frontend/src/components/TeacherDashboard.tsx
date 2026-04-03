@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
-import { Users, TrendingUp, AlertCircle, Download, Filter, BarChart3, FileText, PenSquare, ClipboardList, X, Phone } from 'lucide-react';
+import { Users, TrendingUp, AlertCircle, Download, Filter, BarChart3, FileText, PenSquare, ClipboardList, X, Phone, Loader2, Sparkles } from 'lucide-react';
 import { TeacherTestsTab } from './TeacherTestsTab';
 import { AIChatPanel } from './AIChatPanel';
 import api from '../services/api';
+import { avatarInitial } from '../utils/avatar';
 import { toast } from 'sonner';
 
 type StudentStatus = 'excellent' | 'good' | 'average' | 'needs-help';
@@ -280,10 +281,10 @@ export function TeacherDashboard() {
 
   const getStatusBadge = (status: string) => {
     const styles = {
-      excellent: 'bg-green-100 text-green-700',
-      good: 'bg-blue-100 text-blue-700',
-      average: 'bg-yellow-100 text-yellow-700',
-      'needs-help': 'bg-red-100 text-red-700'
+      excellent: 'bg-emerald-50 text-emerald-800 ring-1 ring-emerald-200/80',
+      good: 'bg-sky-50 text-sky-800 ring-1 ring-sky-200/80',
+      average: 'bg-amber-50 text-amber-800 ring-1 ring-amber-200/80',
+      'needs-help': 'bg-rose-50 text-rose-800 ring-1 ring-rose-200/80'
     };
     const labels = {
       excellent: 'Отлично',
@@ -292,81 +293,135 @@ export function TeacherDashboard() {
       'needs-help': 'Нужна помощь'
     };
     return (
-      <span className={`px-3 py-1 rounded-full text-xs ${styles[status as keyof typeof styles]}`}>
+      <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${styles[status as keyof typeof styles]}`}>
         {labels[status as keyof typeof labels]}
       </span>
     );
   };
 
   return (
-    <div className="space-y-6">
-      {/* Navigation Tabs */}
-      <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-1 flex flex-wrap gap-1">
-        <button
-          onClick={() => setCurrentView('analytics')}
-          className={`flex-1 py-3 px-4 rounded-lg transition-all ${
-            currentView === 'analytics'
-              ? 'bg-blue-50 text-blue-600'
-              : 'text-gray-600 hover:bg-gray-50'
-          }`}
-        >
-          <BarChart3 className="w-5 h-5 inline mr-2" />
-          Аналитика класса
-        </button>
-        <button
-          onClick={() => setCurrentView('create-tests')}
-          className={`flex-1 py-3 px-4 rounded-lg transition-all ${
-            currentView === 'create-tests'
-              ? 'bg-green-50 text-green-600'
-              : 'text-gray-600 hover:bg-gray-50'
-          }`}
-        >
-          <PenSquare className="w-5 h-5 inline mr-2" />
-          Создание тестов
-        </button>
-        <button
-          onClick={() => setCurrentView('created-tests')}
-          className={`flex-1 py-3 px-4 rounded-lg transition-all ${
-            currentView === 'created-tests'
-              ? 'bg-green-50 text-green-600'
-              : 'text-gray-600 hover:bg-gray-50'
-          }`}
-        >
-          <FileText className="w-5 h-5 inline mr-2" />
-          Созданные тесты
-        </button>
-        <button
-          onClick={() => setCurrentView('results')}
-          className={`flex-1 py-3 px-4 rounded-lg transition-all ${
-            currentView === 'results'
-              ? 'bg-purple-50 text-purple-600'
-              : 'text-gray-600 hover:bg-gray-50'
-          }`}
-        >
-          <ClipboardList className="w-5 h-5 inline mr-2" />
-          Результаты учеников
-        </button>
+    <div className="space-y-8 pb-10">
+      {/* Навигация и введение */}
+      <div className="relative overflow-hidden rounded-2xl border border-slate-200/90 bg-gradient-to-br from-slate-50 via-white to-indigo-50/50 shadow-sm">
+        <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_90%_60%_at_100%_0%,rgba(99,102,241,0.11),transparent)]" />
+        <div className="relative p-5 sm:p-6">
+          <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div className="flex gap-3">
+              <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-indigo-600 text-white shadow-lg shadow-indigo-600/25">
+                <Sparkles className="h-5 w-5" />
+              </div>
+              <div>
+                <p className="text-[11px] font-semibold uppercase tracking-widest text-indigo-600">Кабинет учителя</p>
+                <h2 className="mt-0.5 text-xl font-semibold tracking-tight text-slate-900 sm:text-2xl">Работа с классом</h2>
+                <p className="mt-1 max-w-2xl text-sm leading-relaxed text-slate-600">
+                  Сводка успеваемости, типовые ошибки, назначение тестов и просмотр результатов — в одном интерфейсе.
+                </p>
+              </div>
+            </div>
+          </div>
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4">
+            <button
+              type="button"
+              onClick={() => setCurrentView('analytics')}
+              className={`group flex flex-col gap-0.5 rounded-xl border px-4 py-3 text-left transition-all ${
+                currentView === 'analytics'
+                  ? 'border-indigo-200 bg-white shadow-md ring-2 ring-indigo-500/15'
+                  : 'border-transparent bg-white/50 hover:border-slate-200 hover:bg-white hover:shadow-sm'
+              }`}
+            >
+              <span className="flex items-center gap-2 font-medium text-slate-900">
+                <BarChart3 className={`h-5 w-5 ${currentView === 'analytics' ? 'text-indigo-600' : 'text-slate-400 group-hover:text-slate-600'}`} />
+                Аналитика класса
+              </span>
+              <span className="pl-7 text-xs text-slate-500">Ученики, баллы, темы</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setCurrentView('create-tests')}
+              className={`group flex flex-col gap-0.5 rounded-xl border px-4 py-3 text-left transition-all ${
+                currentView === 'create-tests'
+                  ? 'border-emerald-200 bg-white shadow-md ring-2 ring-emerald-500/15'
+                  : 'border-transparent bg-white/50 hover:border-slate-200 hover:bg-white hover:shadow-sm'
+              }`}
+            >
+              <span className="flex items-center gap-2 font-medium text-slate-900">
+                <PenSquare className={`h-5 w-5 ${currentView === 'create-tests' ? 'text-emerald-600' : 'text-slate-400 group-hover:text-slate-600'}`} />
+                Создание тестов
+              </span>
+              <span className="pl-7 text-xs text-slate-500">Вручную или с ИИ</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setCurrentView('created-tests')}
+              className={`group flex flex-col gap-0.5 rounded-xl border px-4 py-3 text-left transition-all ${
+                currentView === 'created-tests'
+                  ? 'border-teal-200 bg-white shadow-md ring-2 ring-teal-500/15'
+                  : 'border-transparent bg-white/50 hover:border-slate-200 hover:bg-white hover:shadow-sm'
+              }`}
+            >
+              <span className="flex items-center gap-2 font-medium text-slate-900">
+                <FileText className={`h-5 w-5 ${currentView === 'created-tests' ? 'text-teal-600' : 'text-slate-400 group-hover:text-slate-600'}`} />
+                Созданные тесты
+              </span>
+              <span className="pl-7 text-xs text-slate-500">Редактирование и назначение</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setCurrentView('results')}
+              className={`group flex flex-col gap-0.5 rounded-xl border px-4 py-3 text-left transition-all ${
+                currentView === 'results'
+                  ? 'border-violet-200 bg-white shadow-md ring-2 ring-violet-500/15'
+                  : 'border-transparent bg-white/50 hover:border-slate-200 hover:bg-white hover:shadow-sm'
+              }`}
+            >
+              <span className="flex items-center gap-2 font-medium text-slate-900">
+                <ClipboardList className={`h-5 w-5 ${currentView === 'results' ? 'text-violet-600' : 'text-slate-400 group-hover:text-slate-600'}`} />
+                Результаты учеников
+              </span>
+              <span className="pl-7 text-xs text-slate-500">Попытки и обратная связь</span>
+            </button>
+          </div>
+        </div>
       </div>
 
-      {currentView === 'create-tests' && <TeacherTestsTab mode="create" preselectedStudentId={preselectedStudentId} />}
-      {currentView === 'created-tests' && <TeacherTestsTab mode="manage" preselectedStudentId={preselectedStudentId} />}
-      {currentView === 'results' && <TeacherTestsTab mode="results" preselectedStudentId={preselectedStudentId} />}
+      {currentView === 'create-tests' && (
+        <div className="rounded-2xl border border-slate-200/90 bg-white px-4 py-5 shadow-sm sm:px-6 sm:py-6">
+          <TeacherTestsTab mode="create" preselectedStudentId={preselectedStudentId} />
+        </div>
+      )}
+      {currentView === 'created-tests' && (
+        <div className="rounded-2xl border border-slate-200/90 bg-white px-4 py-5 shadow-sm sm:px-6 sm:py-6">
+          <TeacherTestsTab mode="manage" preselectedStudentId={preselectedStudentId} />
+        </div>
+      )}
+      {currentView === 'results' && (
+        <div className="rounded-2xl border border-slate-200/90 bg-white px-4 py-5 shadow-sm sm:px-6 sm:py-6">
+          <TeacherTestsTab mode="results" preselectedStudentId={preselectedStudentId} />
+        </div>
+      )}
 
       {/* Analytics View */}
       {currentView === 'analytics' && (
         <>
-      {/* Header Controls */}
-      <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-        <div className="flex items-center justify-between">
-          <div>
-            <h2 className="text-gray-900">Панель учителя</h2>
-            <p className="text-gray-600">Аналитика и управление классом</p>
+      <div className="relative rounded-2xl border border-slate-200/90 bg-white p-5 shadow-sm sm:p-6">
+        {loading && (
+          <div className="absolute right-4 top-4 flex items-center gap-2 rounded-full bg-indigo-50 px-3 py-1 text-xs font-medium text-indigo-700 ring-1 ring-indigo-100">
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            Обновление данных
           </div>
-          <div className="flex items-center gap-3">
+        )}
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+          <div>
+            <h3 className="text-lg font-semibold text-slate-900">Сводка по выбранному классу</h3>
+            <p className="mt-1 text-sm text-slate-600">
+              Фильтруйте по статусу и баллу, экспортируйте таблицу для отчёта.
+            </p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
             <select
               value={selectedClass}
               onChange={(e) => setSelectedClass(e.target.value)}
-              className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              className="min-w-[160px] rounded-xl border border-slate-200 bg-slate-50/80 px-4 py-2.5 text-sm text-slate-800 shadow-sm transition focus:border-indigo-300 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
             >
               <option value="all">Все классы</option>
               {availableClasses.map((classId) => (
@@ -376,68 +431,85 @@ export function TeacherDashboard() {
               ))}
             </select>
             <button
+              type="button"
               onClick={() => setFiltersOpen((v) => !v)}
-              className="flex items-center gap-2 px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+              className={`inline-flex items-center gap-2 rounded-xl border px-4 py-2.5 text-sm font-medium transition ${
+                filtersOpen
+                  ? 'border-indigo-200 bg-indigo-50 text-indigo-800'
+                  : 'border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-50'
+              }`}
             >
-              <Filter className="w-4 h-4" />
+              <Filter className="h-4 w-4" />
               Фильтры
             </button>
             <button
+              type="button"
               onClick={handleExport}
-              className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+              className="inline-flex items-center gap-2 rounded-xl bg-indigo-600 px-4 py-2.5 text-sm font-medium text-white shadow-sm shadow-indigo-600/20 transition hover:bg-indigo-700"
             >
-              <Download className="w-4 h-4" />
-              Экспорт
+              <Download className="h-4 w-4" />
+              Экспорт CSV
             </button>
           </div>
         </div>
         {filtersOpen && (
-          <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-3">
-            <select
-              value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value as 'all' | StudentStatus)}
-              className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-            >
-              <option value="all">Все статусы</option>
-              <option value="excellent">Отлично</option>
-              <option value="good">Хорошо</option>
-              <option value="average">Средне</option>
-              <option value="needs-help">Нужна помощь</option>
-            </select>
-            <input
-              type="number"
-              min={0}
-              max={100}
-              value={minScoreFilter}
-              onChange={(e) => setMinScoreFilter(Math.max(0, Math.min(100, Number(e.target.value) || 0)))}
-              placeholder="Мин. средний балл"
-              className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-            />
+          <div className="mt-5 grid grid-cols-1 gap-3 rounded-xl border border-slate-100 bg-slate-50/80 p-4 md:grid-cols-2">
+            <div>
+              <label className="mb-1.5 block text-xs font-medium text-slate-500">Статус ученика</label>
+              <select
+                value={statusFilter}
+                onChange={(e) => setStatusFilter(e.target.value as 'all' | StudentStatus)}
+                className="w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm focus:border-indigo-300 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+              >
+                <option value="all">Все статусы</option>
+                <option value="excellent">Отлично</option>
+                <option value="good">Хорошо</option>
+                <option value="average">Средне</option>
+                <option value="needs-help">Нужна помощь</option>
+              </select>
+            </div>
+            <div>
+              <label className="mb-1.5 block text-xs font-medium text-slate-500">Мин. средний балл (%)</label>
+              <input
+                type="number"
+                min={0}
+                max={100}
+                value={minScoreFilter}
+                onChange={(e) => setMinScoreFilter(Math.max(0, Math.min(100, Number(e.target.value) || 0)))}
+                placeholder="0"
+                className="w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm focus:border-indigo-300 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+              />
+            </div>
           </div>
         )}
       </div>
 
-      {/* Quick Stats */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-          <div className="flex items-center justify-between">
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <div className="group relative overflow-hidden rounded-2xl border border-slate-200/90 bg-white p-5 shadow-sm transition hover:border-indigo-200/80 hover:shadow-md">
+          <div className="absolute -right-6 -top-6 h-24 w-24 rounded-full bg-indigo-500/10 blur-2xl transition group-hover:bg-indigo-500/15" />
+          <div className="relative flex items-start justify-between gap-3">
             <div>
-              <p className="text-gray-600 text-sm">Всего учеников</p>
-              <p className="text-3xl text-gray-900 mt-1">{visibleStudents.length}</p>
+              <p className="text-xs font-medium uppercase tracking-wide text-slate-500">В зоне фильтра</p>
+              <p className="mt-2 text-3xl font-semibold tabular-nums text-slate-900">{visibleStudents.length}</p>
+              <p className="mt-1 text-sm text-slate-600">учеников</p>
             </div>
-            <Users className="w-10 h-10 text-blue-500" />
+            <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-indigo-100 text-indigo-600">
+              <Users className="h-6 w-6" />
+            </div>
           </div>
         </div>
 
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-          <div className="flex items-center justify-between">
+        <div className="group relative overflow-hidden rounded-2xl border border-slate-200/90 bg-white p-5 shadow-sm transition hover:border-emerald-200/80 hover:shadow-md">
+          <div className="absolute -right-6 -top-6 h-24 w-24 rounded-full bg-emerald-500/10 blur-2xl transition group-hover:bg-emerald-500/15" />
+          <div className="relative flex items-start justify-between gap-3">
             <div>
-              <p className="text-gray-600 text-sm">Средний балл</p>
-              <p className="text-3xl text-gray-900 mt-1">
-                {averageScore}%
-              </p>
+              <p className="text-xs font-medium uppercase tracking-wide text-slate-500">Средний балл</p>
+              <p className="mt-2 text-3xl font-semibold tabular-nums text-slate-900">{averageScore}%</p>
+              <p className="mt-1 text-sm text-slate-600">по отфильтрованным</p>
             </div>
-            <TrendingUp className="w-10 h-10 text-green-500" />
+            <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-emerald-100 text-emerald-600">
+              <TrendingUp className="h-6 w-6" />
+            </div>
           </div>
         </div>
 
@@ -445,104 +517,121 @@ export function TeacherDashboard() {
           type="button"
           onClick={handleFocusNeedsHelp}
           disabled={needsHelpTotalInClass === 0}
-          className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 text-left w-full transition-colors hover:border-red-200 hover:bg-red-50/40 disabled:opacity-50 disabled:hover:bg-white disabled:hover:border-gray-200 disabled:cursor-not-allowed"
+          className="group relative w-full overflow-hidden rounded-2xl border border-slate-200/90 bg-white p-5 text-left shadow-sm transition hover:border-rose-300 hover:shadow-md disabled:cursor-not-allowed disabled:opacity-45 disabled:hover:border-slate-200 disabled:hover:shadow-sm"
         >
-          <div className="flex items-center justify-between">
+          <div className="absolute -right-4 -top-4 h-20 w-20 rounded-full bg-rose-500/10 blur-2xl group-hover:bg-rose-500/15 disabled:opacity-0" />
+          <div className="relative flex items-start justify-between gap-3">
             <div>
-              <p className="text-gray-600 text-sm">Нужна помощь</p>
-              <p className="text-3xl text-gray-900 mt-1">
-                {needsHelpTotalInClass}
-              </p>
-              {needsHelpTotalInClass > 0 && (
-                <p className="text-xs text-red-600 mt-1">Нажмите, чтобы показать в таблице</p>
+              <p className="text-xs font-medium uppercase tracking-wide text-slate-500">Нужна помощь</p>
+              <p className="mt-2 text-3xl font-semibold tabular-nums text-slate-900">{needsHelpTotalInClass}</p>
+              {needsHelpTotalInClass > 0 ? (
+                <p className="mt-1 text-xs font-medium text-rose-600">Нажмите — фильтр и таблица</p>
+              ) : (
+                <p className="mt-1 text-sm text-slate-500">Все в норме</p>
               )}
             </div>
-            <AlertCircle className="w-10 h-10 text-red-500 shrink-0" />
+            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-rose-100 text-rose-600">
+              <AlertCircle className="h-6 w-6" />
+            </div>
           </div>
         </button>
 
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-          <div className="flex items-center justify-between">
+        <div className="group relative overflow-hidden rounded-2xl border border-slate-200/90 bg-white p-5 shadow-sm transition hover:border-violet-200/80 hover:shadow-md">
+          <div className="absolute -right-6 -top-6 h-24 w-24 rounded-full bg-violet-500/10 blur-2xl transition group-hover:bg-violet-500/15" />
+          <div className="relative flex items-start justify-between gap-3">
             <div>
-              <p className="text-gray-600 text-sm">Завершено тем</p>
-              <p className="text-3xl text-gray-900 mt-1">
+              <p className="text-xs font-medium uppercase tracking-wide text-slate-500">Тем в среднем</p>
+              <p className="mt-2 text-3xl font-semibold tabular-nums text-slate-900">
                 {visibleStudents.length > 0
                   ? Math.round(visibleStudents.reduce((acc, s) => acc + s.topics, 0) / visibleStudents.length)
                   : 0}
               </p>
+              <p className="mt-1 text-sm text-slate-600">изучено на ученика</p>
             </div>
-            <div className="w-10 h-10 bg-purple-100 rounded-full flex items-center justify-center text-purple-600 text-xl">
+            <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-violet-100 text-lg font-bold text-violet-600">
               ✓
             </div>
           </div>
         </div>
       </div>
 
-      {/* Student Performance Table */}
-      <div ref={performanceTableRef} className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 scroll-mt-4">
-        <h3 className="text-gray-900">Успеваемость учеников</h3>
-        <p className="text-sm text-gray-500 mt-1 mb-4">
-          Ученики со статусом «Нужна помощь» подсвечены; карточка «Нужна помощь» выше отфильтрует таблицу.
-        </p>
-        <div className="overflow-x-auto">
-          <table className="w-full">
+      <div ref={performanceTableRef} className="scroll-mt-24 rounded-2xl border border-slate-200/90 bg-white shadow-sm">
+        <div className="border-b border-slate-100 bg-slate-50/80 px-5 py-4 sm:px-6">
+          <h3 className="text-lg font-semibold text-slate-900">Успеваемость учеников</h3>
+          <p className="mt-1 text-sm text-slate-600">
+            Строки «Нужна помощь» выделены. Быстрые действия: назначить работу, контакт родителя, карточка ученика.
+          </p>
+        </div>
+        <div className="overflow-x-auto px-2 pb-2 sm:px-4 sm:pb-4">
+          <table className="w-full min-w-[720px] border-separate border-spacing-0">
             <thead>
-              <tr className="border-b border-gray-200">
-                <th className="text-left py-3 px-4 text-gray-700">Ученик</th>
-                <th className="text-center py-3 px-4 text-gray-700">Средний балл</th>
-                <th className="text-center py-3 px-4 text-gray-700">Изучено тем</th>
-                <th className="text-center py-3 px-4 text-gray-700">Ошибок</th>
-                <th className="text-center py-3 px-4 text-gray-700">Статус</th>
-                <th className="text-right py-3 px-4 text-gray-700">Действия</th>
+              <tr className="text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+                <th className="border-b border-slate-200 py-3 pl-4 pr-2 sm:pl-2">Ученик</th>
+                <th className="border-b border-slate-200 py-3 px-2 text-center">Балл</th>
+                <th className="border-b border-slate-200 py-3 px-2 text-center">Темы</th>
+                <th className="border-b border-slate-200 py-3 px-2 text-center">Ошибки</th>
+                <th className="border-b border-slate-200 py-3 px-2 text-center">Статус</th>
+                <th className="border-b border-slate-200 py-3 pl-2 pr-4 text-right sm:pr-2">Действия</th>
               </tr>
             </thead>
             <tbody>
               {paginatedStudents.map((student) => (
                 <tr
                   key={student.user_id}
-                  className={`border-b border-gray-100 hover:bg-gray-50 transition-colors ${
-                    student.status === 'needs-help' ? 'bg-red-50/60' : ''
+                  className={`transition-colors ${
+                    student.status === 'needs-help'
+                      ? 'bg-rose-50/50 hover:bg-rose-50/80'
+                      : 'hover:bg-slate-50/80'
                   }`}
                 >
-                  <td className="py-4 px-4">
+                  <td className="border-b border-slate-100 py-3.5 pl-4 pr-2 sm:pl-2">
                     <div className="flex items-center gap-3">
                       <div
-                        className={`w-10 h-10 rounded-full flex items-center justify-center text-white ${
+                        className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl shadow-sm ring-1 ring-black/10 ${
                           student.status === 'needs-help'
-                            ? 'bg-gradient-to-br from-red-400 to-red-600'
-                            : 'bg-gradient-to-br from-blue-400 to-purple-500'
+                            ? 'bg-rose-100 text-rose-950'
+                            : 'bg-sky-100 text-sky-950'
                         }`}
                       >
-                        {student.student.charAt(0)}
+                        <span className="select-none text-[15px] font-bold leading-none tracking-tight">
+                          {avatarInitial(student.student)}
+                        </span>
                       </div>
-                      <span className="text-gray-900">{student.student}</span>
+                      <span className="font-medium text-slate-900">{student.student}</span>
                     </div>
                   </td>
-                  <td className="text-center py-4 px-4">
-                    <span className={`text-lg ${
-                      student.score >= 85 ? 'text-green-600' :
-                      student.score >= 70 ? 'text-blue-600' :
-                      student.score >= 60 ? 'text-yellow-600' :
-                      'text-red-600'
-                    }`}>
+                  <td className="border-b border-slate-100 py-3.5 px-2 text-center">
+                    <span
+                      className={`inline-flex min-w-[3rem] justify-center rounded-lg px-2 py-1 text-sm font-semibold tabular-nums ${
+                        student.score >= 85
+                          ? 'bg-emerald-50 text-emerald-800'
+                          : student.score >= 70
+                            ? 'bg-sky-50 text-sky-800'
+                            : student.score >= 60
+                              ? 'bg-amber-50 text-amber-800'
+                              : 'bg-rose-50 text-rose-800'
+                      }`}
+                    >
                       {student.score}%
                     </span>
                   </td>
-                  <td className="text-center py-4 px-4 text-gray-900">{student.topics}</td>
-                  <td className="text-center py-4 px-4">
-                    <span className={`px-2 py-1 rounded-full text-xs ${
-                      student.errors < 10 ? 'bg-green-100 text-green-700' :
-                      student.errors < 15 ? 'bg-yellow-100 text-yellow-700' :
-                      'bg-red-100 text-red-700'
-                    }`}>
+                  <td className="border-b border-slate-100 py-3.5 px-2 text-center tabular-nums text-slate-800">{student.topics}</td>
+                  <td className="border-b border-slate-100 py-3.5 px-2 text-center">
+                    <span
+                      className={`inline-flex min-w-[2rem] justify-center rounded-lg px-2 py-0.5 text-xs font-semibold ${
+                        student.errors < 10
+                          ? 'bg-emerald-50 text-emerald-800 ring-1 ring-emerald-100'
+                          : student.errors < 15
+                            ? 'bg-amber-50 text-amber-800 ring-1 ring-amber-100'
+                            : 'bg-rose-50 text-rose-800 ring-1 ring-rose-100'
+                      }`}
+                    >
                       {student.errors}
                     </span>
                   </td>
-                  <td className="text-center py-4 px-4">
-                    {getStatusBadge(student.status)}
-                  </td>
-                  <td className="text-right py-4 px-4">
-                    <div className="flex flex-wrap items-center justify-end gap-2">
+                  <td className="border-b border-slate-100 py-3.5 px-2 text-center">{getStatusBadge(student.status)}</td>
+                  <td className="border-b border-slate-100 py-3.5 pl-2 pr-4 text-right sm:pr-2">
+                    <div className="flex flex-wrap items-center justify-end gap-1.5">
                       {student.status === 'needs-help' && (
                         <>
                           <button
@@ -550,26 +639,26 @@ export function TeacherDashboard() {
                             title="Назначить до занятия"
                             onClick={() => handleAssignBeforeLesson(student)}
                             disabled={assigningStudentId === student.user_id}
-                            className="inline-flex items-center justify-center p-2 rounded-lg border border-red-200 text-red-700 bg-white hover:bg-red-50 disabled:opacity-60"
+                            className="inline-flex items-center justify-center rounded-lg border border-rose-200 bg-white p-2 text-rose-700 shadow-sm transition hover:bg-rose-50 disabled:opacity-60"
                           >
-                            <PenSquare className="w-4 h-4" />
+                            <PenSquare className="h-4 w-4" />
                           </button>
                           <button
                             type="button"
                             title="Контакт родителя"
                             onClick={() => handleShowParentContact(student)}
-                            className="inline-flex items-center justify-center p-2 rounded-lg border border-red-200 text-red-700 bg-white hover:bg-red-50"
+                            className="inline-flex items-center justify-center rounded-lg border border-rose-200 bg-white p-2 text-rose-700 shadow-sm transition hover:bg-rose-50"
                           >
-                            <Phone className="w-4 h-4" />
+                            <Phone className="h-4 w-4" />
                           </button>
                         </>
                       )}
                       <button
                         type="button"
                         onClick={() => setDetailStudent(student)}
-                        className="text-blue-600 hover:text-blue-700 text-sm whitespace-nowrap"
+                        className="rounded-lg px-2.5 py-1.5 text-sm font-medium text-indigo-600 transition hover:bg-indigo-50"
                       >
-                        Подробнее →
+                        Подробнее
                       </button>
                     </div>
                   </td>
@@ -577,8 +666,9 @@ export function TeacherDashboard() {
             ))}
             {!loading && visibleStudents.length === 0 && (
               <tr>
-                <td className="py-6 px-4 text-gray-500" colSpan={6}>
-                  Данные по классу пока отсутствуют
+                <td className="py-12 px-4 text-center text-slate-500" colSpan={6}>
+                  <p className="font-medium text-slate-700">Пока нет данных</p>
+                  <p className="mt-1 text-sm">Смените класс или дождитесь активности учеников на платформе.</p>
                 </td>
               </tr>
             )}
@@ -586,16 +676,16 @@ export function TeacherDashboard() {
           </table>
         </div>
         {!loading && visibleStudents.length > TABLE_PAGE_SIZE && (
-          <div className="mt-4 flex flex-wrap items-center justify-between gap-3 text-sm text-gray-600">
+          <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 px-5 py-3 text-sm text-slate-600 sm:px-6">
             <span>
-              Страница {tablePage + 1} из {tablePageCount} ({visibleStudents.length} учеников)
+              Страница <strong className="text-slate-800">{tablePage + 1}</strong> из {tablePageCount} · всего {visibleStudents.length} уч.
             </span>
             <div className="flex gap-2">
               <button
                 type="button"
                 disabled={tablePage <= 0}
                 onClick={() => setTablePage((p) => Math.max(0, p - 1))}
-                className="px-3 py-1.5 rounded-lg border border-gray-300 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-medium transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
               >
                 Назад
               </button>
@@ -603,7 +693,7 @@ export function TeacherDashboard() {
                 type="button"
                 disabled={tablePage >= tablePageCount - 1}
                 onClick={() => setTablePage((p) => Math.min(tablePageCount - 1, p + 1))}
-                className="px-3 py-1.5 rounded-lg border border-gray-300 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-medium transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
               >
                 Вперёд
               </button>
@@ -612,53 +702,55 @@ export function TeacherDashboard() {
         )}
       </div>
 
-      {/* Common Errors Analysis */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-          <h3 className="text-gray-900 mb-4">Частые ошибки класса (NLP анализ)</h3>
-          <div className="space-y-4">
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+        <div className="rounded-2xl border border-slate-200/90 bg-white p-5 shadow-sm sm:p-6">
+          <div className="mb-5">
+            <h3 className="text-lg font-semibold text-slate-900">Типовые ошибки класса</h3>
+            <p className="mt-1 text-sm text-slate-600">Агрегат по ответам и классификации — ориентир для повторения тем.</p>
+          </div>
+          <div className="space-y-3">
             {commonErrors.map((error, index) => (
-              <div key={index} className="p-4 bg-gray-50 rounded-lg">
-                <div className="flex items-start justify-between mb-2">
-                  <div className="flex-1">
-                    <h4 className="text-gray-900">{error.topic}</h4>
-                    <p className="text-sm text-gray-600">
-                      {error.students} учеников • {error.errorType}
+              <div key={index} className="rounded-xl border border-slate-100 bg-slate-50/80 p-4 transition hover:border-slate-200 hover:bg-white">
+                <div className="mb-3 flex items-start justify-between gap-3">
+                  <div className="min-w-0 flex-1">
+                    <h4 className="font-medium text-slate-900">{error.topic}</h4>
+                    <p className="mt-0.5 text-sm text-slate-600">
+                      {error.students} уч. · {error.errorType}
                     </p>
                   </div>
-                  <span className={`px-3 py-1 rounded-full text-xs ${
-                    error.frequency > 80 ? 'bg-red-100 text-red-700' :
-                    error.frequency > 50 ? 'bg-yellow-100 text-yellow-700' :
-                    'bg-green-100 text-green-700'
-                  }`}>
-                    {error.frequency}% частота
+                  <span
+                    className={`shrink-0 rounded-full px-2.5 py-0.5 text-xs font-semibold ${
+                      error.frequency > 80
+                        ? 'bg-rose-100 text-rose-800 ring-1 ring-rose-200/80'
+                        : error.frequency > 50
+                          ? 'bg-amber-100 text-amber-800 ring-1 ring-amber-200/80'
+                          : 'bg-emerald-100 text-emerald-800 ring-1 ring-emerald-200/80'
+                    }`}
+                  >
+                    {error.frequency}%
                   </span>
                 </div>
-                <div className="h-2 bg-gray-200 rounded-full overflow-hidden">
-                  <div 
-                    className="h-full bg-gradient-to-r from-red-500 to-orange-500"
+                <div className="h-2 overflow-hidden rounded-full bg-slate-200/80">
+                  <div
+                    className="h-full rounded-full bg-gradient-to-r from-rose-500 via-orange-400 to-amber-400"
                     style={{ width: `${error.frequency}%` }}
                   />
                 </div>
               </div>
             ))}
             {!loading && commonErrors.length === 0 && (
-              <p className="text-sm text-gray-500">Частые ошибки пока не выявлены.</p>
+              <p className="rounded-xl border border-dashed border-slate-200 bg-slate-50/50 py-8 text-center text-sm text-slate-500">
+                Накопите больше попыток — список типовых ошибок появится автоматически.
+              </p>
             )}
           </div>
-          <button
-            type="button"
-            onClick={() =>
-              toast.info('Функция планирования группового занятия пока в разработке. Используйте назначение тестов для отдельных учеников.')
-            }
-            className="mt-4 w-full py-2 px-4 bg-blue-50 text-blue-600 rounded-lg hover:bg-blue-100 transition-colors text-sm"
-          >
-            Создать групповое занятие по проблемным темам
-          </button>
         </div>
 
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-          <h3 className="text-gray-900 mb-4">Производительность по темам</h3>
+        <div className="rounded-2xl border border-slate-200/90 bg-white p-5 shadow-sm sm:p-6">
+          <div className="mb-4">
+            <h3 className="text-lg font-semibold text-slate-900">Темы: балл и завершение</h3>
+            <p className="mt-1 text-sm text-slate-600">Сравнение среднего балла и доли завершения по темам.</p>
+          </div>
           <ResponsiveContainer width="100%" height={300}>
             <BarChart data={topicPerformance}>
               <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
@@ -680,42 +772,71 @@ export function TeacherDashboard() {
                 }}
               />
               <Legend />
-              <Bar dataKey="avgScore" fill="#3b82f6" name="Средний балл %" radius={[8, 8, 0, 0]} />
-              <Bar dataKey="completion" fill="#8b5cf6" name="Завершение %" radius={[8, 8, 0, 0]} />
+              <Bar dataKey="avgScore" fill="#6366f1" name="Средний балл %" radius={[6, 6, 0, 0]} />
+              <Bar dataKey="completion" fill="#8b5cf6" name="Завершение %" radius={[6, 6, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>
           {!loading && topicPerformance.length === 0 && (
-            <p className="mt-3 text-sm text-gray-500">Недостаточно данных для графика тем.</p>
+            <p className="mt-4 rounded-lg bg-slate-50 py-6 text-center text-sm text-slate-500">Недостаточно данных для диаграммы.</p>
           )}
         </div>
       </div>
 
       {/* Modal: Подробнее об ученике */}
       {detailStudent && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={() => setDetailStudent(null)}>
-          <div className="bg-white rounded-xl shadow-xl max-w-md w-full mx-4 p-6" onClick={(e) => e.stopPropagation()}>
-            <div className="flex justify-between items-center mb-4">
-              <h3 className="text-lg font-semibold text-gray-900">Подробнее: {detailStudent.student}</h3>
-              <button type="button" onClick={() => setDetailStudent(null)} className="p-1 text-gray-500 hover:text-gray-700">
-                <X className="w-5 h-5" />
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4 backdrop-blur-sm"
+          onClick={() => setDetailStudent(null)}
+        >
+          <div
+            className="w-full max-w-md overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-2xl shadow-slate-900/20"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-start justify-between gap-3 border-b border-slate-100 bg-gradient-to-r from-indigo-50/80 to-white px-5 py-4">
+              <div>
+                <p className="text-xs font-medium uppercase tracking-wide text-indigo-600">Карточка ученика</p>
+                <h3 className="mt-1 text-lg font-semibold text-slate-900">{detailStudent.student}</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setDetailStudent(null)}
+                className="rounded-lg p-2 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
+                aria-label="Закрыть"
+              >
+                <X className="h-5 w-5" />
               </button>
             </div>
-            <div className="space-y-3 text-sm">
-              <p><span className="text-gray-600">Успеваемость:</span> <strong>{detailStudent.score}%</strong></p>
-              <p><span className="text-gray-600">Изучено тем:</span> <strong>{detailStudent.topics}</strong></p>
-              <p><span className="text-gray-600">Количество ошибок:</span> <strong>{detailStudent.errors}</strong></p>
-              <p><span className="text-gray-600">Статус:</span> <span className={detailStudent.status === 'excellent' ? 'text-green-600' : detailStudent.status === 'good' ? 'text-blue-600' : detailStudent.status === 'average' ? 'text-yellow-600' : 'text-red-600'}>
-                {detailStudent.status === 'excellent' ? 'Отлично' : detailStudent.status === 'good' ? 'Хорошо' : detailStudent.status === 'average' ? 'Удовлетворительно' : 'Требуется внимание'}
-              </span></p>
+            <div className="space-y-4 p-5 text-sm">
+              <div className="grid grid-cols-2 gap-3">
+                <div className="rounded-xl bg-slate-50 p-3 ring-1 ring-slate-100">
+                  <p className="text-xs text-slate-500">Балл</p>
+                  <p className="mt-1 text-xl font-semibold tabular-nums text-slate-900">{detailStudent.score}%</p>
+                </div>
+                <div className="rounded-xl bg-slate-50 p-3 ring-1 ring-slate-100">
+                  <p className="text-xs text-slate-500">Темы / ошибки</p>
+                  <p className="mt-1 text-xl font-semibold tabular-nums text-slate-900">
+                    {detailStudent.topics} / {detailStudent.errors}
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center justify-between rounded-xl border border-slate-100 bg-white px-3 py-2">
+                <span className="text-slate-600">Статус</span>
+                {getStatusBadge(detailStudent.status)}
+              </div>
               {parentContactsByStudentId[detailStudent.user_id] && (
-                <div className="mt-4 pt-4 border-t border-gray-200">
-                  <p className="text-gray-600 font-medium mb-1">Контакт родителя</p>
-                  <p>{parentContactsByStudentId[detailStudent.user_id].full_name}</p>
-                  <p><a href={`tel:${parentContactsByStudentId[detailStudent.user_id].phone}`} className="text-blue-600 hover:underline">{parentContactsByStudentId[detailStudent.user_id].phone}</a></p>
+                <div className="rounded-xl border border-slate-100 bg-slate-50/80 p-4">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Родитель</p>
+                  <p className="mt-1 font-medium text-slate-900">{parentContactsByStudentId[detailStudent.user_id].full_name}</p>
+                  <a
+                    href={`tel:${parentContactsByStudentId[detailStudent.user_id].phone}`}
+                    className="mt-1 inline-flex text-sm font-medium text-indigo-600 hover:underline"
+                  >
+                    {parentContactsByStudentId[detailStudent.user_id].phone}
+                  </a>
                 </div>
               )}
               {detailStudent.status === 'needs-help' && (
-                <div className="mt-4 pt-4 border-t border-gray-200 flex flex-col gap-2">
+                <div className="flex flex-col gap-2 border-t border-slate-100 pt-4">
                   <button
                     type="button"
                     onClick={() => {
@@ -723,16 +844,16 @@ export function TeacherDashboard() {
                       setDetailStudent(null);
                     }}
                     disabled={assigningStudentId === detailStudent.user_id}
-                    className="w-full py-2 px-3 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors text-sm disabled:opacity-60"
+                    className="w-full rounded-xl bg-rose-600 py-2.5 text-sm font-medium text-white shadow-sm transition hover:bg-rose-700 disabled:opacity-60"
                   >
-                    {assigningStudentId === detailStudent.user_id ? 'Назначаем...' : 'Назначить до занятия'}
+                    {assigningStudentId === detailStudent.user_id ? 'Назначаем...' : 'Назначить работу до занятия'}
                   </button>
                   <button
                     type="button"
                     onClick={() => handleShowParentContact(detailStudent)}
-                    className="w-full py-2 px-3 bg-white text-red-600 border border-red-300 rounded-lg hover:bg-red-50 transition-colors text-sm"
+                    className="w-full rounded-xl border border-rose-200 bg-white py-2.5 text-sm font-medium text-rose-700 transition hover:bg-rose-50"
                   >
-                    Связаться с родителями
+                    Показать контакт родителя
                   </button>
                 </div>
               )}

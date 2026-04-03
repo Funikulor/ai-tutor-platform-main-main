@@ -264,27 +264,35 @@ export function TeacherTestsTab({ preselectedStudentId = null, mode = 'manage' }
       {mode === 'create' && <TestCreator onSaved={() => loadTests()} />}
 
       {mode !== 'create' && (
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <ListPlus className="w-5 h-5 text-blue-600" />
-          <h2 className="text-gray-900">
-            {mode === 'results' ? 'Результаты учеников' : 'Созданные тесты учителя'}
-          </h2>
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <div className="flex items-center gap-2">
+              <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-indigo-100 text-indigo-700">
+                <ListPlus className="h-4 w-4" />
+              </div>
+              <h2 className="text-lg font-semibold text-slate-900">
+                {mode === 'results' ? 'Результаты учеников' : 'Ваши тесты'}
+              </h2>
+            </div>
+            <p className="mt-1 text-sm text-slate-600">
+              {mode === 'results' ? 'Выберите тест и откройте попытку для деталей' : 'Редактирование, назначение и удаление'}
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={loadTests}
+            className="self-start rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 shadow-sm transition hover:border-indigo-200 hover:bg-indigo-50/50 sm:self-center"
+          >
+            Обновить список
+          </button>
         </div>
-        <button
-          onClick={loadTests}
-          className="px-3 py-2 text-sm bg-white border border-gray-200 rounded-lg hover:bg-gray-50"
-        >
-          Обновить
-        </button>
-      </div>
       )}
 
       {mode !== 'create' && (
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <div className="bg-white border border-gray-200 rounded-xl p-4 lg:col-span-1">
-          <div className="text-sm text-gray-500 mb-3">
-            {mode === 'results' ? 'Выберите тест для просмотра результатов' : 'Список тестов'}
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
+        <div className="rounded-2xl border border-slate-200/90 bg-slate-50/40 p-4 shadow-sm lg:col-span-1">
+          <div className="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-500">
+            {mode === 'results' ? 'Тест для результатов' : 'Список тестов'}
           </div>
           {loading && (
             <div className="text-sm text-gray-500 flex items-center gap-2">
@@ -296,9 +304,12 @@ export function TeacherTestsTab({ preselectedStudentId = null, mode = 'manage' }
             {tests.map((t) => (
               <button
                 key={t.id}
+                type="button"
                 onClick={() => handleSelectTest(t.id)}
-                className={`w-full text-left p-3 border rounded-lg transition ${
-                  selectedTest?.id === t.id ? 'border-blue-400 bg-blue-50' : 'border-gray-200 hover:bg-gray-50'
+                className={`w-full rounded-xl border p-3 text-left text-sm transition ${
+                  selectedTest?.id === t.id
+                    ? 'border-indigo-300 bg-white shadow-md ring-2 ring-indigo-500/10'
+                    : 'border-slate-200/90 bg-white hover:border-slate-300 hover:shadow-sm'
                 }`}
               >
                 <div className="text-sm font-semibold text-gray-900">{t.title}</div>
@@ -311,8 +322,12 @@ export function TeacherTestsTab({ preselectedStudentId = null, mode = 'manage' }
           </div>
         </div>
 
-        <div className="bg-white border border-gray-200 rounded-xl p-4 lg:col-span-2">
-          {!selectedTest && <div className="text-sm text-gray-500">Выберите тест слева</div>}
+        <div className="rounded-2xl border border-slate-200/90 bg-white p-4 shadow-sm lg:col-span-2 sm:p-5">
+          {!selectedTest && (
+            <div className="rounded-xl border border-dashed border-slate-200 py-12 text-center text-sm text-slate-500">
+              Выберите тест в списке слева
+            </div>
+          )}
           {selectedTest && (
             <div className="space-y-4">
               {mode === 'manage' && (

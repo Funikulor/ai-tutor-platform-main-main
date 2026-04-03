@@ -378,98 +378,145 @@ export function TestCreator({ onSaved }: TestCreatorProps) {
         </div>
       </div>
 
-      {/* Test Settings */}
-      <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-        <h3 className="text-gray-900 mb-4">Настройки теста</h3>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div>
-            <label className="block text-sm text-gray-700 mb-2">Название теста</label>
-            <input
-              type="text"
-              value={test.title}
-              onChange={(e) => setTest({ ...test, title: e.target.value })}
-              placeholder="Например: Контрольная работа по алгебре"
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-            />
-          </div>
-          <div>
-            <label className="block text-sm text-gray-700 mb-2">Предмет</label>
-            <select
-              value={test.subject}
-              onChange={(e) => setTest({ ...test, subject: e.target.value })}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-            >
-              <option value="Математика">Математика</option>
-              <option value="Физика">Физика</option>
-              <option value="Химия">Химия</option>
-              <option value="Русский язык">Русский язык</option>
-              <option value="Литература">Литература</option>
-              <option value="История">История</option>
-            </select>
-          </div>
-          <div>
-            <label className="block text-sm text-gray-700 mb-2">Класс</label>
-            <select
-              value={test.grade}
-              onChange={(e) => setTest({ ...test, grade: e.target.value })}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-            >
-              {[5, 6, 7, 8, 9, 10, 11].map(grade => (
-                <option key={grade} value={grade}>{grade} класс</option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <label className="block text-sm text-gray-700 mb-2">Сложность</label>
-            <select
-              value={test.difficulty}
-              onChange={(e) => setTest({ ...test, difficulty: e.target.value as Test['difficulty'] })}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-            >
-              <option value="easy">Легкий</option>
-              <option value="medium">Средний</option>
-              <option value="hard">Сложный</option>
-            </select>
-          </div>
-          <div className="md:col-span-2">
-            <label className="block text-sm text-gray-700 mb-2">Описание</label>
-            <textarea
-              value={test.description}
-              onChange={(e) => setTest({ ...test, description: e.target.value })}
-              placeholder="Краткое описание теста и его целей"
-              rows={3}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none"
-            />
-          </div>
-          <div>
-            <label className="block text-sm text-gray-700 mb-2">Время на выполнение</label>
-            <div className="space-y-2">
-              <div className="flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  id="noTimeLimit"
-                  checked={noTimeLimit}
-                  onChange={(e) => setNoTimeLimit(e.target.checked)}
-                  className="w-4 h-4 text-blue-600 rounded focus:ring-2 focus:ring-blue-500"
-                />
-                <label htmlFor="noTimeLimit" className="text-sm text-gray-700">
-                  Без ограничения времени
-                </label>
+      {/* Ручной режим: полные настройки */}
+      {mode === 'create' && (
+        <div className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
+          <h3 className="mb-1 text-gray-900">Настройки теста</h3>
+          <p className="mb-4 text-sm text-gray-500">Заполняются до добавления вопросов и сохранения</p>
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+            <div>
+              <label className="mb-2 block text-sm text-gray-700">Название теста</label>
+              <input
+                type="text"
+                value={test.title}
+                onChange={(e) => setTest({ ...test, title: e.target.value })}
+                placeholder="Например: Контрольная работа по алгебре"
+                className="w-full rounded-lg border border-gray-300 px-3 py-2 focus:border-transparent focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+            <div>
+              <label className="mb-2 block text-sm text-gray-700">Предмет</label>
+              <select
+                value={test.subject}
+                onChange={(e) => setTest({ ...test, subject: e.target.value })}
+                className="w-full rounded-lg border border-gray-300 px-3 py-2 focus:border-transparent focus:ring-2 focus:ring-blue-500"
+              >
+                <option value="Математика">Математика</option>
+                <option value="Физика">Физика</option>
+                <option value="Химия">Химия</option>
+                <option value="Русский язык">Русский язык</option>
+                <option value="Литература">Литература</option>
+                <option value="История">История</option>
+              </select>
+            </div>
+            <div>
+              <label className="mb-2 block text-sm text-gray-700">Класс</label>
+              <select
+                value={test.grade}
+                onChange={(e) => setTest({ ...test, grade: e.target.value })}
+                className="w-full rounded-lg border border-gray-300 px-3 py-2 focus:border-transparent focus:ring-2 focus:ring-blue-500"
+              >
+                {[5, 6, 7, 8, 9, 10, 11].map((grade) => (
+                  <option key={grade} value={grade}>
+                    {grade} класс
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="mb-2 block text-sm text-gray-700">Сложность</label>
+              <select
+                value={test.difficulty}
+                onChange={(e) => setTest({ ...test, difficulty: e.target.value as Test['difficulty'] })}
+                className="w-full rounded-lg border border-gray-300 px-3 py-2 focus:border-transparent focus:ring-2 focus:ring-blue-500"
+              >
+                <option value="easy">Легкий</option>
+                <option value="medium">Средний</option>
+                <option value="hard">Сложный</option>
+              </select>
+            </div>
+            <div className="md:col-span-2">
+              <label className="mb-2 block text-sm text-gray-700">Описание</label>
+              <textarea
+                value={test.description}
+                onChange={(e) => setTest({ ...test, description: e.target.value })}
+                placeholder="Краткое описание теста и его целей"
+                rows={3}
+                className="w-full resize-none rounded-lg border border-gray-300 px-3 py-2 focus:border-transparent focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+            <div>
+              <label className="mb-2 block text-sm text-gray-700">Время на выполнение</label>
+              <div className="space-y-2">
+                <div className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    id="noTimeLimit"
+                    checked={noTimeLimit}
+                    onChange={(e) => setNoTimeLimit(e.target.checked)}
+                    className="h-4 w-4 rounded text-blue-600 focus:ring-2 focus:ring-blue-500"
+                  />
+                  <label htmlFor="noTimeLimit" className="text-sm text-gray-700">
+                    Без ограничения времени
+                  </label>
+                </div>
+                {!noTimeLimit && (
+                  <input
+                    type="number"
+                    value={test.timeLimit}
+                    onChange={(e) => setTest({ ...test, timeLimit: parseInt(e.target.value, 10) || 0 })}
+                    min="1"
+                    placeholder="Минуты"
+                    className="w-full rounded-lg border border-gray-300 px-3 py-2 focus:border-transparent focus:ring-2 focus:ring-blue-500"
+                  />
+                )}
               </div>
-              {!noTimeLimit && (
-                <input
-                  type="number"
-                  value={test.timeLimit}
-                  onChange={(e) => setTest({ ...test, timeLimit: parseInt(e.target.value) || 0 })}
-                  min="1"
-                  placeholder="Минуты"
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                />
-              )}
             </div>
           </div>
         </div>
-      </div>
+      )}
+
+      {/* Режим AI: только то, что уходит в запрос генерации */}
+      {mode === 'generate' && (
+        <div className="rounded-xl border border-purple-200 bg-gradient-to-br from-purple-50/80 to-white p-6 shadow-sm">
+          <h3 className="text-gray-900">Контекст для AI</h3>
+          <p className="mt-1 text-sm text-gray-600">
+            Предмет и класс передаются в генератор вместе с темами ниже. Название, описание, сложность в каталоге и время на тест появятся{' '}
+            <strong>после</strong> генерации вопросов — их можно уточнить перед сохранением.
+          </p>
+          <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2">
+            <div>
+              <label className="mb-2 block text-sm font-medium text-gray-700">Предмет</label>
+              <select
+                value={test.subject}
+                onChange={(e) => setTest({ ...test, subject: e.target.value })}
+                className="w-full rounded-lg border border-purple-200 bg-white px-3 py-2 focus:border-transparent focus:ring-2 focus:ring-purple-500"
+              >
+                <option value="Математика">Математика</option>
+                <option value="Физика">Физика</option>
+                <option value="Химия">Химия</option>
+                <option value="Русский язык">Русский язык</option>
+                <option value="Литература">Литература</option>
+                <option value="История">История</option>
+              </select>
+            </div>
+            <div>
+              <label className="mb-2 block text-sm font-medium text-gray-700">Класс</label>
+              <select
+                value={test.grade}
+                onChange={(e) => setTest({ ...test, grade: e.target.value })}
+                className="w-full rounded-lg border border-purple-200 bg-white px-3 py-2 focus:border-transparent focus:ring-2 focus:ring-purple-500"
+              >
+                {[5, 6, 7, 8, 9, 10, 11].map((grade) => (
+                  <option key={grade} value={grade}>
+                    {grade} класс
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* AI Generation Panel */}
       {mode === 'generate' && (
@@ -752,6 +799,77 @@ export function TestCreator({ onSaved }: TestCreatorProps) {
         </div>
       </div>
 
+      {/* После AI-генерации: карточка теста перед сохранением (под вопросами, рядом с кнопкой «Сохранить») */}
+      {mode === 'generate' && test.questions.length > 0 && (
+        <div className="rounded-xl border border-purple-200 bg-white p-6 shadow-sm">
+          <h3 className="text-gray-900">Оформление теста</h3>
+          <p className="mt-1 text-sm text-gray-600">
+            Уточните название и описание для каталога. Сложность здесь — для карточки сохранённого теста (отдельно от сложности вопросов при генерации).
+          </p>
+          <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2">
+            <div className="md:col-span-2">
+              <label className="mb-2 block text-sm text-gray-700">Название теста</label>
+              <input
+                type="text"
+                value={test.title}
+                onChange={(e) => setTest({ ...test, title: e.target.value })}
+                placeholder="Например: Контрольная по темам генерации"
+                className="w-full rounded-lg border border-gray-300 px-3 py-2 focus:border-transparent focus:ring-2 focus:ring-purple-500"
+              />
+            </div>
+            <div>
+              <label className="mb-2 block text-sm text-gray-700">Сложность (в каталоге тестов)</label>
+              <select
+                value={test.difficulty}
+                onChange={(e) => setTest({ ...test, difficulty: e.target.value as Test['difficulty'] })}
+                className="w-full rounded-lg border border-gray-300 px-3 py-2 focus:border-transparent focus:ring-2 focus:ring-purple-500"
+              >
+                <option value="easy">Легкий</option>
+                <option value="medium">Средний</option>
+                <option value="hard">Сложный</option>
+              </select>
+            </div>
+            <div>
+              <label className="mb-2 block text-sm text-gray-700">Время на выполнение</label>
+              <div className="space-y-2">
+                <div className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    id="noTimeLimitAi"
+                    checked={noTimeLimit}
+                    onChange={(e) => setNoTimeLimit(e.target.checked)}
+                    className="h-4 w-4 rounded text-purple-600 focus:ring-2 focus:ring-purple-500"
+                  />
+                  <label htmlFor="noTimeLimitAi" className="text-sm text-gray-700">
+                    Без ограничения времени
+                  </label>
+                </div>
+                {!noTimeLimit && (
+                  <input
+                    type="number"
+                    value={test.timeLimit}
+                    onChange={(e) => setTest({ ...test, timeLimit: parseInt(e.target.value, 10) || 0 })}
+                    min="1"
+                    placeholder="Минуты"
+                    className="w-full rounded-lg border border-gray-300 px-3 py-2 focus:border-transparent focus:ring-2 focus:ring-purple-500"
+                  />
+                )}
+              </div>
+            </div>
+            <div className="md:col-span-2">
+              <label className="mb-2 block text-sm text-gray-700">Описание</label>
+              <textarea
+                value={test.description}
+                onChange={(e) => setTest({ ...test, description: e.target.value })}
+                placeholder="Краткое описание для себя и коллег"
+                rows={2}
+                className="w-full resize-none rounded-lg border border-gray-300 px-3 py-2 focus:border-transparent focus:ring-2 focus:ring-purple-500"
+              />
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Actions */}
       {test.questions.length > 0 && (
         <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
@@ -820,7 +938,7 @@ export function TestCreator({ onSaved }: TestCreatorProps) {
               {test.questions.map((question, index) => (
                 <div key={question.id} className="bg-white border border-gray-200 rounded-lg p-4">
                   <div className="flex items-start gap-3">
-                    <span className="bg-blue-600 text-white w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0">
+                    <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-blue-600 text-sm font-bold leading-none text-white shadow-sm [text-shadow:0_1px_2px_rgba(0,0,0,0.35)]">
                       {index + 1}
                     </span>
                     <div className="flex-1">

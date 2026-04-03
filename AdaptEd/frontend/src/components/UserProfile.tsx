@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
-import { User, Mail, Phone, GraduationCap, Calendar, Shield, Edit2, Save, X, ImagePlus } from 'lucide-react';
+import { User, Mail, Phone, GraduationCap, Calendar, Shield, Edit2, Save, X, Wand2, Loader2 } from 'lucide-react';
 import api from '../services/api';
-import { getAvatarUrl, randomAvatarSeed } from '../utils/avatar';
+import { avatarInitial, getAvatarUrl, randomAvatarSeed } from '../utils/avatar';
+import { toast } from 'sonner';
 
 interface UserProfileData {
   user_id: string;
@@ -27,17 +28,25 @@ export function UserProfile({ userId, onClose, onProfileUpdated }: UserProfilePr
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState(false);
   const [editData, setEditData] = useState<UserProfileData | null>(null);
+  const [avatarImageFailed, setAvatarImageFailed] = useState(false);
+  const [avatarSaving, setAvatarSaving] = useState(false);
+
+  const activeAvatarSeed = editing ? editData?.avatar_seed : profile?.avatar_seed;
+
+  useEffect(() => {
+    setAvatarImageFailed(false);
+  }, [activeAvatarSeed, editing]);
 
   useEffect(() => {
     loadProfile();
   }, [userId]);
 
-  const loadProfile = async () => {
-    setLoading(true);
+  const loadProfile = async (options?: { showSpinner?: boolean }) => {
+    const showSpinner = options?.showSpinner !== false;
+    if (showSpinner) setLoading(true);
     try {
       const targetUserId = userId || localStorage.getItem('user_id');
       if (!targetUserId) {
-        setLoading(false);
         return;
       }
 
@@ -51,7 +60,6 @@ export function UserProfile({ userId, onClose, onProfileUpdated }: UserProfilePr
       setEditData(response.data);
     } catch (error: any) {
       console.error('Error loading profile:', error);
-      // Fallback: используем данные из localStorage
       const userData = {
         user_id: localStorage.getItem('user_id') || '',
         email: localStorage.getItem('email') || '',
@@ -61,7 +69,7 @@ export function UserProfile({ userId, onClose, onProfileUpdated }: UserProfilePr
       setProfile(userData as UserProfileData);
       setEditData(userData as UserProfileData);
     } finally {
-      setLoading(false);
+      if (showSpinner) setLoading(false);
     }
   };
 
@@ -81,26 +89,38 @@ export function UserProfile({ userId, onClose, onProfileUpdated }: UserProfilePr
         localStorage.setItem('full_name', editData.full_name);
       }
       onProfileUpdated?.();
-    } catch (error) {
+      toast.success('Профиль сохранён');
+    } catch (error: any) {
       console.error('Error saving profile:', error);
+      const msg = error?.response?.data?.detail;
+      toast.error(typeof msg === 'string' ? msg : 'Не удалось сохранить профиль');
     }
   };
 
-  const handleChangeAvatar = () => {
-    if (!editData) return;
-    setEditData({ ...editData, avatar_seed: randomAvatarSeed() });
-  };
-
-  const handleChangeAvatarQuick = async () => {
+  /** Новый seed сразу уходит на сервер — без отдельного «Сохранить» только для аватара */
+  const handleRegenerateAvatar = async () => {
+    if (!profile) return;
     const newSeed = randomAvatarSeed();
+    setAvatarImageFailed(false);
+    setAvatarSaving(true);
+    setEditData((e) => (e ? { ...e, avatar_seed: newSeed } : e));
+    setProfile((p) => (p ? { ...p, avatar_seed: newSeed } : p));
     try {
-      const token = localStorage.getItem('token');
-      await api.put('/auth/profile', { avatar_seed: newSeed }, { headers: { Authorization: `Bearer ${token}` } });
-      setProfile((p) => (p ? { ...p, avatar_seed: newSeed } : p));
-      setEditData((e) => (e ? { ...e, avatar_seed: newSeed } : e));
+      const { data } = await api.put<UserProfileData>('/auth/profile', { avatar_seed: newSeed });
+      setProfile(data);
+      setEditData(data);
+      if (data.full_name) {
+        localStorage.setItem('full_name', data.full_name);
+      }
       onProfileUpdated?.();
-    } catch (error) {
+      toast.success('Аватар обновлён');
+    } catch (error: any) {
       console.error('Error updating avatar:', error);
+      const msg = error?.response?.data?.detail;
+      toast.error(typeof msg === 'string' ? msg : 'Не удалось сохранить аватар');
+      await loadProfile({ showSpinner: false });
+    } finally {
+      setAvatarSaving(false);
     }
   };
 
@@ -147,41 +167,53 @@ export function UserProfile({ userId, onClose, onProfileUpdated }: UserProfilePr
     <div className="bg-white rounded-2xl shadow-lg p-6 space-y-6">
       {/* Header */}
       <div className="flex items-center justify-between border-b pb-4">
-        <div className="flex items-center gap-4">
-          <div className="relative">
-            {(editing ? getAvatarUrl(editData?.avatar_seed ?? undefined) : getAvatarUrl(profile.avatar_seed)) ? (
-              <img
-                src={editing ? getAvatarUrl(editData?.avatar_seed ?? undefined)! : getAvatarUrl(profile.avatar_seed)!}
-                alt=""
-                className="w-16 h-16 rounded-full object-cover border-2 border-gray-200"
-              />
-            ) : (
-              <div className="w-16 h-16 bg-gradient-to-br from-blue-400 to-purple-500 rounded-full flex items-center justify-center text-white text-2xl font-bold">
-                {profile.full_name.charAt(0).toUpperCase()}
-              </div>
-            )}
-            {editing ? (
+        <div className="flex min-w-0 flex-1 items-center gap-4">
+          <div className="flex shrink-0 items-center gap-3">
+            {(() => {
+              const url = getAvatarUrl(activeAvatarSeed ?? undefined, 192);
+              const showImg = Boolean(url) && !avatarImageFailed;
+              return (
+                <div className="relative h-16 w-16 shrink-0 overflow-hidden rounded-full border-2 border-gray-200 bg-slate-200">
+                  {showImg ? (
+                    <img
+                      src={url!}
+                      alt=""
+                      width={64}
+                      height={64}
+                      className="absolute inset-0 h-full w-full object-cover object-center"
+                      onError={() => setAvatarImageFailed(true)}
+                    />
+                  ) : (
+                    <div className="flex h-full w-full items-center justify-center">
+                      <span className="select-none text-2xl font-bold leading-none text-slate-800">
+                        {avatarInitial(profile.full_name)}
+                      </span>
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
+            <div className="flex flex-col gap-1">
               <button
                 type="button"
-                onClick={handleChangeAvatar}
-                className="absolute -bottom-1 -right-1 p-1.5 bg-blue-500 text-white rounded-full shadow hover:bg-blue-600 transition-colors"
-                title="Сменить аватар"
+                onClick={() => void handleRegenerateAvatar()}
+                disabled={avatarSaving}
+                className="inline-flex items-center justify-center gap-2 rounded-lg border border-violet-200 bg-violet-50 px-3 py-2 text-sm font-medium text-violet-900 shadow-sm transition hover:bg-violet-100 disabled:cursor-not-allowed disabled:opacity-60"
+                title="Сгенерировать новый аватар и сохранить"
               >
-                <ImagePlus className="w-4 h-4" />
+                {avatarSaving ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Wand2 className="h-4 w-4" />
+                )}
+                {avatarSaving ? 'Сохранение…' : 'Другой аватар'}
               </button>
-            ) : (
-              <button
-                type="button"
-                onClick={handleChangeAvatarQuick}
-                className="absolute -bottom-1 -right-1 px-2 py-1 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-full text-xs shadow transition-colors"
-                title="Сменить аватар"
-              >
-                <ImagePlus className="w-3.5 h-3.5 inline mr-0.5" />
-                Аватар
-              </button>
-            )}
+              <p className="max-w-[200px] text-xs text-gray-500">
+                Случайный образ сразу сохраняется в профиль
+              </p>
+            </div>
           </div>
-          <div>
+          <div className="min-w-0">
             <h2 className="text-2xl font-bold text-gray-900">
               {editing ? (
                 <input

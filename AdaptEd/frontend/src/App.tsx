@@ -6,7 +6,7 @@ import { Auth } from './components/Auth';
 import { UserProfile } from './components/UserProfile';
 import { BookOpen, Users, Settings, LogOut, User as UserIcon } from 'lucide-react';
 import { authService } from './services/auth';
-import { getAvatarUrl } from './utils/avatar';
+import { avatarInitial, getAvatarUrl } from './utils/avatar';
 import { Toaster } from 'sonner';
 
 export default function App() {
@@ -15,10 +15,15 @@ export default function App() {
   const [currentRole, setCurrentRole] = useState<'student' | 'teacher' | 'admin'>('student');
   const [showProfile, setShowProfile] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [headerAvatarFailed, setHeaderAvatarFailed] = useState(false);
 
   useEffect(() => {
     checkAuth();
   }, []);
+
+  useEffect(() => {
+    setHeaderAvatarFailed(false);
+  }, [currentUser?.avatar_seed]);
 
   const checkAuth = async () => {
     setLoading(true);
@@ -154,14 +159,36 @@ export default function App() {
                 <div className="flex items-center gap-2">
                   <button
                     onClick={() => setShowProfile(!showProfile)}
-                    className="w-10 h-10 rounded-full flex items-center justify-center overflow-hidden bg-gradient-to-br from-blue-400 to-purple-500 text-white hover:scale-105 transition-transform border-2 border-white shadow"
+                    className="relative flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-full border-2 border-white bg-slate-200 shadow hover:scale-105 transition-transform"
                     title="Профиль"
                   >
-                    {getAvatarUrl(currentUser?.avatar_seed) ? (
-                      <img src={getAvatarUrl(currentUser?.avatar_seed)!} alt="" className="w-full h-full object-cover" />
-                    ) : (
-                      currentUser?.full_name?.charAt(0) || <UserIcon className="w-5 h-5" />
-                    )}
+                    {(() => {
+                      const url = getAvatarUrl(currentUser?.avatar_seed, 80);
+                      const showImg = Boolean(url) && !headerAvatarFailed;
+                      if (showImg) {
+                        return (
+                          <img
+                            src={url!}
+                            alt=""
+                            width={40}
+                            height={40}
+                            className="absolute inset-0 h-full w-full object-cover object-center"
+                            onError={() => setHeaderAvatarFailed(true)}
+                          />
+                        );
+                      }
+                      if (avatarInitial(currentUser?.full_name) !== '?') {
+                        return (
+                          <span
+                            className="select-none text-[15px] font-bold leading-none tracking-tight text-slate-800"
+                            aria-hidden
+                          >
+                            {avatarInitial(currentUser?.full_name)}
+                          </span>
+                        );
+                      }
+                      return <UserIcon className="h-5 w-5 shrink-0 text-slate-700" strokeWidth={2.25} />;
+                    })()}
                   </button>
                   <button
                     onClick={handleLogout}

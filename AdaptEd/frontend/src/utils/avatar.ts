@@ -1,11 +1,20 @@
-const DICEBEAR = 'https://api.dicebear.com/7.x/avataaars/svg';
-
 /**
- * URL аватара по seed (DiceBear Avataaars). Для пользователей без seed возвращает null.
+ * PNG надёжнее отображается в <img>, чем SVG (object-fit, блокировщики, масштаб).
+ * @see https://www.dicebear.com/how-to-use/http-api/
  */
-export function getAvatarUrl(seed: string | null | undefined): string | null {
+export function getAvatarUrl(seed: string | null | undefined, sizePx: number = 128): string | null {
   if (!seed || typeof seed !== 'string') return null;
-  return `${DICEBEAR}?seed=${encodeURIComponent(seed)}`;
+  const size = Math.min(512, Math.max(32, Math.round(sizePx)));
+  return `https://api.dicebear.com/7.x/avataaars/png?seed=${encodeURIComponent(seed)}&size=${size}`;
+}
+
+/** Первая видимая буква имени для аватара-плейсхолдера (кириллица/Latin). */
+export function avatarInitial(name: string | null | undefined): string {
+  const s = String(name ?? '')
+    .trim()
+    .replace(/^\uFEFF/, '');
+  if (!s) return '?';
+  return s.charAt(0).toLocaleUpperCase('ru-RU');
 }
 
 /** Генерирует новый случайный seed для аватара */

@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Plus, Edit, Trash2, Upload, BookOpen, Users, Settings, Database, X, Library } from 'lucide-react';
+import { Plus, Edit, Trash2, Upload, BookOpen, Users, Settings, Database, X, Library, Loader2, RefreshCw, Shield, Cpu, HardDrive } from 'lucide-react';
 import api from '../services/api';
+import { avatarInitial } from '../utils/avatar';
 import { toast } from 'sonner';
 import { TopicLibraryStudio } from './TopicLibraryStudio';
 
@@ -492,169 +493,254 @@ export function AdminPanel() {
   }) => {
     if (!isOpen) return null;
     return (
-      <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/45 p-4 backdrop-blur-sm">
         <div
-          className={`bg-white rounded-xl shadow-xl w-full mx-4 max-h-[90vh] overflow-y-auto ${
+          className={`max-h-[90vh] w-full overflow-y-auto rounded-2xl border border-slate-200/90 bg-white shadow-2xl shadow-slate-900/25 ${
             wide ? 'max-w-5xl' : 'max-w-2xl'
           }`}
         >
-          <div className="flex items-center justify-between p-6 border-b border-gray-200">
-            <h3 className="text-xl font-semibold text-gray-900">{title}</h3>
-            <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
-              <X className="w-6 h-6" />
+          <div className="flex items-center justify-between gap-3 border-b border-slate-100 bg-gradient-to-r from-slate-50 to-white px-5 py-4 sm:px-6">
+            <h3 className="text-lg font-semibold text-slate-900">{title}</h3>
+            <button
+              type="button"
+              onClick={onClose}
+              className="rounded-lg p-2 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
+              aria-label="Закрыть"
+            >
+              <X className="h-5 w-5" />
             </button>
           </div>
-          <div className="p-6">
-            {children}
-          </div>
+          <div className="p-5 sm:p-6">{children}</div>
         </div>
       </div>
     );
   };
 
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-        <div className="flex items-center justify-between">
-          <div>
-            <h2 className="text-gray-900">Панель администратора</h2>
-            <p className="text-gray-600">Управление контентом и пользователями</p>
+    <div className="space-y-8 pb-10">
+      <div className="relative overflow-hidden rounded-2xl border border-slate-200/90 bg-gradient-to-br from-slate-900 via-slate-800 to-indigo-900 text-white shadow-lg">
+        <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_80%_60%_at_0%_100%,rgba(99,102,241,0.35),transparent)]" />
+        <div className="relative flex flex-col gap-4 p-5 sm:flex-row sm:items-center sm:justify-between sm:p-6">
+          <div className="flex gap-4">
+            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-white/15 ring-1 ring-white/20 backdrop-blur">
+              <Shield className="h-6 w-6 text-indigo-200" />
+            </div>
+            <div>
+              <p className="text-[11px] font-semibold uppercase tracking-widest text-indigo-200/90">Администрирование</p>
+              <h2 className="mt-0.5 text-xl font-semibold tracking-tight sm:text-2xl">Панель администратора</h2>
+              <p className="mt-1 max-w-xl text-sm text-slate-300">
+                Каталог тем, пользователи, тестовый seed и параметры адаптации — централизованно.
+              </p>
+            </div>
           </div>
-          <Settings className="w-8 h-8 text-gray-400" />
+          <button
+            type="button"
+            onClick={() => {
+              loadAdminData();
+              loadSystemSettings();
+            }}
+            disabled={loading}
+            className="inline-flex items-center justify-center gap-2 self-start rounded-xl bg-white/10 px-4 py-2.5 text-sm font-medium text-white ring-1 ring-white/20 transition hover:bg-white/20 disabled:opacity-50 sm:self-center"
+          >
+            <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
+            Обновить данные
+          </button>
         </div>
       </div>
 
-      {/* Loading State */}
-      {loading && (
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-          <div className="text-center py-8">
-            <p className="text-gray-500">Загрузка данных...</p>
-          </div>
-        </div>
-      )}
-
-      {/* Error State */}
       {error && (
-        <div className="bg-red-50 border border-red-200 rounded-xl p-6">
-          <p className="text-red-600">{error}</p>
+        <div className="rounded-2xl border border-rose-200 bg-rose-50 px-5 py-4 text-rose-800 shadow-sm">
+          <p className="font-medium">Не удалось загрузить данные</p>
+          <p className="mt-1 text-sm text-rose-700/90">{error}</p>
         </div>
       )}
 
-      {/* System Stats */}
-      {!loading && !error && (
-        <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-4">
-          <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
-            <p className="text-gray-600 text-sm">Пользователи</p>
-            <p className="text-2xl text-gray-900 mt-1">{systemStats.totalUsers}</p>
-          </div>
-          <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
-            <p className="text-gray-600 text-sm">Задания</p>
-            <p className="text-2xl text-gray-900 mt-1">{systemStats.totalTasks}</p>
-          </div>
-          <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
-            <p className="text-gray-600 text-sm">Материалы</p>
-            <p className="text-2xl text-gray-900 mt-1">{systemStats.totalMaterials}</p>
-          </div>
-          <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
-            <p className="text-gray-600 text-sm">AI запросы</p>
-            <p className="text-2xl text-gray-900 mt-1">{systemStats.aiQueries}</p>
-          </div>
-          <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
-            <p className="text-gray-600 text-sm">Хранилище</p>
-            <p className="text-2xl text-gray-900 mt-1">{systemStats.storageUsed}</p>
-          </div>
-          <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
-            <p className="text-gray-600 text-sm">Аптайм</p>
-            <p className="text-2xl text-green-600 mt-1">{systemStats.uptime}</p>
-          </div>
+      {!error && (
+        <div className="relative grid grid-cols-2 gap-3 lg:grid-cols-6">
+          {loading && (
+            <div className="absolute -top-1 right-0 z-10 flex items-center gap-2 rounded-full bg-indigo-50 px-3 py-1 text-xs font-medium text-indigo-700 ring-1 ring-indigo-100">
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              Обновление
+            </div>
+          )}
+          {loading ? (
+            [0, 1, 2, 3, 4, 5].map((i) => (
+              <div
+                key={i}
+                className="h-[88px] animate-pulse rounded-2xl border border-slate-100 bg-slate-100/80"
+              />
+            ))
+          ) : (
+            <>
+              <div className="group relative overflow-hidden rounded-2xl border border-slate-200/90 bg-white p-4 shadow-sm transition hover:border-indigo-200 hover:shadow-md">
+                <div className="absolute -right-4 -top-4 h-16 w-16 rounded-full bg-indigo-500/10 blur-xl" />
+                <div className="relative flex items-start justify-between gap-2">
+                  <div>
+                    <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Пользователи</p>
+                    <p className="mt-1 text-2xl font-semibold tabular-nums text-slate-900">{systemStats.totalUsers}</p>
+                  </div>
+                  <Users className="h-8 w-8 text-indigo-500 opacity-80" />
+                </div>
+              </div>
+              <div className="group relative overflow-hidden rounded-2xl border border-slate-200/90 bg-white p-4 shadow-sm transition hover:border-violet-200 hover:shadow-md">
+                <div className="absolute -right-4 -top-4 h-16 w-16 rounded-full bg-violet-500/10 blur-xl" />
+                <div className="relative flex items-start justify-between gap-2">
+                  <div>
+                    <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Задания</p>
+                    <p className="mt-1 text-2xl font-semibold tabular-nums text-slate-900">{systemStats.totalTasks}</p>
+                  </div>
+                  <BookOpen className="h-8 w-8 text-violet-500 opacity-80" />
+                </div>
+              </div>
+              <div className="group relative overflow-hidden rounded-2xl border border-slate-200/90 bg-white p-4 shadow-sm transition hover:border-teal-200 hover:shadow-md">
+                <div className="absolute -right-4 -top-4 h-16 w-16 rounded-full bg-teal-500/10 blur-xl" />
+                <div className="relative flex items-start justify-between gap-2">
+                  <div>
+                    <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Материалы</p>
+                    <p className="mt-1 text-2xl font-semibold tabular-nums text-slate-900">{systemStats.totalMaterials}</p>
+                  </div>
+                  <Upload className="h-8 w-8 text-teal-500 opacity-80" />
+                </div>
+              </div>
+              <div className="group relative overflow-hidden rounded-2xl border border-slate-200/90 bg-white p-4 shadow-sm transition hover:border-amber-200 hover:shadow-md">
+                <div className="absolute -right-4 -top-4 h-16 w-16 rounded-full bg-amber-500/10 blur-xl" />
+                <div className="relative flex items-start justify-between gap-2">
+                  <div>
+                    <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">AI запросы</p>
+                    <p className="mt-1 text-2xl font-semibold tabular-nums text-slate-900">{systemStats.aiQueries}</p>
+                  </div>
+                  <Cpu className="h-8 w-8 text-amber-500 opacity-80" />
+                </div>
+              </div>
+              <div className="group relative overflow-hidden rounded-2xl border border-slate-200/90 bg-white p-4 shadow-sm transition hover:border-slate-300 hover:shadow-md">
+                <div className="relative flex items-start justify-between gap-2">
+                  <div>
+                    <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Хранилище</p>
+                    <p className="mt-1 text-lg font-semibold text-slate-900">{systemStats.storageUsed}</p>
+                  </div>
+                  <HardDrive className="h-8 w-8 text-slate-400" />
+                </div>
+              </div>
+              <div className="group relative overflow-hidden rounded-2xl border border-emerald-200/80 bg-gradient-to-br from-emerald-50 to-white p-4 shadow-sm transition hover:shadow-md">
+                <div className="relative flex items-start justify-between gap-2">
+                  <div>
+                    <p className="text-[11px] font-semibold uppercase tracking-wide text-emerald-700/80">Аптайм</p>
+                    <p className="mt-1 text-2xl font-semibold tabular-nums text-emerald-700">{systemStats.uptime}</p>
+                  </div>
+                  <Database className="h-8 w-8 text-emerald-600 opacity-90" />
+                </div>
+              </div>
+            </>
+          )}
         </div>
       )}
 
-      {/* Tabs */}
-      <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-1 flex">
-        <button
-          onClick={() => setActiveTab('content')}
-          className={`flex-1 py-3 px-4 rounded-lg transition-all ${
-            activeTab === 'content'
-              ? 'bg-blue-50 text-blue-600'
-              : 'text-gray-600 hover:bg-gray-50'
-          }`}
-        >
-          <BookOpen className="w-5 h-5 inline mr-2" />
-          Управление контентом
-        </button>
-        <button
-          onClick={() => setActiveTab('users')}
-          className={`flex-1 py-3 px-4 rounded-lg transition-all ${
-            activeTab === 'users'
-              ? 'bg-blue-50 text-blue-600'
-              : 'text-gray-600 hover:bg-gray-50'
-          }`}
-        >
-          <Users className="w-5 h-5 inline mr-2" />
-          Управление пользователями
-        </button>
-        <button
-          onClick={() => setActiveTab('system')}
-          className={`flex-1 py-3 px-4 rounded-lg transition-all ${
-            activeTab === 'system'
-              ? 'bg-blue-50 text-blue-600'
-              : 'text-gray-600 hover:bg-gray-50'
-          }`}
-        >
-          <Database className="w-5 h-5 inline mr-2" />
-          Настройки системы
-        </button>
+      <div className="rounded-2xl border border-slate-200/90 bg-slate-50/80 p-1.5 shadow-sm">
+        <div className="grid grid-cols-1 gap-1 sm:grid-cols-3">
+          <button
+            type="button"
+            onClick={() => setActiveTab('content')}
+            className={`flex flex-col items-start gap-0.5 rounded-xl px-4 py-3 text-left transition-all ${
+              activeTab === 'content'
+                ? 'bg-white shadow-md ring-2 ring-indigo-500/15'
+                : 'text-slate-600 hover:bg-white/80 hover:text-slate-900'
+            }`}
+          >
+            <span className="flex items-center gap-2 font-medium text-slate-900">
+              <BookOpen className={`h-5 w-5 ${activeTab === 'content' ? 'text-indigo-600' : 'text-slate-400'}`} />
+              Контент
+            </span>
+            <span className="pl-7 text-xs text-slate-500">Каталог предмет → тема</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveTab('users')}
+            className={`flex flex-col items-start gap-0.5 rounded-xl px-4 py-3 text-left transition-all ${
+              activeTab === 'users'
+                ? 'bg-white shadow-md ring-2 ring-indigo-500/15'
+                : 'text-slate-600 hover:bg-white/80 hover:text-slate-900'
+            }`}
+          >
+            <span className="flex items-center gap-2 font-medium text-slate-900">
+              <Users className={`h-5 w-5 ${activeTab === 'users' ? 'text-indigo-600' : 'text-slate-400'}`} />
+              Пользователи
+            </span>
+            <span className="pl-7 text-xs text-slate-500">Роли, классы, seed</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveTab('system')}
+            className={`flex flex-col items-start gap-0.5 rounded-xl px-4 py-3 text-left transition-all ${
+              activeTab === 'system'
+                ? 'bg-white shadow-md ring-2 ring-indigo-500/15'
+                : 'text-slate-600 hover:bg-white/80 hover:text-slate-900'
+            }`}
+          >
+            <span className="flex items-center gap-2 font-medium text-slate-900">
+              <Settings className={`h-5 w-5 ${activeTab === 'system' ? 'text-indigo-600' : 'text-slate-400'}`} />
+              Система
+            </span>
+            <span className="pl-7 text-xs text-slate-500">Адаптация и API</span>
+          </button>
+        </div>
       </div>
 
       {/* Content Management */}
       {activeTab === 'content' && (
         <div className="space-y-6">
-          <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-            <div className="flex items-center justify-between mb-6">
-              <h3 className="text-gray-900">Образовательный контент</h3>
-              <div className="flex gap-3">
-                <button 
+          <div className="rounded-2xl border border-slate-200/90 bg-white shadow-sm">
+            <div className="flex flex-col gap-4 border-b border-slate-100 bg-slate-50/80 px-5 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-6">
+              <div>
+                <h3 className="text-lg font-semibold text-slate-900">Каталог учебного контента</h3>
+                <p className="mt-0.5 text-sm text-slate-600">Предмет → раздел → тема, привязка к библиотеке и карточки заданий каталога</p>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
                   onClick={() => setShowUploadModal(true)}
-                  className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
+                  className="inline-flex items-center gap-2 rounded-xl bg-emerald-600 px-4 py-2.5 text-sm font-medium text-white shadow-sm transition hover:bg-emerald-700"
                 >
-                  <Upload className="w-4 h-4" />
+                  <Upload className="h-4 w-4" />
                   Загрузить материалы
                 </button>
-                <button 
+                <button
+                  type="button"
                   onClick={() => setShowSubjectModal(true)}
-                  className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                  className="inline-flex items-center gap-2 rounded-xl bg-indigo-600 px-4 py-2.5 text-sm font-medium text-white shadow-sm transition hover:bg-indigo-700"
                 >
-                  <Plus className="w-4 h-4" />
-                  Создать предмет
+                  <Plus className="h-4 w-4" />
+                  Новый предмет
                 </button>
               </div>
             </div>
 
-            <p className="text-sm text-gray-600 mb-4 rounded-lg bg-slate-50 border border-slate-200 px-4 py-3">
-              <strong>Зачем это:</strong> внутренний <strong>каталог тем</strong> для методиста/админа (предмет → раздел → тема): что изучаем, текст для детей, заметки учителю, класс.
-              Через кнопку <strong>«Библиотека»</strong> к теме можно привязать материалы и мини-курсы — ученик откроет их в библиотеке в разделе <strong>«По программе»</strong>. Карточки «+ Задание» здесь — план урока в каталоге, <strong>не</strong> то же самое, что тесты в БД.
-              <br />
-              <span className="text-gray-500 mt-2 inline-block">
-                <strong>Где хранится:</strong> при подключённой БД (Railway Postgres) — таблицы{' '}
-                <code className="text-xs bg-white px-1 rounded border">curriculum_*</code>. Без БД — файл{' '}
-                <code className="text-xs bg-white px-1 rounded border">data.json</code>.
-              </span>
-            </p>
+            <div className="border-b border-indigo-100 bg-indigo-50/40 px-5 py-4 text-sm leading-relaxed text-slate-700 sm:px-6">
+              <p>
+                <span className="font-semibold text-slate-900">Назначение:</span> методический каталог (что изучаем, текст для ученика, заметки учителю, класс). Кнопка{' '}
+                <span className="font-medium text-indigo-700">«Библиотека»</span> привязывает материалы и мини-курсы — они появятся у ученика в разделе{' '}
+                <span className="font-medium">«По программе»</span>. <span className="font-medium">«+ Задание»</span> — элементы плана в каталоге, это не тесты в БД.
+              </p>
+              <p className="mt-2 text-xs text-slate-600">
+                Хранение: при Postgres — таблицы <code className="rounded bg-white px-1.5 py-0.5 text-[11px] ring-1 ring-slate-200">curriculum_*</code>; без БД —{' '}
+                <code className="rounded bg-white px-1.5 py-0.5 text-[11px] ring-1 ring-slate-200">data.json</code>.
+              </p>
+            </div>
 
-            {/* Content Structure */}
+            <div className="p-5 sm:p-6">
+
             <div className="space-y-4">
               {contentStructure.length === 0 && (
-                <p className="text-center text-gray-500 py-6">Каталог пуст. Обновите страницу — подставится шаблон «Математика».</p>
+                <p className="rounded-xl border border-dashed border-slate-200 bg-slate-50/80 py-10 text-center text-sm text-slate-600">
+                  Каталог пуст. Обновите страницу — подставится шаблон «Математика».
+                </p>
               )}
               {contentStructure.map((subject) => (
-                <div key={subject.id} className="border border-gray-200 rounded-lg">
-                  <div className="p-4 bg-gradient-to-r from-blue-50 to-purple-50 border-b border-gray-200 flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                      <BookOpen className="w-6 h-6 text-blue-600" />
-                      <h4 className="text-gray-900">{subject.subject}</h4>
-                      <span className="px-2 py-1 bg-white rounded text-xs text-gray-600">
+                <div key={subject.id} className="overflow-hidden rounded-xl border border-slate-200/90 shadow-sm">
+                  <div className="flex items-center justify-between border-b border-slate-200/80 bg-gradient-to-r from-indigo-50/90 via-white to-violet-50/80 px-4 py-3 sm:px-5">
+                    <div className="flex flex-wrap items-center gap-3">
+                      <BookOpen className="h-6 w-6 shrink-0 text-indigo-600" />
+                      <h4 className="font-semibold text-slate-900">{subject.subject}</h4>
+                      <span className="rounded-lg bg-white/90 px-2.5 py-0.5 text-xs font-medium text-slate-600 ring-1 ring-slate-200/80">
                         {subject.sections.length} разделов
                       </span>
                     </div>
@@ -674,9 +760,9 @@ export function AdminPanel() {
                     </div>
                   </div>
 
-                  <div className="p-4 space-y-3">
+                  <div className="space-y-3 bg-slate-50/30 p-4 sm:p-5">
                     {subject.sections.map((section) => (
-                      <div key={section.id} className="ml-4 border-l-2 border-blue-200 pl-4">
+                      <div key={section.id} className="ml-1 border-l-2 border-indigo-200 pl-4 sm:ml-2 sm:pl-5">
                         <div className="flex items-center justify-between mb-2">
                           <h5 className="text-gray-800">{section.name}</h5>
                           <span className="text-sm text-gray-500">
@@ -797,54 +883,61 @@ export function AdminPanel() {
                 </div>
               ))}
             </div>
+            </div>
           </div>
 
-          {/* AI Settings */}
-          <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-            <h3 className="text-gray-900 mb-4">Настройки AI модулей</h3>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="p-4 border border-gray-200 rounded-lg">
-                <h4 className="text-gray-800 mb-2">NLP модуль</h4>
-                <p className="text-sm text-gray-600 mb-3">Анализ ответов и классификация ошибок</p>
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between text-sm">
-                    <span className="text-gray-600">Модель:</span>
-                    <span className="text-gray-900">ruBERT-large</span>
+          <div className="rounded-2xl border border-slate-200/90 bg-white p-5 shadow-sm sm:p-6">
+            <h3 className="text-lg font-semibold text-slate-900">Обзор AI-модулей</h3>
+            <p className="mt-1 text-sm text-slate-600">Справочно; ключи и интеграции задаются во вкладке «Система».</p>
+            <div className="mt-5 grid grid-cols-1 gap-4 md:grid-cols-2">
+              <div className="rounded-xl border border-slate-200 bg-slate-50/50 p-4 transition hover:border-indigo-200 hover:bg-white">
+                <h4 className="font-medium text-slate-900">NLP / анализ ошибок</h4>
+                <p className="mt-1 text-sm text-slate-600">Классификация ответов учеников</p>
+                <dl className="mt-3 space-y-1.5 text-sm">
+                  <div className="flex justify-between gap-2">
+                    <dt className="text-slate-500">Модель (справочно)</dt>
+                    <dd className="font-medium text-slate-800">ruBERT-large</dd>
                   </div>
-                  <div className="flex items-center justify-between text-sm">
-                    <span className="text-gray-600">Точность:</span>
-                    <span className="text-green-600">94.2%</span>
+                  <div className="flex justify-between gap-2">
+                    <dt className="text-slate-500">Точность (демо)</dt>
+                    <dd className="font-medium text-emerald-600">94.2%</dd>
                   </div>
-                  <button 
-                    type="button"
-                    onClick={() => { setActiveTab('system'); toast.info('Перейдите в раздел «Настройки системы» для настройки интеграций'); }}
-                    className="w-full py-2 bg-blue-50 text-blue-600 rounded-lg hover:bg-blue-100 transition-colors text-sm"
-                  >
-                    Настроить
-                  </button>
-                </div>
+                </dl>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setActiveTab('system');
+                    toast.info('Откройте вкладку «Система» для интеграций и ключей');
+                  }}
+                  className="mt-4 w-full rounded-xl bg-indigo-50 py-2.5 text-sm font-medium text-indigo-700 transition hover:bg-indigo-100"
+                >
+                  Перейти к настройкам
+                </button>
               </div>
 
-              <div className="p-4 border border-gray-200 rounded-lg">
-                <h4 className="text-gray-800 mb-2">RAG модуль</h4>
-                <p className="text-sm text-gray-600 mb-3">Генерация рекомендаций</p>
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between text-sm">
-                    <span className="text-gray-600">LLM:</span>
-                    <span className="text-gray-900">GigaChat Pro</span>
+              <div className="rounded-xl border border-slate-200 bg-slate-50/50 p-4 transition hover:border-violet-200 hover:bg-white">
+                <h4 className="font-medium text-slate-900">RAG / рекомендации</h4>
+                <p className="mt-1 text-sm text-slate-600">LLM и векторное хранилище</p>
+                <dl className="mt-3 space-y-1.5 text-sm">
+                  <div className="flex justify-between gap-2">
+                    <dt className="text-slate-500">LLM (справочно)</dt>
+                    <dd className="font-medium text-slate-800">GigaChat Pro</dd>
                   </div>
-                  <div className="flex items-center justify-between text-sm">
-                    <span className="text-gray-600">Векторная БД:</span>
-                    <span className="text-gray-900">Pinecone</span>
+                  <div className="flex justify-between gap-2">
+                    <dt className="text-slate-500">Векторная БД</dt>
+                    <dd className="font-medium text-slate-800">Pinecone</dd>
                   </div>
-                  <button 
-                    type="button"
-                    onClick={() => { setActiveTab('system'); toast.info('Настройте GigaChat и Pinecone в блоке «Интеграции API» ниже'); }}
-                    className="w-full py-2 bg-purple-50 text-purple-600 rounded-lg hover:bg-purple-100 transition-colors text-sm"
-                  >
-                    Настроить
-                  </button>
-                </div>
+                </dl>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setActiveTab('system');
+                    toast.info('Во вкладке «Система» — блок API-интеграций');
+                  }}
+                  className="mt-4 w-full rounded-xl bg-violet-50 py-2.5 text-sm font-medium text-violet-700 transition hover:bg-violet-100"
+                >
+                  Перейти к настройкам
+                </button>
               </div>
             </div>
           </div>
@@ -853,117 +946,140 @@ export function AdminPanel() {
 
       {/* User Management */}
       {activeTab === 'users' && (
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-          <div className="flex items-center justify-between mb-6 flex-wrap gap-3">
-            <h3 className="text-gray-900">Управление пользователями</h3>
-            <div className="flex items-center gap-2">
+        <div className="overflow-hidden rounded-2xl border border-slate-200/90 bg-white shadow-sm">
+          <div className="flex flex-col gap-4 border-b border-slate-100 bg-slate-50/80 px-5 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-6">
+            <div>
+              <h3 className="text-lg font-semibold text-slate-900">Пользователи</h3>
+              <p className="mt-0.5 text-sm text-slate-600">Роли, активация, сброс пароля, тестовый seed</p>
+            </div>
+            <div className="flex flex-wrap gap-2">
               <button
                 type="button"
                 onClick={handleSeedDb}
                 disabled={seedLoading}
-                className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors disabled:opacity-60"
+                className="inline-flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-2.5 text-sm font-medium text-emerald-800 transition hover:bg-emerald-100 disabled:opacity-60"
               >
-                {seedLoading ? 'Заполняем...' : 'Заполнить БД тестовыми данными'}
+                {seedLoading ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    Заполняем…
+                  </>
+                ) : (
+                  'Заполнить БД тестовыми данными'
+                )}
               </button>
-              <button 
+              <button
+                type="button"
                 onClick={() => setShowUserModal(true)}
-                className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                className="inline-flex items-center gap-2 rounded-xl bg-indigo-600 px-4 py-2.5 text-sm font-medium text-white shadow-sm transition hover:bg-indigo-700"
               >
-                <Plus className="w-4 h-4" />
-                Добавить пользователя
+                <Plus className="h-4 w-4" />
+                Новый пользователь
               </button>
             </div>
           </div>
 
-          {loading ? (
-            <div className="text-center py-8">
-              <p className="text-gray-500">Загрузка пользователей...</p>
-            </div>
-          ) : users.length === 0 ? (
-            <div className="text-center py-8">
-              <p className="text-gray-500">Нет пользователей</p>
-            </div>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full">
-                <thead>
-                  <tr className="border-b border-gray-200">
-                    <th className="text-left py-3 px-4 text-gray-700">Имя</th>
-                    <th className="text-left py-3 px-4 text-gray-700">Email</th>
-                    <th className="text-center py-3 px-4 text-gray-700">Роль</th>
-                    <th className="text-center py-3 px-4 text-gray-700">Статус</th>
-                    <th className="text-right py-3 px-4 text-gray-700">Действия</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {users.map((user) => (
-                    <tr key={user.id} className="border-b border-gray-100 hover:bg-gray-50 transition-colors">
-                      <td className="py-4 px-4">
-                        <div className="flex items-center gap-3">
-                          <div className="w-10 h-10 bg-gradient-to-br from-blue-400 to-purple-500 rounded-full flex items-center justify-center text-white">
-                            {user.name.charAt(0)}
-                          </div>
-                          <span className="text-gray-900">{user.name}</span>
-                        </div>
-                      </td>
-                      <td className="py-4 px-4 text-gray-600">{user.email}</td>
-                      <td className="text-center py-4 px-4">
-                        <span className={`px-3 py-1 rounded-full text-xs ${
-                          user.role === 'teacher' 
-                            ? 'bg-purple-100 text-purple-700' 
-                            : user.role === 'admin'
-                            ? 'bg-red-100 text-red-700'
-                            : 'bg-blue-100 text-blue-700'
-                        }`}>
-                          {user.role === 'teacher' ? 'Учитель' : user.role === 'admin' ? 'Админ' : 'Ученик'}
-                        </span>
-                      </td>
-                      <td className="text-center py-4 px-4">
-                        <span className={`px-3 py-1 rounded-full text-xs ${
-                          user.status === 'active' 
-                            ? 'bg-green-100 text-green-700' 
-                            : 'bg-gray-100 text-gray-700'
-                        }`}>
-                          {user.status === 'active' ? 'Активен' : 'Неактивен'}
-                        </span>
-                      </td>
-                      <td className="text-right py-4 px-4">
-                        <div className="flex items-center justify-end gap-2">
-                          <button 
-                            onClick={() => handleEditUser(user)}
-                            className="p-2 text-blue-600 hover:bg-blue-50 rounded transition-colors"
-                          >
-                            <Edit className="w-4 h-4" />
-                          </button>
-                          <button 
-                            onClick={() => handleDeleteUser(user.id)}
-                            className="p-2 text-red-600 hover:bg-red-50 rounded transition-colors"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
-                        </div>
-                      </td>
+          <div className="p-4 sm:p-6">
+            {loading ? (
+              <div className="flex flex-col items-center justify-center gap-3 py-16">
+                <Loader2 className="h-8 w-8 animate-spin text-indigo-600" />
+                <p className="text-sm text-slate-600">Загружаем список…</p>
+              </div>
+            ) : users.length === 0 ? (
+              <p className="rounded-xl border border-dashed border-slate-200 py-12 text-center text-sm text-slate-600">Пользователей пока нет</p>
+            ) : (
+              <div className="overflow-x-auto rounded-xl border border-slate-100">
+                <table className="w-full min-w-[640px] text-sm">
+                  <thead>
+                    <tr className="border-b border-slate-200 bg-slate-50/90 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+                      <th className="py-3 pl-4 pr-2">Пользователь</th>
+                      <th className="px-2 py-3">Email</th>
+                      <th className="px-2 py-3 text-center">Роль</th>
+                      <th className="px-2 py-3 text-center">Статус</th>
+                      <th className="py-3 pl-2 pr-4 text-right">Действия</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
+                  </thead>
+                  <tbody>
+                    {users.map((user) => (
+                      <tr key={user.id} className="border-b border-slate-100 transition-colors hover:bg-slate-50/80">
+                        <td className="py-3.5 pl-4 pr-2">
+                          <div className="flex items-center gap-3">
+                            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-slate-200 text-slate-900 shadow-sm ring-1 ring-slate-300/90">
+                              <span className="select-none text-[15px] font-bold leading-none tracking-tight">
+                                {avatarInitial(user.name)}
+                              </span>
+                            </div>
+                            <span className="font-medium text-slate-900">{user.name}</span>
+                          </div>
+                        </td>
+                        <td className="px-2 py-3.5 text-slate-600">{user.email}</td>
+                        <td className="px-2 py-3.5 text-center">
+                          <span
+                            className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-semibold ring-1 ${
+                              user.role === 'teacher'
+                                ? 'bg-violet-50 text-violet-800 ring-violet-200/80'
+                                : user.role === 'admin'
+                                  ? 'bg-rose-50 text-rose-800 ring-rose-200/80'
+                                  : 'bg-sky-50 text-sky-800 ring-sky-200/80'
+                            }`}
+                          >
+                            {user.role === 'teacher' ? 'Учитель' : user.role === 'admin' ? 'Админ' : 'Ученик'}
+                          </span>
+                        </td>
+                        <td className="px-2 py-3.5 text-center">
+                          <span
+                            className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-semibold ring-1 ${
+                              user.status === 'active'
+                                ? 'bg-emerald-50 text-emerald-800 ring-emerald-200/80'
+                                : 'bg-slate-100 text-slate-600 ring-slate-200/80'
+                            }`}
+                          >
+                            {user.status === 'active' ? 'Активен' : 'Неактивен'}
+                          </span>
+                        </td>
+                        <td className="py-3.5 pl-2 pr-4 text-right">
+                          <div className="flex items-center justify-end gap-1">
+                            <button
+                              type="button"
+                              onClick={() => handleEditUser(user)}
+                              className="rounded-lg p-2 text-indigo-600 transition hover:bg-indigo-50"
+                              title="Редактировать"
+                            >
+                              <Edit className="h-4 w-4" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteUser(user.id)}
+                              className="rounded-lg p-2 text-rose-600 transition hover:bg-rose-50"
+                              title="Деактивировать"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
         </div>
       )}
 
       {/* System Settings */}
       {activeTab === 'system' && (
         <div className="space-y-6">
-          <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-            <h3 className="text-gray-900 mb-6">Настройки адаптивности</h3>
-            <form onSubmit={handleSaveSettings} className="space-y-6">
+          <div className="rounded-2xl border border-slate-200/90 bg-white p-5 shadow-sm sm:p-6">
+            <h3 className="text-lg font-semibold text-slate-900">Адаптивность обучения</h3>
+            <p className="mt-1 text-sm text-slate-600">Влияет на логику подбора сложности и пороги освоения.</p>
+            <form onSubmit={handleSaveSettings} className="mt-6 space-y-6">
               <div>
-                <label className="block text-gray-700 mb-2">Стратегия адаптации</label>
-                <select 
+                <label className="mb-2 block text-sm font-medium text-slate-700">Стратегия адаптации</label>
+                <select
                   name="adaptation_strategy"
                   defaultValue={systemSettings.adaptation_strategy}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  className="w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm focus:border-indigo-300 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
                 >
                   <option value="aggressive">Агрессивная (быстрое повышение сложности)</option>
                   <option value="balanced">Сбалансированная (рекомендуется)</option>
@@ -972,92 +1088,95 @@ export function AdminPanel() {
               </div>
 
               <div>
-                <label className="block text-gray-700 mb-2">
-                  Целевой уровень освоения темы (%)
-                </label>
-                <input 
-                  type="range" 
+                <label className="mb-2 block text-sm font-medium text-slate-700">Целевой уровень освоения темы (%)</label>
+                <input
+                  type="range"
                   name="target_mastery_percent"
-                  min="60" 
-                  max="100" 
+                  min="60"
+                  max="100"
                   defaultValue={systemSettings.target_mastery_percent}
-                  className="w-full"
+                  className="h-2 w-full cursor-pointer accent-indigo-600"
                 />
-                <div className="flex justify-between text-sm text-gray-600 mt-1">
+                <div className="mt-1 flex justify-between text-xs text-slate-500">
                   <span>60%</span>
-                  <span>{systemSettings.target_mastery_percent}%</span>
+                  <span className="font-semibold text-indigo-600">{systemSettings.target_mastery_percent}%</span>
                   <span>100%</span>
                 </div>
               </div>
 
               <div>
-                <label className="block text-gray-700 mb-2">
-                  Количество попыток перед сменой стратегии
-                </label>
-                <input 
-                  type="number" 
+                <label className="mb-2 block text-sm font-medium text-slate-700">Попыток до смены стратегии</label>
+                <input
+                  type="number"
                   name="attempts_before_strategy_change"
                   defaultValue={systemSettings.attempts_before_strategy_change}
                   min="1"
                   max="10"
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm focus:border-indigo-300 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
                 />
               </div>
 
-              <button type="submit" className="w-full py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors">
-                Сохранить настройки
+              <button
+                type="submit"
+                className="w-full rounded-xl bg-indigo-600 py-3 text-sm font-medium text-white shadow-sm transition hover:bg-indigo-700"
+              >
+                Сохранить параметры адаптации
               </button>
             </form>
           </div>
 
-          <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-            <h3 className="text-gray-900 mb-6">Интеграции API</h3>
-            <form onSubmit={handleSaveSettings} className="space-y-4">
-              <div className="p-4 border border-gray-200 rounded-lg">
-                <div className="flex items-center justify-between mb-2">
-                  <h4 className="text-gray-800">GigaChat API</h4>
-                  <span className="px-3 py-1 bg-green-100 text-green-700 rounded-full text-xs">
-                    Подключено
+          <div className="rounded-2xl border border-slate-200/90 bg-white p-5 shadow-sm sm:p-6">
+            <h3 className="text-lg font-semibold text-slate-900">Интеграции API</h3>
+            <p className="mt-1 text-sm text-slate-600">Ключи храните в безопасности; после сохранения проверьте работу RAG/чата.</p>
+            <form onSubmit={handleSaveSettings} className="mt-6 space-y-4">
+              <div className="rounded-xl border border-slate-200 bg-slate-50/50 p-4">
+                <div className="mb-2 flex items-center justify-between gap-2">
+                  <h4 className="font-medium text-slate-900">GigaChat</h4>
+                  <span className="rounded-full bg-emerald-50 px-2.5 py-0.5 text-xs font-medium text-emerald-800 ring-1 ring-emerald-200/80">
+                    Поле в БД
                   </span>
                 </div>
-                <p className="text-sm text-gray-600 mb-3">API для генерации текста в RAG модуле</p>
+                <p className="mb-3 text-sm text-slate-600">Ключ для сценариев с GigaChat (если используется)</p>
                 <input
                   type="password"
                   name="gigachat_api_key"
-                  placeholder="Введите API ключ"
+                  placeholder="••••••••"
                   defaultValue={systemSettings.gigachat_api_key}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+                  className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm focus:border-indigo-300 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
                 />
               </div>
 
-              <div className="p-4 border border-gray-200 rounded-lg">
-                <div className="flex items-center justify-between mb-2">
-                  <h4 className="text-gray-800">Pinecone Vector DB</h4>
-                  <span className="px-3 py-1 bg-green-100 text-green-700 rounded-full text-xs">
-                    Подключено
+              <div className="rounded-xl border border-slate-200 bg-slate-50/50 p-4">
+                <div className="mb-2 flex items-center justify-between gap-2">
+                  <h4 className="font-medium text-slate-900">Pinecone</h4>
+                  <span className="rounded-full bg-emerald-50 px-2.5 py-0.5 text-xs font-medium text-emerald-800 ring-1 ring-emerald-200/80">
+                    Векторный индекс
                   </span>
                 </div>
-                <p className="text-sm text-gray-600 mb-3">Векторная база данных для RAG</p>
+                <p className="mb-3 text-sm text-slate-600">API-ключ и имя индекса для RAG</p>
                 <div className="space-y-2">
                   <input
                     type="password"
                     name="pinecone_api_key"
-                    placeholder="Введите API ключ"
+                    placeholder="API ключ"
                     defaultValue={systemSettings.pinecone_api_key}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+                    className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm focus:border-indigo-300 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
                   />
                   <input
                     type="text"
                     name="pinecone_index"
                     placeholder="Название индекса"
                     defaultValue={systemSettings.pinecone_index}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+                    className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm focus:border-indigo-300 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
                   />
                 </div>
               </div>
 
-              <button type="submit" className="w-full py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors">
-                Сохранить настройки API
+              <button
+                type="submit"
+                className="w-full rounded-xl border border-slate-200 bg-slate-900 py-3 text-sm font-medium text-white transition hover:bg-slate-800"
+              >
+                Сохранить ключи API
               </button>
             </form>
           </div>
