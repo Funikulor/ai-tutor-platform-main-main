@@ -1,12 +1,15 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Plus, Edit, Trash2, Upload, BookOpen, Users, Settings, Database, X, Library, Loader2, RefreshCw, Shield, Cpu, HardDrive } from 'lucide-react';
+import { Plus, Edit, Trash2, Upload, BookOpen, Users, Settings, Database, X, Library, Loader2, RefreshCw, Shield, Cpu, HardDrive, ChevronLeft } from 'lucide-react';
 import api from '../services/api';
 import { avatarInitial } from '../utils/avatar';
 import { toast } from 'sonner';
 import { TopicLibraryStudio } from './TopicLibraryStudio';
+import { AdminLibraryEditor } from './AdminLibraryEditor';
 
 export function AdminPanel() {
   const [activeTab, setActiveTab] = useState<'content' | 'users' | 'system'>('content');
+  /** Контент: библиотека (как у ученика) или дерево тем программы */
+  const [contentMode, setContentMode] = useState<'library' | 'structure'>('library');
   const [systemStats, setSystemStats] = useState({
     totalUsers: 0,
     totalTasks: 0,
@@ -93,6 +96,12 @@ export function AdminPanel() {
     loadAdminData();
     loadSystemSettings();
   }, []);
+
+  useEffect(() => {
+    if (activeTab !== 'content') {
+      setContentMode('library');
+    }
+  }, [activeTab]);
 
   const loadTopicCatalogTasks = useCallback(async (topicId: number) => {
     setTopicCatalogTasksLoading(true);
@@ -341,6 +350,20 @@ export function AdminPanel() {
     setShowEditTopicModal(true);
   };
 
+  const openTopicFromLibrary = (topicId: number) => {
+    for (const sub of contentStructure) {
+      for (const sec of sub.sections) {
+        const t = sec.topics.find((x) => x.id === topicId);
+        if (t) {
+          handleEditTopic(t, sec.id);
+          setContentMode('structure');
+          return;
+        }
+      }
+    }
+    toast.error('Тема не найдена в каталоге. Нажмите «Обновить данные».');
+  };
+
   const handleAddTask = (topic: any, sectionId: number) => {
     setAddTaskTopic({ id: topic.id, name: topic.name, sectionId });
     setShowAddTaskModal(true);
@@ -518,17 +541,18 @@ export function AdminPanel() {
 
   return (
     <div className="space-y-8 pb-10">
-      <div className="relative overflow-hidden rounded-2xl border border-slate-200/90 bg-gradient-to-br from-slate-900 via-slate-800 to-indigo-900 text-white shadow-lg">
-        <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_80%_60%_at_0%_100%,rgba(99,102,241,0.35),transparent)]" />
+      <div className="relative overflow-hidden rounded-2xl border border-indigo-100 bg-gradient-to-br from-indigo-50 via-white to-violet-50 shadow-md">
+        <div className="pointer-events-none absolute -right-20 -top-20 h-56 w-56 rounded-full bg-fuchsia-200/40 blur-3xl" />
+        <div className="pointer-events-none absolute -bottom-16 -left-10 h-48 w-48 rounded-full bg-sky-200/50 blur-3xl" />
         <div className="relative flex flex-col gap-4 p-5 sm:flex-row sm:items-center sm:justify-between sm:p-6">
           <div className="flex gap-4">
-            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-white/15 ring-1 ring-white/20 backdrop-blur">
-              <Shield className="h-6 w-6 text-indigo-200" />
+            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-indigo-600 text-white shadow-md shadow-indigo-500/25">
+              <Shield className="h-6 w-6" />
             </div>
             <div>
-              <p className="text-[11px] font-semibold uppercase tracking-widest text-indigo-200/90">Администрирование</p>
-              <h2 className="mt-0.5 text-xl font-semibold tracking-tight sm:text-2xl">Панель администратора</h2>
-              <p className="mt-1 max-w-xl text-sm text-slate-300">
+              <p className="text-[11px] font-semibold uppercase tracking-widest text-indigo-600/90">Администрирование</p>
+              <h2 className="mt-0.5 text-xl font-semibold tracking-tight text-slate-900 sm:text-2xl">Панель администратора</h2>
+              <p className="mt-1 max-w-xl text-sm text-slate-600">
                 Каталог тем, пользователи, тестовый seed и параметры адаптации — централизованно.
               </p>
             </div>
@@ -540,7 +564,7 @@ export function AdminPanel() {
               loadSystemSettings();
             }}
             disabled={loading}
-            className="inline-flex items-center justify-center gap-2 self-start rounded-xl bg-white/10 px-4 py-2.5 text-sm font-medium text-white ring-1 ring-white/20 transition hover:bg-white/20 disabled:opacity-50 sm:self-center"
+            className="inline-flex items-center justify-center gap-2 self-start rounded-xl border border-indigo-200 bg-white px-4 py-2.5 text-sm font-medium text-indigo-800 shadow-sm transition hover:bg-indigo-50 disabled:opacity-50 sm:self-center"
           >
             <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
             Обновить данные
@@ -650,7 +674,7 @@ export function AdminPanel() {
               <BookOpen className={`h-5 w-5 ${activeTab === 'content' ? 'text-indigo-600' : 'text-slate-400'}`} />
               Контент
             </span>
-            <span className="pl-7 text-xs text-slate-500">Каталог предмет → тема</span>
+            <span className="pl-7 text-xs text-slate-500">Библиотека как у ученика и структура тем</span>
           </button>
           <button
             type="button"
@@ -688,11 +712,30 @@ export function AdminPanel() {
       {/* Content Management */}
       {activeTab === 'content' && (
         <div className="space-y-6">
+          {contentMode === 'library' ? (
+            <AdminLibraryEditor
+              onOpenStructure={() => setContentMode('structure')}
+              onEditCatalogTopic={openTopicFromLibrary}
+            />
+          ) : null}
+
+          {contentMode === 'structure' ? (
           <div className="rounded-2xl border border-slate-200/90 bg-white shadow-sm">
             <div className="flex flex-col gap-4 border-b border-slate-100 bg-slate-50/80 px-5 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-6">
-              <div>
-                <h3 className="text-lg font-semibold text-slate-900">Каталог учебного контента</h3>
-                <p className="mt-0.5 text-sm text-slate-600">Предмет → раздел → тема, привязка к библиотеке и карточки заданий каталога</p>
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-4">
+                <button
+                  type="button"
+                  onClick={() => setContentMode('library')}
+                  className="inline-flex w-fit items-center gap-2 rounded-xl border border-indigo-200 bg-white px-3 py-2 text-sm font-medium text-indigo-800 shadow-sm transition hover:bg-indigo-50"
+                >
+                  <ChevronLeft className="h-4 w-4" />
+                  Библиотека: курсы и материалы
+                </button>
+                <div className="hidden h-8 w-px bg-slate-200 sm:block" />
+                <div>
+                  <h3 className="text-lg font-semibold text-slate-900">Структура программы</h3>
+                  <p className="mt-0.5 text-sm text-slate-600">Предмет → раздел → тема, привязка к библиотеке и задания каталога</p>
+                </div>
               </div>
               <div className="flex flex-wrap gap-2">
                 <button
@@ -885,62 +928,7 @@ export function AdminPanel() {
             </div>
             </div>
           </div>
-
-          <div className="rounded-2xl border border-slate-200/90 bg-white p-5 shadow-sm sm:p-6">
-            <h3 className="text-lg font-semibold text-slate-900">Обзор AI-модулей</h3>
-            <p className="mt-1 text-sm text-slate-600">Справочно; ключи и интеграции задаются во вкладке «Система».</p>
-            <div className="mt-5 grid grid-cols-1 gap-4 md:grid-cols-2">
-              <div className="rounded-xl border border-slate-200 bg-slate-50/50 p-4 transition hover:border-indigo-200 hover:bg-white">
-                <h4 className="font-medium text-slate-900">NLP / анализ ошибок</h4>
-                <p className="mt-1 text-sm text-slate-600">Классификация ответов учеников</p>
-                <dl className="mt-3 space-y-1.5 text-sm">
-                  <div className="flex justify-between gap-2">
-                    <dt className="text-slate-500">Модель (справочно)</dt>
-                    <dd className="font-medium text-slate-800">ruBERT-large</dd>
-                  </div>
-                  <div className="flex justify-between gap-2">
-                    <dt className="text-slate-500">Точность (демо)</dt>
-                    <dd className="font-medium text-emerald-600">94.2%</dd>
-                  </div>
-                </dl>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setActiveTab('system');
-                    toast.info('Откройте вкладку «Система» для интеграций и ключей');
-                  }}
-                  className="mt-4 w-full rounded-xl bg-indigo-50 py-2.5 text-sm font-medium text-indigo-700 transition hover:bg-indigo-100"
-                >
-                  Перейти к настройкам
-                </button>
-              </div>
-
-              <div className="rounded-xl border border-slate-200 bg-slate-50/50 p-4 transition hover:border-violet-200 hover:bg-white">
-                <h4 className="font-medium text-slate-900">RAG / рекомендации</h4>
-                <p className="mt-1 text-sm text-slate-600">LLM и векторное хранилище</p>
-                <dl className="mt-3 space-y-1.5 text-sm">
-                  <div className="flex justify-between gap-2">
-                    <dt className="text-slate-500">LLM (справочно)</dt>
-                    <dd className="font-medium text-slate-800">GigaChat Pro</dd>
-                  </div>
-                  <div className="flex justify-between gap-2">
-                    <dt className="text-slate-500">Векторная БД</dt>
-                    <dd className="font-medium text-slate-800">Pinecone</dd>
-                  </div>
-                </dl>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setActiveTab('system');
-                    toast.info('Во вкладке «Система» — блок API-интеграций');
-                  }}
-                  className="mt-4 w-full rounded-xl bg-violet-50 py-2.5 text-sm font-medium text-violet-700 transition hover:bg-violet-100"
-                >
-                  Перейти к настройкам
-                </button>
-              </div>
-            </div>
-          </div>
+          ) : null}
         </div>
       )}
 

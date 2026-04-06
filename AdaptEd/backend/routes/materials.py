@@ -415,6 +415,62 @@ class AdminLibraryMaterialCreate(BaseModel):
     duration: str = "15 мин"
 
 
+class AdminLibraryMaterialUpdate(BaseModel):
+    title: Optional[str] = None
+    description: Optional[str] = None
+    content: Optional[str] = None
+    subject: Optional[str] = None
+    topic: Optional[str] = None
+    type: Optional[str] = None
+    difficulty: Optional[str] = None
+    duration: Optional[str] = None
+
+
+@router.get("/admin/library/courses/{course_id}", response_model=Dict[str, Any])
+async def admin_get_library_course(
+    course_id: str,
+    _admin: dict = Depends(require_roles("admin")),
+):
+    """Полный курс для редактирования (включая правильные ответы в checkpoint)."""
+    for c in _load_courses_raw():
+        if str(c.get("id")) == str(course_id):
+            return c
+    raise HTTPException(status_code=404, detail="Курс не найден")
+
+
+@router.put("/admin/library/materials/{material_id}", response_model=Dict[str, Any])
+async def admin_update_library_material(
+    material_id: str,
+    body: AdminLibraryMaterialUpdate,
+    _admin: dict = Depends(require_roles("admin")),
+):
+    """Обновить карточку материала в библиотеке (data.json / persistent)."""
+    materials = list(_ensure_materials())
+    idx = next((i for i, m in enumerate(materials) if str(m.get("id")) == str(material_id)), -1)
+    if idx < 0:
+        raise HTTPException(status_code=404, detail="Материал не найден")
+
+    row = dict(materials[idx])
+    data = body.model_dump(exclude_unset=True)
+    if "type" in data and data["type"] not in ("article", "video", "pdf"):
+        data.pop("type", None)
+    if "difficulty" in data and data["difficulty"] not in ("beginner", "intermediate", "advanced"):
+        data.pop("difficulty", None)
+    for k, v in data.items():
+        if v is None:
+            continue
+        if isinstance(v, str):
+            row[k] = v.strip() if k in ("title", "subject", "topic", "duration") else v
+        else:
+            row[k] = v
+    if "title" in row and not str(row.get("title", "")).strip():
+        raise HTTPException(status_code=400, detail="Название не может быть пустым")
+
+    materials[idx] = row
+    persistent_storage.set("library_materials", materials)
+    return row
+
+
 @router.post("/admin/library/materials", response_model=Dict[str, Any])
 async def admin_create_library_material(
     body: AdminLibraryMaterialCreate,
@@ -446,6 +502,22 @@ async def admin_create_library_material(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+def _normalize_admin_course_payload(course: Dict[str, Any]) -> Dict[str, Any]:
+    """Убираем content_file — в overlay храним только inline content (иначе .md перезапишет правки)."""
+    c = dict(course)
+    lessons_raw = c.get("lessons")
+    if not isinstance(lessons_raw, list):
+        return c
+    out_lessons: List[Dict[str, Any]] = []
+    for les in lessons_raw:
+        if not isinstance(les, dict):
+            continue
+        ld = {k: v for k, v in les.items() if k != "content_file"}
+        out_lessons.append(ld)
+    c["lessons"] = out_lessons
+    return c
+
+
 @router.post("/admin/library/courses", response_model=Dict[str, Any])
 async def admin_upsert_library_course(
     course: Dict[str, Any],
@@ -464,9 +536,10 @@ async def admin_upsert_library_course(
     if not isinstance(lessons, list) or len(lessons) < 1:
         raise HTTPException(status_code=400, detail="Добавьте хотя бы один урок")
 
+    normalized = _normalize_admin_course_payload(course)
     stored = list(persistent_storage.get("admin_library_courses", []) or [])
     stored = [c for c in stored if str(c.get("id")) != cid]
-    stored.append(course)
+    stored.append(normalized)
     persistent_storage.set("admin_library_courses", stored)
     return {"message": "Курс сохранён", "id": cid}
 
