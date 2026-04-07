@@ -1189,31 +1189,79 @@ async def get_class_analytics(
             user_id = student.get('user_id')
             if not user_id:
                 continue
-                
+
             profile = orchestrator.profiler.get_profile(user_id)
-            if not profile:
-                continue
-            
-            # Подсчитываем ошибки
-            error_count = sum(1 for task in profile.task_history if not task.is_correct)
-            
-            # Подсчитываем изученные темы (мастерство >= 70%)
-            completed_topics = sum(1 for mastery in profile.topic_mastery.values() if mastery >= 0.7) if profile.topic_mastery else 0
-            
-            # Определяем статус (комбинация общего и недавнего прогресса)
-            status = _classify_student_status(profile)
+
+            profile_score = round(float(getattr(profile, "accuracy_rate", 0.0) or 0.0), 0) if profile else 0
+            profile_errors = sum(1 for task in (profile.task_history or []) if not task.is_correct) if profile else 0
+            completed_topics = sum(1 for mastery in (profile.topic_mastery or {}).values() if mastery >= 0.7) if profile else 0
+            status = _classify_student_status(profile) if profile else "average"
+
+            # Fallback на реальные результаты тестов из БД, если профиль еще "пустой".
+            fallback_score = None
+            fallback_errors = 0
+            fallback_topics = 0
+            if has_db() and db is not None:
+                try:
+                    subs = db.execute(
+                        select(TestSubmission).where(TestSubmission.user_id == user_id)
+                    ).scalars().all()
+                    test_scores = [float(sub.score) for sub in subs if sub.score is not None]
+                    if test_scores:
+                        fallback_score = round(sum(test_scores) / len(test_scores), 0)
+
+                    topic_to_scores: Dict[str, List[float]] = defaultdict(list)
+                    for sub in subs:
+                        q_results = sub.question_results or []
+                        for item in q_results:
+                            if not item.get("is_correct"):
+                                fallback_errors += 1
+                        if sub.test_id:
+                            test_obj = db.get(Test, sub.test_id)
+                            topic_name = (
+                                (test_obj.topic or test_obj.title).strip()
+                                if test_obj and (test_obj.topic or test_obj.title)
+                                else ""
+                            )
+                            if topic_name and sub.score is not None:
+                                topic_to_scores[topic_name].append(float(sub.score))
+
+                    fallback_topics = sum(
+                        1 for scores in topic_to_scores.values() if scores and (sum(scores) / len(scores)) >= 70.0
+                    )
+                except Exception as e:
+                    print(f"Error in class analytics fallback for {user_id}: {e}")
+
+            score_value = profile_score
+            if (score_value <= 0 and fallback_score is not None) or (not profile and fallback_score is not None):
+                score_value = fallback_score
+            if profile_errors <= 0 and fallback_errors > 0:
+                profile_errors = fallback_errors
+            if completed_topics <= 0 and fallback_topics > 0:
+                completed_topics = fallback_topics
+
+            # Если профиль малоинформативен, определяем статус по фактическому баллу.
+            if (not profile) or ((getattr(profile, "total_tasks_completed", 0) or 0) < 3 and fallback_score is not None):
+                if score_value >= 85:
+                    status = "excellent"
+                elif score_value >= 70:
+                    status = "good"
+                elif score_value >= 60:
+                    status = "average"
+                else:
+                    status = "needs-help"
             
             class_data.append({
                 "student": student.get('full_name', student.get('email', 'Неизвестно')),
-                "score": round(profile.accuracy_rate, 0),
+                "score": score_value,
                 "topics": completed_topics,
-                "errors": error_count,
+                "errors": profile_errors,
                 "status": status,
                 "user_id": user_id
             })
             
             # Собираем данные об ошибках по темам
-            for task in profile.task_history:
+            for task in ((profile.task_history or []) if profile else []):
                 if not task.is_correct and task.topic:
                     topic_errors[task.topic]["count"] += 1
                     topic_errors[task.topic]["students"].add(user_id)
