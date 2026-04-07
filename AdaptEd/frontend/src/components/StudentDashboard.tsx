@@ -1,5 +1,4 @@
 import { useState, useEffect } from 'react';
-import { KnowledgeGraph } from './KnowledgeGraph';
 import { AdaptiveTask } from './AdaptiveTask';
 import { ProgressStats } from './ProgressStats';
 import { RecommendationPanel } from './RecommendationPanel';
@@ -39,7 +38,7 @@ interface DebtItem {
 }
 
 export function StudentDashboard() {
-  const [currentView, setCurrentView] = useState<'overview' | 'task' | 'knowledge' | 'chat' | 'library' | 'homework' | 'debts'>('overview');
+  const [currentView, setCurrentView] = useState<'overview' | 'task' | 'chat' | 'library' | 'homework' | 'debts'>('overview');
   const [lastError, setLastError] = useState<any>(null);
   const [isChatMinimized, setIsChatMinimized] = useState(false);
   const [selectedMaterialId, setSelectedMaterialId] = useState<string | undefined>(undefined);
@@ -171,17 +170,6 @@ export function StudentDashboard() {
           Адаптивные задания
         </button>
         <button
-          onClick={() => setCurrentView('knowledge')}
-          className={`flex-1 py-3 px-4 rounded-lg transition-all ${
-            currentView === 'knowledge'
-              ? 'bg-blue-50 text-blue-600'
-              : 'text-gray-600 hover:bg-gray-50'
-          }`}
-        >
-          <Brain className="w-5 h-5 inline mr-2" />
-          Граф знаний
-        </button>
-        <button
           onClick={() => setCurrentView('library')}
           className={`flex-1 py-3 px-4 rounded-lg transition-all ${
             currentView === 'library'
@@ -309,12 +297,6 @@ export function StudentDashboard() {
           <div>
             <RecommendationPanel error={lastError} onMaterialClick={handleMaterialClick} />
           </div>
-        </div>
-      )}
-
-      {currentView === 'knowledge' && (
-        <div>
-          <KnowledgeGraph />
         </div>
       )}
 
