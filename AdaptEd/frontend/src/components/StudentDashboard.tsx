@@ -29,8 +29,17 @@ interface ProgressData {
   }>;
 }
 
+interface DebtItem {
+  id: number;
+  topic: string;
+  status: string;
+  progress: number;
+  due_date?: string | null;
+  priority: number;
+}
+
 export function StudentDashboard() {
-  const [currentView, setCurrentView] = useState<'overview' | 'task' | 'knowledge' | 'chat' | 'library' | 'homework'>('overview');
+  const [currentView, setCurrentView] = useState<'overview' | 'task' | 'knowledge' | 'chat' | 'library' | 'homework' | 'debts'>('overview');
   const [lastError, setLastError] = useState<any>(null);
   const [isChatMinimized, setIsChatMinimized] = useState(false);
   const [selectedMaterialId, setSelectedMaterialId] = useState<string | undefined>(undefined);
@@ -44,6 +53,7 @@ export function StudentDashboard() {
     recentActivities: []
   });
   const [weeklyData, setWeeklyData] = useState<Array<{day: string; score: number; tasks: number}>>([]);
+  const [debts, setDebts] = useState<DebtItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -69,6 +79,8 @@ export function StudentDashboard() {
       if (data.weeklyData) {
         setWeeklyData(data.weeklyData);
       }
+      const debtResponse = await api.get<{ debts: DebtItem[] }>('/student/debts');
+      setDebts(debtResponse.data?.debts || []);
     } catch (err: any) {
       console.error('Error loading progress data:', err);
       setError(err.response?.data?.detail || 'Не удалось загрузить данные прогресса');
@@ -82,6 +94,7 @@ export function StudentDashboard() {
         weakTopics: [],
         recentActivities: []
       });
+      setDebts([]);
     } finally {
       setLoading(false);
     }
@@ -98,6 +111,15 @@ export function StudentDashboard() {
     }
     // Обновляем данные прогресса после выполнения задания
     loadProgressData();
+  };
+
+  const handleDebtProgress = async (debtId: number) => {
+    try {
+      await api.post(`/student/debts/${debtId}/progress`);
+      await loadProgressData();
+    } catch (err: any) {
+      console.error('Error updating debt progress:', err);
+    }
   };
   
   const handleStudyComplete = (topic: string) => {
@@ -180,6 +202,17 @@ export function StudentDashboard() {
         >
           <ClipboardCheck className="w-5 h-5 inline mr-2" />
           Домашка
+        </button>
+        <button
+          onClick={() => setCurrentView('debts')}
+          className={`flex-1 py-3 px-4 rounded-lg transition-all ${
+            currentView === 'debts'
+              ? 'bg-red-50 text-red-600'
+              : 'text-gray-600 hover:bg-gray-50'
+          }`}
+        >
+          <AlertCircle className="w-5 h-5 inline mr-2" />
+          Мои долги
         </button>
         <button
           onClick={() => setCurrentView('chat')}
@@ -303,6 +336,60 @@ export function StudentDashboard() {
       {currentView === 'chat' && (
         <div>
           <ChatTab />
+        </div>
+      )}
+
+      {currentView === 'debts' && (
+        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+          <h3 className="text-lg font-semibold text-gray-900 mb-2">Закрытие пробелов и долгов</h3>
+          <p className="text-sm text-gray-600 mb-4">
+            Закрывай долги через похожие задания и материалы из библиотеки — за это растут баллы и рейтинг.
+          </p>
+          <div className="space-y-3">
+            {debts.map((debt) => (
+              <div key={debt.id} className="rounded-lg border border-gray-200 p-4">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <p className="font-medium text-gray-900">{debt.topic}</p>
+                    <p className="text-xs text-gray-500">
+                      Статус: {debt.status} · Приоритет: {debt.priority}
+                      {debt.due_date ? ` · Дедлайн: ${new Date(debt.due_date).toLocaleDateString()}` : ''}
+                    </p>
+                  </div>
+                  <span className="text-sm font-semibold text-gray-900">{debt.progress.toFixed(0)}%</span>
+                </div>
+                <div className="mt-2 h-2 rounded-full bg-gray-100">
+                  <div className="h-2 rounded-full bg-red-500" style={{ width: `${Math.max(0, Math.min(100, debt.progress))}%` }} />
+                </div>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <button
+                    onClick={() => {
+                      localStorage.setItem('selectedTopic', debt.topic);
+                      setCurrentView('task');
+                    }}
+                    className="rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700"
+                  >
+                    Решать похожие задания
+                  </button>
+                  <button
+                    onClick={() => setCurrentView('library')}
+                    className="rounded-lg border border-gray-200 px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50"
+                  >
+                    Читать материал/курс
+                  </button>
+                  <button
+                    onClick={() => handleDebtProgress(debt.id)}
+                    className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-medium text-emerald-700 hover:bg-emerald-100"
+                  >
+                    Отметить прогресс
+                  </button>
+                </div>
+              </div>
+            ))}
+            {debts.length === 0 && (
+              <p className="text-sm text-gray-500">Активных долгов нет. Отличный темп!</p>
+            )}
+          </div>
         </div>
       )}
 

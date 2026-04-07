@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
-import { Users, TrendingUp, AlertCircle, Download, Filter, BarChart3, FileText, PenSquare, ClipboardList, X, Phone, Loader2, Sparkles } from 'lucide-react';
+import { Users, TrendingUp, AlertCircle, Download, Filter, BarChart3, FileText, PenSquare, ClipboardList, X, Phone, Loader2, Sparkles, Trophy } from 'lucide-react';
 import { TeacherTestsTab } from './TeacherTestsTab';
 import { AIChatPanel } from './AIChatPanel';
 import api from '../services/api';
@@ -56,6 +56,27 @@ interface ParentContact {
   phone: string;
 }
 
+interface RatingRow {
+  rank: number;
+  user_id: string;
+  student: string;
+  rating: number;
+  status: string;
+  test_score: number;
+  homework_score: number;
+  debt_score: number;
+  debts_open: number;
+}
+
+interface StudentCardData {
+  student: { user_id: string; full_name?: string; email?: string; class_id?: string };
+  stats: { points: number; level: number; accuracy_rate: number; total_tasks: number; correct_tasks: number };
+  strengths: Array<{ topic: string; mastery: number }>;
+  weaknesses: Array<{ topic: string; mastery: number }>;
+  debts: Array<{ id: number; topic: string; status: string; progress: number; due_date?: string | null; priority: number }>;
+  rating: { rating: number; status: string; test_score: number; homework_score: number; debt_score: number };
+}
+
 const TABLE_PAGE_SIZE = 12;
 
 export function TeacherDashboard() {
@@ -73,6 +94,9 @@ export function TeacherDashboard() {
   const [statusFilter, setStatusFilter] = useState<'all' | StudentStatus>('all');
   const [minScoreFilter, setMinScoreFilter] = useState(0);
   const [detailStudent, setDetailStudent] = useState<StudentRow | null>(null);
+  const [detailCard, setDetailCard] = useState<StudentCardData | null>(null);
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [classRating, setClassRating] = useState<RatingRow[]>([]);
   const [tablePage, setTablePage] = useState(0);
   const performanceTableRef = useRef<HTMLDivElement>(null);
   const [isChatMinimized, setIsChatMinimized] = useState(true);
@@ -114,11 +138,14 @@ export function TeacherDashboard() {
     const loadAnalytics = async () => {
       setLoading(true);
       try {
-        const [analyticsResponse, usersResponse] = await Promise.all([
+        const [analyticsResponse, usersResponse, ratingResponse] = await Promise.all([
           api.get<ClassAnalyticsResponse>('/teacher/class-analytics', {
             params: selectedClass && selectedClass !== 'all' ? { class_id: selectedClass } : undefined,
           }),
           api.get<UserRow[]>('/all'),
+          api.get<{ rows: RatingRow[] }>('/teacher/class-rating', {
+            params: selectedClass && selectedClass !== 'all' ? { class_id: selectedClass } : undefined,
+          }),
         ]);
 
         const users = Array.isArray(usersResponse.data) ? usersResponse.data : [];
@@ -196,6 +223,7 @@ export function TeacherDashboard() {
         setClassData(nextClassData);
         setCommonErrors(analytics.commonErrors || []);
         setTopicPerformance(analytics.topicPerformance || []);
+        setClassRating(ratingResponse.data?.rows || []);
       } catch (error: any) {
         const message = error?.response?.data?.detail || 'Не удалось загрузить аналитику класса';
         toast.error(message);
@@ -268,6 +296,60 @@ export function TeacherDashboard() {
       return;
     }
     toast.info(`Родитель: ${contact.full_name} • ${contact.phone}`);
+  };
+
+  const handleOpenStudentCard = async (student: StudentRow) => {
+    setDetailStudent(student);
+    setDetailCard(null);
+    setDetailLoading(true);
+    try {
+      const response = await api.get<StudentCardData>(`/teacher/student-card/${student.user_id}`);
+      setDetailCard(response.data);
+    } catch (error: any) {
+      const message = error?.response?.data?.detail || 'Не удалось загрузить карточку ученика';
+      toast.error(message);
+    } finally {
+      setDetailLoading(false);
+    }
+  };
+
+  const assignAdaptiveRemedial = async (student: StudentRow) => {
+    try {
+      const topic = window.prompt('Тема для отработки пробела', detailCard?.weaknesses?.[0]?.topic || 'Алгебра');
+      if (!topic) return;
+      await api.post(`/teacher/students/${student.user_id}/debts/assign-remedial`, {
+        topic,
+        kind: 'adaptive_task',
+        attempts_required: 3,
+        notes: 'Отработка пробела через адаптивные задания',
+        payload: { topic },
+      });
+      toast.success('Работа над ошибками назначена');
+      await handleOpenStudentCard(student);
+    } catch (error: any) {
+      const message = error?.response?.data?.detail || 'Не удалось назначить работу над ошибками';
+      toast.error(message);
+    }
+  };
+
+  const assignLibrary = async (student: StudentRow, kind: 'material' | 'course') => {
+    try {
+      const idPrompt = kind === 'material' ? 'ID материала (например m1)' : 'ID курса (например fractions-course)';
+      const value = window.prompt(idPrompt, '');
+      if (!value) return;
+      await api.post(`/teacher/students/${student.user_id}/assign-library`, {
+        kind,
+        material_id: kind === 'material' ? value : undefined,
+        course_id: kind === 'course' ? value : undefined,
+        topic: detailCard?.weaknesses?.[0]?.topic || detailStudent?.student || 'Библиотека',
+        title: kind === 'material' ? 'Чтение материала' : 'Прохождение курса',
+      });
+      toast.success(kind === 'material' ? 'Материал назначен' : 'Курс назначен');
+      await handleOpenStudentCard(student);
+    } catch (error: any) {
+      const message = error?.response?.data?.detail || 'Не удалось назначить из библиотеки';
+      toast.error(message);
+    }
   };
 
   const handleFocusNeedsHelp = () => {
@@ -555,6 +637,49 @@ export function TeacherDashboard() {
         </div>
       </div>
 
+      <div className="rounded-2xl border border-slate-200/90 bg-white shadow-sm">
+        <div className="flex items-center justify-between border-b border-slate-100 bg-slate-50/70 px-5 py-4 sm:px-6">
+          <div>
+            <h3 className="text-lg font-semibold text-slate-900">Рейтинг класса (только для учителя)</h3>
+            <p className="mt-1 text-sm text-slate-600">Формула: тесты + домашка в срок + закрытие долгов.</p>
+          </div>
+          <Trophy className="h-5 w-5 text-amber-500" />
+        </div>
+        <div className="overflow-x-auto px-2 pb-2 sm:px-4 sm:pb-4">
+          <table className="w-full min-w-[640px] border-separate border-spacing-0">
+            <thead>
+              <tr className="text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+                <th className="border-b border-slate-200 py-3 pl-4 pr-2 sm:pl-2">#</th>
+                <th className="border-b border-slate-200 py-3 px-2">Ученик</th>
+                <th className="border-b border-slate-200 py-3 px-2 text-center">Рейтинг</th>
+                <th className="border-b border-slate-200 py-3 px-2 text-center">Тесты</th>
+                <th className="border-b border-slate-200 py-3 px-2 text-center">Домашка</th>
+                <th className="border-b border-slate-200 py-3 px-2 text-center">Долги</th>
+                <th className="border-b border-slate-200 py-3 px-2 text-center">Статус</th>
+              </tr>
+            </thead>
+            <tbody>
+              {classRating.slice(0, 10).map((row) => (
+                <tr key={row.user_id} className="hover:bg-slate-50/70">
+                  <td className="border-b border-slate-100 py-3 pl-4 pr-2 text-sm text-slate-700 sm:pl-2">{row.rank}</td>
+                  <td className="border-b border-slate-100 py-3 px-2 text-sm font-medium text-slate-900">{row.student}</td>
+                  <td className="border-b border-slate-100 py-3 px-2 text-center text-sm font-semibold text-slate-900">{row.rating.toFixed(1)}%</td>
+                  <td className="border-b border-slate-100 py-3 px-2 text-center text-sm text-slate-700">{row.test_score.toFixed(0)}%</td>
+                  <td className="border-b border-slate-100 py-3 px-2 text-center text-sm text-slate-700">{row.homework_score.toFixed(0)}%</td>
+                  <td className="border-b border-slate-100 py-3 px-2 text-center text-sm text-slate-700">{row.debt_score.toFixed(0)}%</td>
+                  <td className="border-b border-slate-100 py-3 px-2 text-center text-xs text-slate-700">{row.status}</td>
+                </tr>
+              ))}
+              {!loading && classRating.length === 0 && (
+                <tr>
+                  <td colSpan={7} className="py-8 text-center text-sm text-slate-500">Недостаточно данных для рейтинга.</td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
       <div ref={performanceTableRef} className="scroll-mt-24 rounded-2xl border border-slate-200/90 bg-white shadow-sm">
         <div className="border-b border-slate-100 bg-slate-50/80 px-5 py-4 sm:px-6">
           <h3 className="text-lg font-semibold text-slate-900">Успеваемость учеников</h3>
@@ -655,7 +780,7 @@ export function TeacherDashboard() {
                       )}
                       <button
                         type="button"
-                        onClick={() => setDetailStudent(student)}
+                        onClick={() => handleOpenStudentCard(student)}
                         className="rounded-lg px-2.5 py-1.5 text-sm font-medium text-indigo-600 transition hover:bg-indigo-50"
                       >
                         Подробнее
@@ -786,7 +911,10 @@ export function TeacherDashboard() {
       {detailStudent && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4 backdrop-blur-sm"
-          onClick={() => setDetailStudent(null)}
+          onClick={() => {
+            setDetailStudent(null);
+            setDetailCard(null);
+          }}
         >
           <div
             className="w-full max-w-md overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-2xl shadow-slate-900/20"
@@ -799,7 +927,10 @@ export function TeacherDashboard() {
               </div>
               <button
                 type="button"
-                onClick={() => setDetailStudent(null)}
+                onClick={() => {
+                  setDetailStudent(null);
+                  setDetailCard(null);
+                }}
                 className="rounded-lg p-2 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
                 aria-label="Закрыть"
               >
@@ -807,18 +938,68 @@ export function TeacherDashboard() {
               </button>
             </div>
             <div className="space-y-4 p-5 text-sm">
+              {detailLoading && (
+                <div className="rounded-xl bg-slate-50 p-4 text-center text-slate-600">Загрузка карточки ученика...</div>
+              )}
               <div className="grid grid-cols-2 gap-3">
                 <div className="rounded-xl bg-slate-50 p-3 ring-1 ring-slate-100">
                   <p className="text-xs text-slate-500">Балл</p>
-                  <p className="mt-1 text-xl font-semibold tabular-nums text-slate-900">{detailStudent.score}%</p>
+                  <p className="mt-1 text-xl font-semibold tabular-nums text-slate-900">
+                    {detailCard?.rating?.rating ?? detailStudent.score}%
+                  </p>
                 </div>
                 <div className="rounded-xl bg-slate-50 p-3 ring-1 ring-slate-100">
-                  <p className="text-xs text-slate-500">Темы / ошибки</p>
+                  <p className="text-xs text-slate-500">Уровень / баллы</p>
                   <p className="mt-1 text-xl font-semibold tabular-nums text-slate-900">
-                    {detailStudent.topics} / {detailStudent.errors}
+                    {detailCard?.stats?.level ?? 1} / {detailCard?.stats?.points ?? 0}
                   </p>
                 </div>
               </div>
+              {detailCard && (
+                <>
+                  <div className="grid grid-cols-3 gap-2 rounded-xl border border-slate-100 bg-slate-50/70 p-3 text-xs">
+                    <div>
+                      <p className="text-slate-500">Тесты</p>
+                      <p className="text-sm font-semibold text-slate-900">{detailCard.rating.test_score.toFixed(1)}%</p>
+                    </div>
+                    <div>
+                      <p className="text-slate-500">Домашка</p>
+                      <p className="text-sm font-semibold text-slate-900">{detailCard.rating.homework_score.toFixed(1)}%</p>
+                    </div>
+                    <div>
+                      <p className="text-slate-500">Закрытие долгов</p>
+                      <p className="text-sm font-semibold text-slate-900">{detailCard.rating.debt_score.toFixed(1)}%</p>
+                    </div>
+                  </div>
+                  <div className="rounded-xl border border-slate-100 bg-white p-3">
+                    <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Слабые темы</p>
+                    <div className="flex flex-wrap gap-1.5">
+                      {(detailCard.weaknesses || []).slice(0, 6).map((weak) => (
+                        <span key={weak.topic} className="rounded-full bg-rose-50 px-2 py-1 text-xs text-rose-700 ring-1 ring-rose-100">
+                          {weak.topic} ({weak.mastery}%)
+                        </span>
+                      ))}
+                      {(!detailCard.weaknesses || detailCard.weaknesses.length === 0) && (
+                        <span className="text-xs text-slate-500">Критичных слабостей не найдено</span>
+                      )}
+                    </div>
+                  </div>
+                  <div className="rounded-xl border border-slate-100 bg-white p-3">
+                    <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Долги</p>
+                    <div className="space-y-1.5">
+                      {(detailCard.debts || []).slice(0, 5).map((debt) => (
+                        <div key={debt.id} className="flex items-center justify-between rounded-lg bg-slate-50 px-2 py-1.5">
+                          <span className="text-xs text-slate-700">{debt.topic}</span>
+                          <span className="text-xs font-medium text-slate-900">{debt.status} · {debt.progress.toFixed(0)}%</span>
+                        </div>
+                      ))}
+                      {(!detailCard.debts || detailCard.debts.length === 0) && (
+                        <span className="text-xs text-slate-500">Нет активных долгов</span>
+                      )}
+                    </div>
+                  </div>
+                </>
+              )}
               <div className="flex items-center justify-between rounded-xl border border-slate-100 bg-white px-3 py-2">
                 <span className="text-slate-600">Статус</span>
                 {getStatusBadge(detailStudent.status)}
@@ -835,7 +1016,7 @@ export function TeacherDashboard() {
                   </a>
                 </div>
               )}
-              {detailStudent.status === 'needs-help' && (
+              {(detailStudent.status === 'needs-help' || detailCard) && (
                 <div className="flex flex-col gap-2 border-t border-slate-100 pt-4">
                   <button
                     type="button"
@@ -855,6 +1036,29 @@ export function TeacherDashboard() {
                   >
                     Показать контакт родителя
                   </button>
+                  <button
+                    type="button"
+                    onClick={() => assignAdaptiveRemedial(detailStudent)}
+                    className="w-full rounded-xl border border-indigo-200 bg-indigo-50 py-2.5 text-sm font-medium text-indigo-700 transition hover:bg-indigo-100"
+                  >
+                    Назначить работу над ошибками
+                  </button>
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => assignLibrary(detailStudent, 'material')}
+                      className="rounded-xl border border-slate-200 bg-white py-2 text-xs font-medium text-slate-700 transition hover:bg-slate-50"
+                    >
+                      Назначить статью
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => assignLibrary(detailStudent, 'course')}
+                      className="rounded-xl border border-slate-200 bg-white py-2 text-xs font-medium text-slate-700 transition hover:bg-slate-50"
+                    >
+                      Назначить курс
+                    </button>
+                  </div>
                 </div>
               )}
             </div>
