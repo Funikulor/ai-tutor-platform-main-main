@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
-import { Users, TrendingUp, AlertCircle, Download, Filter, BarChart3, FileText, PenSquare, ClipboardList, X, Phone, Loader2, Sparkles, Trophy } from 'lucide-react';
+import { Users, TrendingUp, AlertCircle, Download, Filter, BarChart3, FileText, PenSquare, ClipboardList, X, Phone, Loader2, Sparkles } from 'lucide-react';
 import { TeacherTestsTab } from './TeacherTestsTab';
 import { AIChatPanel } from './AIChatPanel';
 import api from '../services/api';
@@ -56,18 +56,6 @@ interface ParentContact {
   phone: string;
 }
 
-interface RatingRow {
-  rank: number;
-  user_id: string;
-  student: string;
-  rating: number;
-  status: string;
-  test_score: number;
-  homework_score: number;
-  debt_score: number;
-  debts_open: number;
-}
-
 interface StudentCardData {
   student: { user_id: string; full_name?: string; email?: string; class_id?: string };
   stats: { points: number; level: number; accuracy_rate: number; total_tasks: number; correct_tasks: number };
@@ -96,7 +84,6 @@ export function TeacherDashboard() {
   const [detailStudent, setDetailStudent] = useState<StudentRow | null>(null);
   const [detailCard, setDetailCard] = useState<StudentCardData | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
-  const [classRating, setClassRating] = useState<RatingRow[]>([]);
   const [tablePage, setTablePage] = useState(0);
   const performanceTableRef = useRef<HTMLDivElement>(null);
   const [isChatMinimized, setIsChatMinimized] = useState(true);
@@ -138,14 +125,11 @@ export function TeacherDashboard() {
     const loadAnalytics = async () => {
       setLoading(true);
       try {
-        const [analyticsResponse, usersResponse, ratingResponse] = await Promise.all([
+        const [analyticsResponse, usersResponse] = await Promise.all([
           api.get<ClassAnalyticsResponse>('/teacher/class-analytics', {
             params: selectedClass && selectedClass !== 'all' ? { class_id: selectedClass } : undefined,
           }),
           api.get<UserRow[]>('/all'),
-          api.get<{ rows: RatingRow[] }>('/teacher/class-rating', {
-            params: selectedClass && selectedClass !== 'all' ? { class_id: selectedClass } : undefined,
-          }),
         ]);
 
         const users = Array.isArray(usersResponse.data) ? usersResponse.data : [];
@@ -223,7 +207,6 @@ export function TeacherDashboard() {
         setClassData(nextClassData);
         setCommonErrors(analytics.commonErrors || []);
         setTopicPerformance(analytics.topicPerformance || []);
-        setClassRating(ratingResponse.data?.rows || []);
       } catch (error: any) {
         const message = error?.response?.data?.detail || 'Не удалось загрузить аналитику класса';
         toast.error(message);
@@ -637,49 +620,6 @@ export function TeacherDashboard() {
         </div>
       </div>
 
-      <div className="rounded-2xl border border-slate-200/90 bg-white shadow-sm">
-        <div className="flex items-center justify-between border-b border-slate-100 bg-slate-50/70 px-5 py-4 sm:px-6">
-          <div>
-            <h3 className="text-lg font-semibold text-slate-900">Рейтинг класса (только для учителя)</h3>
-            <p className="mt-1 text-sm text-slate-600">Формула: тесты + домашка в срок + закрытие долгов.</p>
-          </div>
-          <Trophy className="h-5 w-5 text-amber-500" />
-        </div>
-        <div className="overflow-x-auto px-2 pb-2 sm:px-4 sm:pb-4">
-          <table className="w-full min-w-[640px] border-separate border-spacing-0">
-            <thead>
-              <tr className="text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
-                <th className="border-b border-slate-200 py-3 pl-4 pr-2 sm:pl-2">#</th>
-                <th className="border-b border-slate-200 py-3 px-2">Ученик</th>
-                <th className="border-b border-slate-200 py-3 px-2 text-center">Рейтинг</th>
-                <th className="border-b border-slate-200 py-3 px-2 text-center">Тесты</th>
-                <th className="border-b border-slate-200 py-3 px-2 text-center">Домашка</th>
-                <th className="border-b border-slate-200 py-3 px-2 text-center">Долги</th>
-                <th className="border-b border-slate-200 py-3 px-2 text-center">Статус</th>
-              </tr>
-            </thead>
-            <tbody>
-              {classRating.slice(0, 10).map((row) => (
-                <tr key={row.user_id} className="hover:bg-slate-50/70">
-                  <td className="border-b border-slate-100 py-3 pl-4 pr-2 text-sm text-slate-700 sm:pl-2">{row.rank}</td>
-                  <td className="border-b border-slate-100 py-3 px-2 text-sm font-medium text-slate-900">{row.student}</td>
-                  <td className="border-b border-slate-100 py-3 px-2 text-center text-sm font-semibold text-slate-900">{row.rating.toFixed(1)}%</td>
-                  <td className="border-b border-slate-100 py-3 px-2 text-center text-sm text-slate-700">{row.test_score.toFixed(0)}%</td>
-                  <td className="border-b border-slate-100 py-3 px-2 text-center text-sm text-slate-700">{row.homework_score.toFixed(0)}%</td>
-                  <td className="border-b border-slate-100 py-3 px-2 text-center text-sm text-slate-700">{row.debt_score.toFixed(0)}%</td>
-                  <td className="border-b border-slate-100 py-3 px-2 text-center text-xs text-slate-700">{row.status}</td>
-                </tr>
-              ))}
-              {!loading && classRating.length === 0 && (
-                <tr>
-                  <td colSpan={7} className="py-8 text-center text-sm text-slate-500">Недостаточно данных для рейтинга.</td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-      </div>
-
       <div ref={performanceTableRef} className="scroll-mt-24 rounded-2xl border border-slate-200/90 bg-white shadow-sm">
         <div className="border-b border-slate-100 bg-slate-50/80 px-5 py-4 sm:px-6">
           <h3 className="text-lg font-semibold text-slate-900">Успеваемость учеников</h3>
@@ -949,9 +889,12 @@ export function TeacherDashboard() {
                   </p>
                 </div>
                 <div className="rounded-xl bg-slate-50 p-3 ring-1 ring-slate-100">
-                  <p className="text-xs text-slate-500">Уровень / баллы</p>
+                  <p className="text-xs text-slate-500">Рейтинг</p>
                   <p className="mt-1 text-xl font-semibold tabular-nums text-slate-900">
-                    {detailCard?.stats?.level ?? 1} / {detailCard?.stats?.points ?? 0}
+                    {detailCard?.rating?.rating?.toFixed(1) ?? '0.0'}% ({((detailCard?.rating?.rating ?? 0) / 10).toFixed(1)}/10)
+                  </p>
+                  <p className="mt-1 text-[11px] text-slate-500">
+                    Уровень профиля: {detailCard?.stats?.level ?? 1}, очки: {detailCard?.stats?.points ?? 0}
                   </p>
                 </div>
               </div>
