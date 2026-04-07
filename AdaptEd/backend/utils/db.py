@@ -2,6 +2,13 @@ import os
 from typing import Optional
 
 try:
+	from dotenv import load_dotenv  # type: ignore
+	_backend_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+	load_dotenv(os.path.join(_backend_dir, ".env"))
+except Exception:
+	pass
+
+try:
 	from sqlalchemy import create_engine  # type: ignore
 	from sqlalchemy.orm import sessionmaker, declarative_base, Session  # type: ignore
 	from sqlalchemy.pool import NullPool  # type: ignore
@@ -17,12 +24,8 @@ except Exception:
 
 DATABASE_URL = os.getenv("DATABASE_URL")
 
-# Если DATABASE_URL не установлен, используем SQLite по умолчанию
 if not DATABASE_URL and SQLA_AVAILABLE:
-	backend_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-	sqlite_path = os.path.join(backend_dir, "adapted.db")
-	DATABASE_URL = f"sqlite:///{sqlite_path}"
-	print(f"[DB] DATABASE_URL не установлен, используем SQLite: {sqlite_path}")
+	print("[DB] DATABASE_URL не установлен. Локальный SQLite fallback отключен.")
 
 if SQLA_AVAILABLE:
 	Base = declarative_base()
@@ -60,14 +63,20 @@ def _ensure_engine():
 def init_db():
 	_ensure_engine()
 	if _engine is None or not SQLA_AVAILABLE:
-		return
+		raise RuntimeError("БД недоступна: проверьте DATABASE_URL и установку SQLAlchemy.")
 	# import models to register metadata (only when SQLAlchemy is available)
 	try:
 		from models.document import Document  # noqa: F401
 		from models.chat import ChatSession  # noqa: F401
 		from models.homework import Homework, HomeworkSubmission  # noqa: F401
 		from models.test import Test, TestQuestion, TestSubmission  # noqa: F401
+		from models.debts import StudentDebt, RemedialAssignment  # noqa: F401
 		from models.user_db import User  # noqa: F401
+		from models.personalization_db import (  # noqa: F401
+			CognitiveProfileRecord,
+			StudentAnalyticsRecord,
+			PersonalityProfileRecord,
+		)
 		from models.curriculum import (  # noqa: F401
 			CurriculumSubject,
 			CurriculumSection,
@@ -107,6 +116,11 @@ def init_db():
 				_ensure_column(conn, "test_submissions", "summary", "TEXT")
 				_ensure_column(conn, "homeworks", "kind", "VARCHAR(50)")
 				_ensure_column(conn, "homeworks", "test_id", "INTEGER")
+				_ensure_column(conn, "homeworks", "material_id", "VARCHAR(64)")
+				_ensure_column(conn, "homeworks", "course_id", "VARCHAR(64)")
+				_ensure_column(conn, "homeworks", "adaptive_topic", "VARCHAR(255)")
+				_ensure_column(conn, "homeworks", "debt_id", "INTEGER")
+				_ensure_column(conn, "homeworks", "completion_required", "FLOAT")
 				_ensure_column(conn, "homeworks", "assignment_type", "VARCHAR(50)")
 				_ensure_column(conn, "homework_submissions", "test_submission_id", "INTEGER")
 				# Каталог → библиотека (JSON в SQLite как TEXT, в Postgres — JSONB через IF NOT EXISTS)
@@ -130,9 +144,9 @@ def init_db():
 				conn.commit()
 		except Exception:
 			pass
-	except Exception:
-		# Silently skip DB init if models import fails
-		return
+	except Exception as e:
+		print(f"[DB] init_db failed: {e}")
+		raise
 
 
 def get_db() -> Optional["Session"]:

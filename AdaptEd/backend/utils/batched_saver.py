@@ -167,14 +167,12 @@ def get_profiler_batcher() -> BatchedSaver:
     """Получить батчер для ProfilerAgent"""
     global _profiler_batcher
     if _profiler_batcher is None:
-        from utils.persistent_storage import persistent_storage
+        from utils.personalization_store import save_cognitive_profile
         
         def save_profile(user_id: str, profile_data: Any):
             """Callback для сохранения профиля"""
             try:
-                profiles_data = persistent_storage.get("cognitive_profiles", {})
-                profiles_data[user_id] = profile_data
-                persistent_storage.set("cognitive_profiles", profiles_data)
+                save_cognitive_profile(user_id, profile_data)
             except Exception as e:
                 print(f"[ProfilerBatcher] Ошибка сохранения профиля {user_id}: {e}")
         
@@ -190,7 +188,7 @@ def get_analytics_batcher() -> BatchedSaver:
     """Получить батчер для AdaptiveEducatorAgent"""
     global _analytics_batcher
     if _analytics_batcher is None:
-        from utils.persistent_storage import persistent_storage
+        from utils.personalization_store import save_student_analytics
         
         def save_analytics(user_id: str, data: Any):
             """Callback для сохранения аналитики"""
@@ -200,21 +198,14 @@ def get_analytics_batcher() -> BatchedSaver:
                     # Расширенный формат с флагами этики
                     analytics_data_dict = data["analytics_data"]
                     ethics_flag = data.get("ethics_flag")
-                    
-                    analytics_storage = persistent_storage.get("student_analytics", {})
-                    analytics_storage[user_id] = analytics_data_dict
-                    persistent_storage.set("student_analytics", analytics_storage)
-                    
-                    # Сохраняем флаг этики если есть
-                    if ethics_flag is not None:
-                        ethics_data = persistent_storage.get("ethics_message_shown", {})
-                        ethics_data[user_id] = ethics_flag
-                        persistent_storage.set("ethics_message_shown", ethics_data)
+                    save_student_analytics(
+                        user_id=user_id,
+                        payload=analytics_data_dict,
+                        ethics_shown=ethics_flag,
+                    )
                 else:
                     # Простой формат - только аналитика
-                    analytics_storage = persistent_storage.get("student_analytics", {})
-                    analytics_storage[user_id] = data
-                    persistent_storage.set("student_analytics", analytics_storage)
+                    save_student_analytics(user_id=user_id, payload=data)
             except Exception as e:
                 print(f"[AnalyticsBatcher] Ошибка сохранения аналитики {user_id}: {e}")
         
@@ -230,14 +221,12 @@ def get_personality_batcher() -> BatchedSaver:
     """Получить батчер для PersonalityProfile"""
     global _personality_batcher
     if _personality_batcher is None:
-        from utils.persistent_storage import persistent_storage
+        from utils.personalization_store import save_personality_profile
         
         def save_personality(user_id: str, personality_data: Any):
             """Callback для сохранения профиля личности"""
             try:
-                profiles_data = persistent_storage.get("personality_profiles", {})
-                profiles_data[user_id] = personality_data
-                persistent_storage.set("personality_profiles", profiles_data)
+                save_personality_profile(user_id, personality_data)
             except Exception as e:
                 print(f"[PersonalityBatcher] Ошибка сохранения профиля личности {user_id}: {e}")
         

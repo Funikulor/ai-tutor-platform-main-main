@@ -2,6 +2,7 @@ from typing import Any, Dict, List, Optional
 import os
 import json
 import time
+import re
 from datetime import datetime, timezone
 
 try:
@@ -23,6 +24,10 @@ except Exception:
 
 from utils.persistent_storage import persistent_storage
 from utils.batched_saver import get_personality_batcher
+from utils.personalization_store import (
+	load_personality_profiles,
+	save_personality_profile,
+)
 import requests
 from utils.db import has_db, get_db
 from models.personality_profile import PersonalityProfile, PersonalityTrait, CommunicationStyle
@@ -63,9 +68,9 @@ class AssistantService:
 		print(f"[AssistantService] PROXYAPI ключ: {'установлен' if self.proxyapi_key else 'не установлен'}")
 	
 	def _load_personality_profiles(self):
-		"""Загружает профили личности из persistent_storage"""
+		"""Загружает профили личности из БД (с fallback)."""
 		try:
-			profiles_data = persistent_storage.get("personality_profiles", {})
+			profiles_data = load_personality_profiles()
 			for user_id, profile_data in profiles_data.items():
 				try:
 					profile = PersonalityProfile(**profile_data)
@@ -97,9 +102,7 @@ class AssistantService:
 					# Принудительное сохранение
 					batcher.flush(user_id)
 					# Также сохраняем напрямую для гарантии
-					profiles_data = persistent_storage.get("personality_profiles", {})
-					profiles_data[user_id] = profile_dict
-					persistent_storage.set("personality_profiles", profiles_data)
+					save_personality_profile(user_id, profile_dict)
 				else:
 					# Планируем сохранение через батчер
 					batcher.schedule_save(user_id, profile_dict)
@@ -137,6 +140,38 @@ class AssistantService:
 		if has_db():
 			return  # DB is source of truth when present
 		persistent_storage.set("documents", self._documents)
+
+	def _humanize_model_text(self, text: str) -> str:
+		"""Нормализует ответ модели в простой читаемый текст без markdown/latex шума."""
+		if not text:
+			return text
+		s = str(text).strip()
+		# Убираем markdown code fences и заголовки
+		s = re.sub(r"```(?:\w+)?", "", s)
+		s = re.sub(r"(?m)^\s{0,3}#{1,6}\s*", "", s)
+		# Убираем markdown-разметку, сохраняя контент
+		s = re.sub(r"\*\*([^*]+)\*\*", r"\1", s)
+		s = re.sub(r"__([^_]+)__", r"\1", s)
+		s = re.sub(r"`([^`]+)`", r"\1", s)
+		# LaTeX-ограждения и частые конструкции
+		s = s.replace("\\(", "").replace("\\)", "").replace("\\[", "").replace("\\]", "")
+		s = s.replace("$$", "").replace("$", "")
+		s = re.sub(r"\\frac\{([^}]+)\}\{([^}]+)\}", r"(\1)/(\2)", s)
+		s = re.sub(r"\\sqrt\{([^}]+)\}", r"sqrt(\1)", s)
+		s = re.sub(r"\\[a-zA-Z]+", "", s)  # остаточные latex-команды
+		# Приводим маркеры списков к простому виду
+		s = re.sub(r"(?m)^\s*[-*]\s+", "- ", s)
+		# Чистим лишние пробелы
+		s = re.sub(r"[ \t]+", " ", s)
+		s = re.sub(r"\n{3,}", "\n\n", s).strip()
+		# Если ответ оборван без пунктуации, обрезаем до последнего завершенного предложения
+		if s and s[-1] not in ".!?":
+			last_stop = max(s.rfind("."), s.rfind("!"), s.rfind("?"))
+			if last_stop > int(len(s) * 0.45):
+				s = s[: last_stop + 1].strip()
+			elif len(s) > 0:
+				s = s.rstrip(",:;-/") + "."
+		return s
 
 	def _ensure_pipe(self):
 		if self.provider == "local" and self._pipe is None and external_available:
@@ -441,7 +476,7 @@ class AssistantService:
 		if self.provider == "proxyapi":
 			proxyapi_text = self._generate_proxyapi(prompt, messages, max_new_tokens)
 			if proxyapi_text:
-				return proxyapi_text
+				return self._humanize_model_text(proxyapi_text)
 			# Fallback на другие провайдеры если PROXYAPI недоступна
 			print("PROXYAPI недоступна, пробуем другие провайдеры...")
 		
@@ -450,7 +485,7 @@ class AssistantService:
 		if self.provider == "openai":
 			openai_text = self._generate_openai(prompt, messages, max_new_tokens)
 			if openai_text:
-				return openai_text
+				return self._humanize_model_text(openai_text)
 			# Fallback на другие провайдеры если OpenAI недоступна
 			print("OpenAI недоступна, пробуем другие провайдеры...")
 		
@@ -458,18 +493,18 @@ class AssistantService:
 		if self.provider == "openai" and not openai_text and self.proxyapi_key:
 			proxyapi_text = self._generate_proxyapi(prompt, messages, max_new_tokens)
 			if proxyapi_text:
-				return proxyapi_text
+				return self._humanize_model_text(proxyapi_text)
 		
 		# Fallback на OpenAI, если PROXYAPI была выбрана но не работает
 		if self.provider == "proxyapi" and not proxyapi_text and openai_available and self.openai_api_key:
 			openai_text = self._generate_openai(prompt, messages, max_new_tokens)
 			if openai_text:
-				return openai_text
+				return self._humanize_model_text(openai_text)
 		
 		if self.provider == "hf_api" or ((self.provider == "openai" or self.provider == "proxyapi") and not openai_text and not proxyapi_text):
 			api_text = self._generate_hf_api(prompt, max_new_tokens)
 			if api_text:
-				return api_text
+				return self._humanize_model_text(api_text)
 		
 		# Fallback на локальный pipeline
 		self._ensure_pipe()
@@ -478,11 +513,11 @@ class AssistantService:
 				result = self._pipe(prompt, max_new_tokens=max_new_tokens)
 				if isinstance(result, list) and result:
 					text = result[0].get("generated_text") or result[0].get("summary_text") or ""
-					return text if isinstance(text, str) else str(text)
+					return self._humanize_model_text(text if isinstance(text, str) else str(text))
 			except Exception:
 				pass
 		
-		return "Извините, модель временно недоступна. Убедитесь, что API ключ задан: локально — в .env (OPENAI_API_KEY или PROXYAPI_KEY), на Railway — в разделе Variables. Также проверьте настройки провайдера (ASSISTANT_PROVIDER)."
+		return self._humanize_model_text("Извините, модель временно недоступна. Убедитесь, что API ключ задан: локально — в .env (OPENAI_API_KEY или PROXYAPI_KEY), на Railway — в разделе Variables. Также проверьте настройки провайдера (ASSISTANT_PROVIDER).")
 
 	def _hw_due_display(self, due: Any) -> str:
 		if due is None:

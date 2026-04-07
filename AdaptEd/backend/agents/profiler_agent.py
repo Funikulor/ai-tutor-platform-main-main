@@ -13,10 +13,12 @@ from models.cognitive_profile import (
     ContentPreference,
     EmotionalState
 )
-from utils.persistent_storage import persistent_storage
 from utils.batched_saver import get_profiler_batcher
+from utils.personalization_store import (
+    load_cognitive_profiles,
+    save_cognitive_profile,
+)
 from datetime import datetime, timedelta
-import json
 
 
 class ProfilerAgent(BaseAgent):
@@ -30,9 +32,9 @@ class ProfilerAgent(BaseAgent):
         self._load_profiles()  # Загружаем профили при инициализации
     
     def _load_profiles(self):
-        """Загружает профили из persistent_storage"""
+        """Загружает профили из БД (с fallback)."""
         try:
-            profiles_data = persistent_storage.get("cognitive_profiles", {})
+            profiles_data = load_cognitive_profiles()
             for user_id, profile_data in profiles_data.items():
                 try:
                     # Конвертируем данные обратно в CognitiveProfile
@@ -71,9 +73,7 @@ class ProfilerAgent(BaseAgent):
                     # Принудительное сохранение (например, при завершении)
                     batcher.flush(user_id)
                     # Также сохраняем напрямую для гарантии
-                    profiles_data = persistent_storage.get("cognitive_profiles", {})
-                    profiles_data[user_id] = profile_dict
-                    persistent_storage.set("cognitive_profiles", profiles_data)
+                    save_cognitive_profile(user_id, profile_dict)
                 else:
                     # Планируем сохранение через батчер
                     batcher.schedule_save(user_id, profile_dict)

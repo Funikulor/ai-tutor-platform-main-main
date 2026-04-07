@@ -18,9 +18,11 @@ from models.student_analytics import (
 from models.cognitive_profile import CognitiveProfile
 from datetime import datetime, timedelta
 import re
-from utils.persistent_storage import persistent_storage
 from utils.batched_saver import get_analytics_batcher
-import json
+from utils.personalization_store import (
+    load_student_analytics,
+    save_student_analytics,
+)
 
 
 class AdaptiveEducatorAgent(BaseAgent):
@@ -36,10 +38,9 @@ class AdaptiveEducatorAgent(BaseAgent):
         self._load_student_data()  # Загружаем данные при инициализации
     
     def _load_student_data(self):
-        """Загружает данные об учениках из persistent_storage"""
+        """Загружает данные об учениках из БД (с fallback)."""
         try:
-            analytics_data = persistent_storage.get("student_analytics", {})
-            ethics_data = persistent_storage.get("ethics_message_shown", {})
+            analytics_data, ethics_data = load_student_analytics()
             
             for user_id, data_dict in analytics_data.items():
                 try:
@@ -83,14 +84,11 @@ class AdaptiveEducatorAgent(BaseAgent):
                     batcher.schedule_save(user_id, save_data)
                     batcher.flush(user_id)
                     # Также сохраняем напрямую для гарантии
-                    analytics_data = persistent_storage.get("student_analytics", {})
-                    analytics_data[user_id] = data_dict
-                    persistent_storage.set("student_analytics", analytics_data)
-                    
-                    if user_id in self.ethics_message_shown:
-                        ethics_data = persistent_storage.get("ethics_message_shown", {})
-                        ethics_data[user_id] = self.ethics_message_shown[user_id]
-                        persistent_storage.set("ethics_message_shown", ethics_data)
+                    save_student_analytics(
+                        user_id=user_id,
+                        payload=data_dict,
+                        ethics_shown=self.ethics_message_shown.get(user_id),
+                    )
                 else:
                     # Планируем сохранение через батчер
                     batcher.schedule_save(user_id, save_data)
@@ -396,6 +394,9 @@ class AdaptiveEducatorAgent(BaseAgent):
     
     def _process_test_result(self, input_data: Dict[str, Any], student_data: StudentAnalyticsData) -> Dict[str, Any]:
         """Обрабатывает результат теста"""
+        user_id = input_data.get("user_id")
+        if not user_id:
+            return {"error": "user_id is required"}
         test_result = input_data.get('test_result', {})
         subject = test_result.get('subject', 'другое')
         accuracy = test_result.get('accuracy', 0)
@@ -455,6 +456,9 @@ class AdaptiveEducatorAgent(BaseAgent):
     
     def _process_task_attempt(self, input_data: Dict[str, Any], student_data: StudentAnalyticsData) -> Dict[str, Any]:
         """Обрабатывает попытку выполнения задания"""
+        user_id = input_data.get("user_id")
+        if not user_id:
+            return {"error": "user_id is required"}
         task_attempt = input_data.get('task_attempt', {})
         is_correct = task_attempt.get('is_correct', False)
         time_spent = task_attempt.get('time_spent_seconds')
