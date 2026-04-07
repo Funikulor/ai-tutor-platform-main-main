@@ -11,7 +11,9 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session, joinedload
 
+from models.homework import Homework
 from routes.auth import assert_can_view_user_data, get_current_user, require_roles
+from services.debts_service import get_debts_service
 from utils.answer_parse import numeric_answers_equal
 from utils.db import get_db, has_db
 from utils.orchestrator_singleton import get_orchestrator
@@ -256,6 +258,7 @@ class LibraryCheckpointSubmit(BaseModel):
 @router.post("/library/checkpoint")
 async def submit_library_checkpoint(
     body: LibraryCheckpointSubmit,
+    db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user),
 ):
     """
@@ -297,6 +300,53 @@ async def submit_library_checkpoint(
         if ok
         else "Пока неверно. Перечитайте шаг и попробуйте снова — в обучении нормально ошибаться."
     )
+
+    if has_db() and db is not None:
+        try:
+            debt_service = get_debts_service()
+            if ok:
+                debt_service.resolve_or_progress_topic_debts(
+                    db=db,
+                    user_id=body.user_id,
+                    topic=topic,
+                    delta=30.0,
+                )
+                touched = debt_service.mark_assignment_progress(
+                    db=db,
+                    user_id=body.user_id,
+                    kind="course",
+                    ref_value=body.course_id,
+                    progress_delta=34.0,
+                )
+                for debt_id in touched:
+                    debt_service.recalculate_debt_from_assignments(db=db, debt_id=debt_id)
+                hw_rows = (
+                    db.query(Homework)
+                    .filter(
+                        Homework.assigned_to == body.user_id,
+                        Homework.kind == "course",
+                        Homework.course_id == body.course_id,
+                        Homework.status.in_(["new", "in_progress"]),
+                    )
+                    .all()
+                )
+                for hw in hw_rows:
+                    hw.status = "submitted"
+                    db.add(hw)
+            else:
+                debt_service.upsert_topic_debt(
+                    db=db,
+                    user_id=body.user_id,
+                    topic=topic,
+                    source_type="course_checkpoint",
+                    source_id=f"{body.course_id}:{body.lesson_id}",
+                    created_by="system",
+                    priority=2,
+                )
+            db.commit()
+        except Exception as sync_err:
+            db.rollback()
+            print(f"Error syncing debts after checkpoint: {sync_err}")
 
     return {
         "is_correct": ok,

@@ -16,6 +16,11 @@ class Homework(Base):  # type: ignore
 	due_date = Column(DateTime, nullable=True)
 	kind = Column(String(50), default="test")  # test
 	test_id = Column(Integer, ForeignKey("tests.id"), nullable=True)
+	material_id = Column(String(64), nullable=True)
+	course_id = Column(String(64), nullable=True)
+	adaptive_topic = Column(String(255), nullable=True)
+	debt_id = Column(Integer, nullable=True)
+	completion_required = Column(Float, nullable=True)
 	assignment_type = Column(String(50), nullable=True, default="homework")
 	status = Column(String(50), default="new")  # new | in_progress | submitted | checked
 	assigned_to = Column(String(64), nullable=False)  # user_id ученика

@@ -8,7 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from routes import lessons, users, agents, auth
-from routes import assistant, homework, tests, materials
+from routes import assistant, homework, tests, materials, monitoring
 
 try:
 	from dotenv import load_dotenv  # type: ignore
@@ -124,6 +124,7 @@ app.include_router(assistant.router, tags=["Assistant"])
 app.include_router(homework.router, tags=["Homework"])
 app.include_router(tests.router, tags=["Tests"])
 app.include_router(materials.router, tags=["Materials"])
+app.include_router(monitoring.router, tags=["Monitoring"])
 
 # Serve built frontend from backend domain if available.
 BACKEND_DIR = Path(__file__).resolve().parent

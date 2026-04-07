@@ -31,6 +31,46 @@ def _assistant():
 	return assistant_service
 
 
+def _classify_student_status(profile) -> str:
+    """
+    Более устойчивый статус ученика:
+    - учитываем последние попытки и слабые темы,
+    - не помечаем «нужна помощь» при малом количестве данных.
+    """
+    attempts = list(profile.task_history or [])
+    recent_attempts = attempts[-12:]
+    recent_count = len(recent_attempts)
+    recent_correct = sum(1 for task in recent_attempts if task.is_correct)
+    recent_accuracy = (recent_correct / recent_count * 100.0) if recent_count else profile.accuracy_rate
+    weak_topics_count = sum(1 for mastery in (profile.topic_mastery or {}).values() if mastery < 0.5)
+
+    wrong_streak = 0
+    for task in reversed(attempts):
+        if task.is_correct:
+            break
+        wrong_streak += 1
+
+    # Если данных почти нет — не красим в «нужна помощь» по умолчанию
+    if recent_count < 5 and (profile.total_tasks_completed or 0) < 5:
+        if profile.accuracy_rate >= 80:
+            return "good"
+        return "average"
+
+    needs_help = (
+        profile.accuracy_rate < 50
+        or recent_accuracy < 55
+        or wrong_streak >= 4
+        or (weak_topics_count >= 4 and recent_accuracy < 65)
+    )
+    if needs_help:
+        return "needs-help"
+    if profile.accuracy_rate >= 88 and recent_accuracy >= 85 and weak_topics_count <= 1:
+        return "excellent"
+    if profile.accuracy_rate >= 72 or recent_accuracy >= 70:
+        return "good"
+    return "average"
+
+
 class HomeworkSubmissionPayload(BaseModel):
     """Модель для сдачи домашнего задания (старый формат, без БД)"""
     user_id: str
@@ -50,6 +90,11 @@ class HomeworkCreate(BaseModel):
     due_date: Optional[datetime] = None
     kind: Optional[str] = "test"
     test_id: Optional[int] = None
+    material_id: Optional[str] = None
+    course_id: Optional[str] = None
+    adaptive_topic: Optional[str] = None
+    debt_id: Optional[int] = None
+    completion_required: Optional[float] = None
     assignment_type: Optional[str] = "homework"
     assigned_to: str
     created_by: Optional[str] = None
@@ -63,6 +108,11 @@ class HomeworkOut(BaseModel):
     due_date: Optional[datetime]
     kind: Optional[str] = None
     test_id: Optional[int] = None
+    material_id: Optional[str] = None
+    course_id: Optional[str] = None
+    adaptive_topic: Optional[str] = None
+    debt_id: Optional[int] = None
+    completion_required: Optional[float] = None
     assignment_type: Optional[str] = None
     status: str
     assigned_to: str
@@ -127,6 +177,11 @@ async def list_homeworks(
                     "due_date": hw.due_date,
                     "kind": getattr(hw, "kind", "test"),
                     "test_id": getattr(hw, "test_id", None),
+                    "material_id": getattr(hw, "material_id", None),
+                    "course_id": getattr(hw, "course_id", None),
+                    "adaptive_topic": getattr(hw, "adaptive_topic", None),
+                    "debt_id": getattr(hw, "debt_id", None),
+                    "completion_required": getattr(hw, "completion_required", None),
                     "assignment_type": getattr(hw, "assignment_type", "homework"),
                     "status": hw.status,
                     "assigned_to": hw.assigned_to,
@@ -157,6 +212,11 @@ async def list_homeworks(
             "due_date": hw.get('due_date'),
             "kind": hw.get('kind', 'test'),
             "test_id": hw.get('test_id'),
+            "material_id": hw.get('material_id'),
+            "course_id": hw.get('course_id'),
+            "adaptive_topic": hw.get('adaptive_topic'),
+            "debt_id": hw.get('debt_id'),
+            "completion_required": hw.get('completion_required'),
             "assignment_type": hw.get('assignment_type', 'homework'),
             "status": hw.get('status', 'new'),
             "assigned_to": hw.get('assigned_to', ''),
@@ -186,6 +246,11 @@ async def create_homework(
                 due_date=payload.due_date,
                 kind=payload.kind or "test",
                 test_id=payload.test_id,
+                material_id=payload.material_id,
+                course_id=payload.course_id,
+                adaptive_topic=payload.adaptive_topic,
+                debt_id=payload.debt_id,
+                completion_required=payload.completion_required,
                 assignment_type=payload.assignment_type or "homework",
                 assigned_to=payload.assigned_to,
                 created_by=created_by,
@@ -212,6 +277,11 @@ async def create_homework(
         "due_date": payload.due_date.isoformat() if payload.due_date else None,
         "kind": payload.kind or "test",
         "test_id": payload.test_id,
+        "material_id": payload.material_id,
+        "course_id": payload.course_id,
+        "adaptive_topic": payload.adaptive_topic,
+        "debt_id": payload.debt_id,
+        "completion_required": payload.completion_required,
         "assignment_type": payload.assignment_type or "homework",
         "assigned_to": payload.assigned_to,
         "created_by": created_by,
@@ -230,6 +300,11 @@ async def create_homework(
         "due_date": payload.due_date,
         "kind": payload.kind or "test",
         "test_id": payload.test_id,
+        "material_id": payload.material_id,
+        "course_id": payload.course_id,
+        "adaptive_topic": payload.adaptive_topic,
+        "debt_id": payload.debt_id,
+        "completion_required": payload.completion_required,
         "assignment_type": payload.assignment_type or "homework",
         "status": "new",
         "assigned_to": payload.assigned_to,
@@ -289,6 +364,30 @@ async def submit_homework_db(
             # Обновляем статус домашки
             hw.status = "submitted"
             db.add(hw)
+
+            try:
+                from services.debts_service import get_debts_service
+                from models.debts import StudentDebt
+
+                debt_service = get_debts_service()
+                if getattr(hw, "debt_id", None):
+                    debt = db.get(StudentDebt, hw.debt_id)
+                    if debt:
+                        debt_service.resolve_or_progress_topic_debts(
+                            db=db,
+                            user_id=payload.user_id,
+                            topic=debt.topic,
+                            delta=35.0,
+                        )
+                if getattr(hw, "adaptive_topic", None):
+                    debt_service.resolve_or_progress_topic_debts(
+                        db=db,
+                        user_id=payload.user_id,
+                        topic=str(hw.adaptive_topic),
+                        delta=25.0,
+                    )
+            except Exception as sync_err:
+                print(f"Error syncing debt on homework submit: {sync_err}")
 
             db.commit()
             db.refresh(submission)
@@ -1101,15 +1200,8 @@ async def get_class_analytics(
             # Подсчитываем изученные темы (мастерство >= 70%)
             completed_topics = sum(1 for mastery in profile.topic_mastery.values() if mastery >= 0.7) if profile.topic_mastery else 0
             
-            # Определяем статус
-            if profile.accuracy_rate >= 85:
-                status = 'excellent'
-            elif profile.accuracy_rate >= 70:
-                status = 'good'
-            elif profile.accuracy_rate >= 60:
-                status = 'average'
-            else:
-                status = 'needs-help'
+            # Определяем статус (комбинация общего и недавнего прогресса)
+            status = _classify_student_status(profile)
             
             class_data.append({
                 "student": student.get('full_name', student.get('email', 'Неизвестно')),
@@ -1249,6 +1341,45 @@ async def mark_material_studied(
         profile.level = min(profile.points // 100 + 1, 10)
         
         orchestrator.profiler.persist_profile(user_id)
+
+        # Синхронизация долгов и назначений из библиотеки/работы над ошибками
+        if has_db() and db is not None:
+            try:
+                from services.debts_service import get_debts_service
+
+                debt_service = get_debts_service()
+                debt_service.resolve_or_progress_topic_debts(
+                    db=db,
+                    user_id=user_id,
+                    topic=topic,
+                    delta=30.0 if completion_percentage >= 0.8 else 15.0,
+                )
+                touched_debts = debt_service.mark_assignment_progress(
+                    db=db,
+                    user_id=user_id,
+                    kind="material",
+                    ref_value=str(material_id),
+                    progress_delta=50.0 if completion_percentage >= 1.0 else 25.0,
+                )
+                for debt_id in touched_debts:
+                    debt_service.recalculate_debt_from_assignments(db=db, debt_id=debt_id)
+
+                # Закрываем назначение типа "material", если выполнено.
+                if completion_percentage >= 1.0:
+                    stmt_hw = select(Homework).where(
+                        Homework.assigned_to == user_id,
+                        Homework.kind == "material",
+                        Homework.material_id == str(material_id),
+                        Homework.status.in_(["new", "in_progress"]),
+                    )
+                    hw_rows = db.execute(stmt_hw).scalars().all()
+                    for hw in hw_rows:
+                        hw.status = "submitted"
+                        db.add(hw)
+                db.commit()
+            except Exception as sync_err:
+                db.rollback()
+                print(f"Error syncing debts/material assignments: {sync_err}")
 
         return {
             "success": True,

@@ -1,4 +1,5 @@
 from datetime import datetime
+import ast
 import json
 import re
 from typing import Any, Dict, List, Optional
@@ -12,6 +13,7 @@ from utils.orchestrator_singleton import get_orchestrator
 from models.homework import Homework, HomeworkSubmission
 from models.test import Test, TestQuestion, TestSubmission
 from services.assistant import get_assistant_service
+from services.debts_service import get_debts_service
 from services.student_analytics import get_analytics_service
 from utils.answer_parse import numeric_answers_equal
 from utils.db import get_db, has_db
@@ -282,13 +284,59 @@ def _build_generation_prompt(payload: GeneratedTestRequest) -> str:
 
 
 def _extract_generated_payload(raw: str) -> Dict[str, Any]:
-	json_match = re.search(r"\{.*\}", raw, re.DOTALL)
-	if not json_match:
+	def _extract_balanced_object(text: str) -> Optional[str]:
+		start = text.find("{")
+		if start < 0:
+			return None
+		depth = 0
+		for idx in range(start, len(text)):
+			ch = text[idx]
+			if ch == "{":
+				depth += 1
+			elif ch == "}":
+				depth -= 1
+				if depth == 0:
+					return text[start : idx + 1]
+		return None
+
+	def _sanitize_json_like(text: str) -> str:
+		text = text.strip()
+		# Убираем markdown fences ```json ... ```
+		text = re.sub(r"^```(?:json)?\s*|\s*```$", "", text, flags=re.IGNORECASE | re.DOTALL).strip()
+		# Нормализуем «умные» кавычки
+		text = (
+			text.replace("“", '"')
+			.replace("”", '"')
+			.replace("‘", "'")
+			.replace("’", "'")
+		)
+		# Убираем висячие запятые перед ] или }
+		text = re.sub(r",\s*([}\]])", r"\1", text)
+		return text
+
+	candidate = _extract_balanced_object(raw or "")
+	if not candidate:
 		raise HTTPException(status_code=500, detail="Failed to parse generated test")
+	candidate = _sanitize_json_like(candidate)
+
+	# 1) Строгий JSON
 	try:
-		return json.loads(json_match.group())
+		return json.loads(candidate)
 	except Exception:
-		raise HTTPException(status_code=500, detail="Failed to parse generated test JSON")
+		pass
+
+	# 2) Попытка через python-литерал (одинарные кавычки, True/False/None и т.д.)
+	py_like = re.sub(r"\btrue\b", "True", candidate, flags=re.IGNORECASE)
+	py_like = re.sub(r"\bfalse\b", "False", py_like, flags=re.IGNORECASE)
+	py_like = re.sub(r"\bnull\b", "None", py_like, flags=re.IGNORECASE)
+	try:
+		parsed = ast.literal_eval(py_like)
+		if isinstance(parsed, dict):
+			return parsed
+	except Exception:
+		pass
+
+	raise HTTPException(status_code=500, detail="Failed to parse generated test JSON")
 
 
 def _create_question_record(db: Session, test_id: int, question: ManualQuestion):
@@ -507,10 +555,22 @@ async def submit_test(
 		prompt = (
 			f"Ученик выполнил тест '{test.title}'. "
 			f"Результат: {correct_count} из {total_questions} ({score_pct}%).\n"
-			"Дай короткий разбор, что получилось, что повторить и как двигаться дальше.\n"
+			"Дай короткий разбор в СТРОГОМ формате без markdown и latex.\n"
+			"Требования к формату:\n"
+			"1) Только обычный русский текст, без символов #, **, `, $, \\\\, скобок LaTeX.\n"
+			"2) Максимум 4 коротких абзаца.\n"
+			"3) Структура:\n"
+			"   - Что получилось.\n"
+			"   - Какие 1-2 ошибки ключевые.\n"
+			"   - Что повторить.\n"
+			"   - Следующий шаг (1 конкретное действие).\n"
+			"4) Не обрывай фразы, не пиши списки в markdown.\n"
 			f"Ошибки:\n{wrong_lines or '- Ошибок нет'}"
 		)
 		feedback = assistant._generate(prompt, max_new_tokens=220)
+		if feedback:
+			# Защита от слишком длинного ответа в teacher UI
+			feedback = feedback[:1200].strip()
 		summary = feedback
 	except Exception:
 		feedback = None
@@ -545,6 +605,7 @@ async def submit_test(
 		homework.status = "submitted"
 		db.add(homework)
 
+	pipeline_warnings: List[str] = []
 	try:
 		analytics_service = get_analytics_service()
 		cognitive_profile = get_orchestrator().profiler.get_profile(payload.user_id)
@@ -558,8 +619,10 @@ async def submit_test(
 			},
 			cognitive_profile=cognitive_profile,
 		)
-	except Exception:
-		pass
+	except Exception as e:
+		warn = f"analytics update failed: {e}"
+		pipeline_warnings.append(warn)
+		print(f"[tests.submit_test] {warn}")
 
 	try:
 		orchestrator = get_orchestrator()
@@ -572,8 +635,38 @@ async def submit_test(
 				correct_answer=str(item.get("correct_answer_text") or ""),
 				topic=test.topic or test.title,
 			)
-	except Exception:
-		pass
+	except Exception as e:
+		warn = f"profile update failed: {e}"
+		pipeline_warnings.append(warn)
+		print(f"[tests.submit_test] {warn}")
+
+	try:
+		if has_db() and db is not None:
+			debts = get_debts_service()
+			main_topic = (test.topic or test.title or "Тест").strip()
+			if wrong_results:
+				debts.upsert_topic_debt(
+					db=db,
+					user_id=payload.user_id,
+					topic=main_topic,
+					source_type="test",
+					source_id=str(test_id),
+					created_by=str(current_user.get("user_id", "system")),
+					priority=1 if score_pct < 60 else 2,
+					notes=f"Работа над ошибками по тесту '{test.title}' ({score_pct}%).",
+					due_date=homework.due_date if homework else None,
+				)
+			else:
+				debts.resolve_or_progress_topic_debts(
+					db=db,
+					user_id=payload.user_id,
+					topic=main_topic,
+					delta=50.0,
+				)
+	except Exception as e:
+		warn = f"debt sync failed: {e}"
+		pipeline_warnings.append(warn)
+		print(f"[tests.submit_test] {warn}")
 
 	db.commit()
 	db.refresh(submission)
@@ -587,6 +680,7 @@ async def submit_test(
 		"summary": summary,
 		"feedback": feedback,
 		"question_results": question_results,
+		"pipeline_warnings": pipeline_warnings,
 	}
 
 
