@@ -1,10 +1,12 @@
 import os
+import re
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Optional
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import Response
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from routes import lessons, users, agents, auth
@@ -106,6 +108,17 @@ def _railway_cors_regex() -> Optional[str]:
     return r"^https://[\w.-]+\.up\.railway\.app$"
 
 
+def _is_allowed_origin(origin: Optional[str]) -> bool:
+    if not origin:
+        return False
+    if origin in _get_allowed_origins():
+        return True
+    pattern = _railway_cors_regex()
+    if pattern and re.match(pattern, origin):
+        return True
+    return False
+
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_get_allowed_origins(),
@@ -114,6 +127,33 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.middleware("http")
+async def _force_cors_headers(request, call_next):
+    """
+    Дополнительный защитный слой CORS:
+    - гарантирует CORS-заголовки даже на ошибках backend;
+    - стабильно отвечает на preflight OPTIONS.
+    """
+    origin = request.headers.get("origin")
+    origin_allowed = _is_allowed_origin(origin)
+
+    if request.method == "OPTIONS":
+        response = Response(status_code=204)
+    else:
+        response = await call_next(request)
+
+    if origin_allowed and origin:
+        response.headers["Access-Control-Allow-Origin"] = origin
+        response.headers["Vary"] = "Origin"
+        response.headers["Access-Control-Allow-Credentials"] = "true"
+        response.headers["Access-Control-Allow-Methods"] = "GET,POST,PUT,PATCH,DELETE,OPTIONS"
+        requested_headers = request.headers.get("access-control-request-headers")
+        response.headers["Access-Control-Allow-Headers"] = requested_headers or "*"
+
+    return response
+
 
 # API routes - без префикса для обратной совместимости
 app.include_router(auth.router, tags=["Auth"])

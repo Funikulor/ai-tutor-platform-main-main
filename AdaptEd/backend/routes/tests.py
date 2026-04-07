@@ -284,59 +284,142 @@ def _build_generation_prompt(payload: GeneratedTestRequest) -> str:
 
 
 def _extract_generated_payload(raw: str) -> Dict[str, Any]:
-	def _extract_balanced_object(text: str) -> Optional[str]:
-		start = text.find("{")
+	def _extract_balanced_chunk(text: str, opener: str, closer: str) -> Optional[str]:
+		start = text.find(opener)
 		if start < 0:
 			return None
 		depth = 0
+		in_string = False
+		escape = False
+		quote = '"'
 		for idx in range(start, len(text)):
 			ch = text[idx]
-			if ch == "{":
+			if in_string:
+				if escape:
+					escape = False
+					continue
+				if ch == "\\":
+					escape = True
+					continue
+				if ch == quote:
+					in_string = False
+				continue
+			if ch in {'"', "'"}:
+				in_string = True
+				quote = ch
+				continue
+			if ch == opener:
 				depth += 1
-			elif ch == "}":
+			elif ch == closer:
 				depth -= 1
 				if depth == 0:
 					return text[start : idx + 1]
 		return None
 
 	def _sanitize_json_like(text: str) -> str:
-		text = text.strip()
-		# Убираем markdown fences ```json ... ```
-		text = re.sub(r"^```(?:json)?\s*|\s*```$", "", text, flags=re.IGNORECASE | re.DOTALL).strip()
-		# Нормализуем «умные» кавычки
+		text = str(text or "").strip()
+		text = re.sub(r"```(?:json)?", "", text, flags=re.IGNORECASE).strip()
 		text = (
 			text.replace("“", '"')
 			.replace("”", '"')
+			.replace("„", '"')
+			.replace("«", '"')
+			.replace("»", '"')
 			.replace("‘", "'")
 			.replace("’", "'")
 		)
-		# Убираем висячие запятые перед ] или }
+		text = text.replace("\u00A0", " ")
 		text = re.sub(r",\s*([}\]])", r"\1", text)
-		return text
+		return text.strip()
 
-	candidate = _extract_balanced_object(raw or "")
-	if not candidate:
-		raise HTTPException(status_code=500, detail="Failed to parse generated test")
-	candidate = _sanitize_json_like(candidate)
-
-	# 1) Строгий JSON
-	try:
-		return json.loads(candidate)
-	except Exception:
-		pass
-
-	# 2) Попытка через python-литерал (одинарные кавычки, True/False/None и т.д.)
-	py_like = re.sub(r"\btrue\b", "True", candidate, flags=re.IGNORECASE)
-	py_like = re.sub(r"\bfalse\b", "False", py_like, flags=re.IGNORECASE)
-	py_like = re.sub(r"\bnull\b", "None", py_like, flags=re.IGNORECASE)
-	try:
-		parsed = ast.literal_eval(py_like)
+	def _normalize_parsed_payload(parsed: Any) -> Optional[Dict[str, Any]]:
 		if isinstance(parsed, dict):
-			return parsed
-	except Exception:
-		pass
+			if isinstance(parsed.get("test"), dict):
+				parsed = parsed["test"]
+			if isinstance(parsed.get("data"), dict):
+				parsed = parsed["data"]
+			if isinstance(parsed.get("questions"), list):
+				return parsed
+		if isinstance(parsed, list):
+			for item in parsed:
+				if isinstance(item, dict) and isinstance(item.get("questions"), list):
+					return item
+		return None
+
+	raw_text = str(raw or "").strip()
+	if not raw_text:
+		raise HTTPException(status_code=500, detail="Generated test is empty")
+
+	candidates: List[str] = []
+	candidates.append(raw_text)
+	obj_chunk = _extract_balanced_chunk(raw_text, "{", "}")
+	if obj_chunk:
+		candidates.append(obj_chunk)
+	arr_chunk = _extract_balanced_chunk(raw_text, "[", "]")
+	if arr_chunk:
+		candidates.append(arr_chunk)
+	for fence_match in re.findall(r"```(?:json)?\s*(.*?)```", raw_text, flags=re.IGNORECASE | re.DOTALL):
+		if fence_match:
+			candidates.append(fence_match)
+
+	seen = set()
+	unique_candidates: List[str] = []
+	for item in candidates:
+		clean = _sanitize_json_like(item)
+		if clean and clean not in seen:
+			seen.add(clean)
+			unique_candidates.append(clean)
+
+	for candidate in unique_candidates:
+		# 1) Строгий JSON
+		try:
+			parsed = json.loads(candidate)
+			normalized = _normalize_parsed_payload(parsed)
+			if normalized is not None:
+				return normalized
+			if isinstance(parsed, str):
+				parsed2 = json.loads(_sanitize_json_like(parsed))
+				normalized2 = _normalize_parsed_payload(parsed2)
+				if normalized2 is not None:
+					return normalized2
+		except Exception:
+			pass
+
+		# 2) Попытка через python-литерал (одинарные кавычки, True/False/None и т.д.)
+		py_like = re.sub(r"\btrue\b", "True", candidate, flags=re.IGNORECASE)
+		py_like = re.sub(r"\bfalse\b", "False", py_like, flags=re.IGNORECASE)
+		py_like = re.sub(r"\bnull\b", "None", py_like, flags=re.IGNORECASE)
+		try:
+			parsed = ast.literal_eval(py_like)
+			normalized = _normalize_parsed_payload(parsed)
+			if normalized is not None:
+				return normalized
+			if isinstance(parsed, str):
+				parsed2 = json.loads(_sanitize_json_like(parsed))
+				normalized2 = _normalize_parsed_payload(parsed2)
+				if normalized2 is not None:
+					return normalized2
+		except Exception:
+			pass
 
 	raise HTTPException(status_code=500, detail="Failed to parse generated test JSON")
+
+
+def _looks_like_provider_failure(raw: str) -> bool:
+	text = (raw or "").lower()
+	if not text:
+		return True
+	signals = (
+		"модель временно недоступна",
+		"openai api",
+		"proxyapi",
+		"превышен лимит",
+		"rate limit",
+		"api key",
+		"unable to",
+		"service unavailable",
+	)
+	return any(signal in text for signal in signals)
 
 
 def _create_question_record(db: Session, test_id: int, question: ManualQuestion):
@@ -399,12 +482,37 @@ async def generate_test(
 		raise HTTPException(status_code=400, detail="Укажите тему для генерации теста (topic)")
 
 	creator_id = payload.creator_id or str(current_user.get("user_id", ""))
-	raw = _assistant()._generate(
-		_build_generation_prompt(payload),
+	assistant = _assistant()
+	base_prompt = _build_generation_prompt(payload)
+	raw = assistant._generate(
+		base_prompt,
 		max_new_tokens=1000,
 		sanitize_output=False,
 	)
-	data = _extract_generated_payload(raw)
+	if _looks_like_provider_failure(raw):
+		raise HTTPException(
+			status_code=503,
+			detail="Сервис генерации временно недоступен. Проверьте ключи AI-провайдера и повторите позже.",
+		)
+	try:
+		data = _extract_generated_payload(raw)
+	except HTTPException:
+		# Retry с более жесткой инструкцией формата, если модель вернула "шумный" ответ.
+		retry_prompt = (
+			base_prompt
+			+ "\n\nКритично: верни ТОЛЬКО валидный JSON-объект, без markdown, без комментариев, без префиксов/суффиксов."
+		)
+		raw_retry = assistant._generate(
+			retry_prompt,
+			max_new_tokens=1200,
+			sanitize_output=False,
+		)
+		if _looks_like_provider_failure(raw_retry):
+			raise HTTPException(
+				status_code=503,
+				detail="Сервис генерации временно недоступен. Проверьте ключи AI-провайдера и повторите позже.",
+			)
+		data = _extract_generated_payload(raw_retry)
 	questions = data.get("questions") or []
 	if not questions:
 		raise HTTPException(status_code=500, detail="No questions in generated test")
