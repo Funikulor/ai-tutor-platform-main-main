@@ -399,7 +399,11 @@ async def generate_test(
 		raise HTTPException(status_code=400, detail="Укажите тему для генерации теста (topic)")
 
 	creator_id = payload.creator_id or str(current_user.get("user_id", ""))
-	raw = _assistant()._generate(_build_generation_prompt(payload), max_new_tokens=1000)
+	raw = _assistant()._generate(
+		_build_generation_prompt(payload),
+		max_new_tokens=1000,
+		sanitize_output=False,
+	)
 	data = _extract_generated_payload(raw)
 	questions = data.get("questions") or []
 	if not questions:

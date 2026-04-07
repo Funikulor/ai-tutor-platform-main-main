@@ -245,7 +245,11 @@ async def generate_adaptive_task(request: Dict[str, Any]):
 }}"""
         
         assistant = get_assistant_service()
-        raw_response = assistant._generate(prompt, max_new_tokens=650)
+        raw_response = assistant._generate(
+            prompt,
+            max_new_tokens=650,
+            sanitize_output=False,
+        )
         
         # Если модель недоступна (нет API ключа или провайдер недоступен) — возвращаем понятную ошибку
         if raw_response and "модель временно недоступна" in raw_response:

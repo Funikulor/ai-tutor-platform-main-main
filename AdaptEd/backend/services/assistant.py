@@ -470,13 +470,22 @@ class AssistantService:
 		except Exception as e:
 			return None
 
-	def _generate(self, prompt: str, max_new_tokens: int = 256, messages: Optional[List[Dict[str, str]]] = None) -> str:
+	def _generate(
+		self,
+		prompt: str,
+		max_new_tokens: int = 256,
+		messages: Optional[List[Dict[str, str]]] = None,
+		sanitize_output: bool = True,
+	) -> str:
+		def _maybe_sanitize(text: str) -> str:
+			return self._humanize_model_text(text) if sanitize_output else text
+
 		# Пробуем PROXYAPI первым, если выбран
 		proxyapi_text = None
 		if self.provider == "proxyapi":
 			proxyapi_text = self._generate_proxyapi(prompt, messages, max_new_tokens)
 			if proxyapi_text:
-				return self._humanize_model_text(proxyapi_text)
+				return _maybe_sanitize(proxyapi_text)
 			# Fallback на другие провайдеры если PROXYAPI недоступна
 			print("PROXYAPI недоступна, пробуем другие провайдеры...")
 		
@@ -485,7 +494,7 @@ class AssistantService:
 		if self.provider == "openai":
 			openai_text = self._generate_openai(prompt, messages, max_new_tokens)
 			if openai_text:
-				return self._humanize_model_text(openai_text)
+				return _maybe_sanitize(openai_text)
 			# Fallback на другие провайдеры если OpenAI недоступна
 			print("OpenAI недоступна, пробуем другие провайдеры...")
 		
@@ -493,18 +502,18 @@ class AssistantService:
 		if self.provider == "openai" and not openai_text and self.proxyapi_key:
 			proxyapi_text = self._generate_proxyapi(prompt, messages, max_new_tokens)
 			if proxyapi_text:
-				return self._humanize_model_text(proxyapi_text)
+				return _maybe_sanitize(proxyapi_text)
 		
 		# Fallback на OpenAI, если PROXYAPI была выбрана но не работает
 		if self.provider == "proxyapi" and not proxyapi_text and openai_available and self.openai_api_key:
 			openai_text = self._generate_openai(prompt, messages, max_new_tokens)
 			if openai_text:
-				return self._humanize_model_text(openai_text)
+				return _maybe_sanitize(openai_text)
 		
 		if self.provider == "hf_api" or ((self.provider == "openai" or self.provider == "proxyapi") and not openai_text and not proxyapi_text):
 			api_text = self._generate_hf_api(prompt, max_new_tokens)
 			if api_text:
-				return self._humanize_model_text(api_text)
+				return _maybe_sanitize(api_text)
 		
 		# Fallback на локальный pipeline
 		self._ensure_pipe()
@@ -513,11 +522,11 @@ class AssistantService:
 				result = self._pipe(prompt, max_new_tokens=max_new_tokens)
 				if isinstance(result, list) and result:
 					text = result[0].get("generated_text") or result[0].get("summary_text") or ""
-					return self._humanize_model_text(text if isinstance(text, str) else str(text))
+					return _maybe_sanitize(text if isinstance(text, str) else str(text))
 			except Exception:
 				pass
 		
-		return self._humanize_model_text("Извините, модель временно недоступна. Убедитесь, что API ключ задан: локально — в .env (OPENAI_API_KEY или PROXYAPI_KEY), на Railway — в разделе Variables. Также проверьте настройки провайдера (ASSISTANT_PROVIDER).")
+		return _maybe_sanitize("Извините, модель временно недоступна. Убедитесь, что API ключ задан: локально — в .env (OPENAI_API_KEY или PROXYAPI_KEY), на Railway — в разделе Variables. Также проверьте настройки провайдера (ASSISTANT_PROVIDER).")
 
 	def _hw_due_display(self, due: Any) -> str:
 		if due is None:
