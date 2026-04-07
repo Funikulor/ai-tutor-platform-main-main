@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { fetchHomeworks, Homework } from '../services/homework';
 import { BookOpen, CheckCircle, Clock, Loader2, MessageCircle, Send } from 'lucide-react';
 import {
@@ -56,6 +56,21 @@ export function HomeworkTab() {
     student_explanation: string;
   }>>>({});
   const userId = localStorage.getItem('user_id') || 'student';
+
+  const normalizeSubject = (subject?: string) => {
+    const value = (subject || '').trim();
+    return value || 'Без предмета';
+  };
+
+  const groupedHomeworks = useMemo(() => {
+    const groups: Record<string, Homework[]> = {};
+    homeworks.forEach((hw) => {
+      const key = normalizeSubject(hw.subject);
+      if (!groups[key]) groups[key] = [];
+      groups[key].push(hw);
+    });
+    return Object.entries(groups).sort(([a], [b]) => a.localeCompare(b, 'ru'));
+  }, [homeworks]);
 
   const buildEmptyDrafts = (test: TestDetail) =>
     test.questions.reduce<Record<number, {
@@ -296,12 +311,18 @@ export function HomeworkTab() {
         </div>
       )}
 
-      <div className="space-y-4">
-        {homeworks.map((hw) => (
-          <div key={hw.id} className="bg-white border border-gray-200 rounded-xl p-4 shadow-sm">
+      <div className="space-y-5">
+        {groupedHomeworks.map(([subjectName, subjectHomeworks]) => (
+          <section key={subjectName} className="space-y-3">
+            <div className="flex items-center justify-between rounded-lg border border-blue-100 bg-blue-50/70 px-3 py-2">
+              <h3 className="text-sm font-semibold text-blue-900">{subjectName}</h3>
+              <span className="text-xs text-blue-700">{subjectHomeworks.length} шт.</span>
+            </div>
+            {subjectHomeworks.map((hw) => (
+              <div key={hw.id} className="bg-white border border-gray-200 rounded-xl p-4 shadow-sm">
             <div className="flex items-start justify-between gap-3">
               <div>
-                <p className="text-sm text-gray-500">{hw.subject || 'Домашка'}</p>
+                <p className="text-sm text-gray-500">{normalizeSubject(hw.subject)}</p>
                 <h3 className="text-lg font-semibold text-gray-900">{hw.title}</h3>
                 {hw.due_date && (
                   <div className="flex items-center gap-2 text-sm text-gray-500 mt-1">
@@ -502,7 +523,9 @@ export function HomeworkTab() {
                 </div>
               );
             })()}
-          </div>
+              </div>
+            ))}
+          </section>
         ))}
       </div>
     </div>

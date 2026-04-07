@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, type ReactElement } from 'react';
+import { useState, useEffect, useRef, useCallback, useLayoutEffect, type ReactElement } from 'react';
 import { ArrowLeft, BookOpen, Video, FileText, Clock, Star, Download, Share2, CheckCircle, Target, Lightbulb, AlertCircle, Zap } from 'lucide-react';
 import { motion } from 'motion/react';
 import type { Material } from './LibraryTab';
@@ -187,92 +187,131 @@ interface MaterialViewerProps {
   onSelectRelated?: (material: Material) => void;
 }
 
+/** Короткий текст без прокрутки: засчитываем после N секунд на странице (не мгновенно при открытии). */
+const NO_SCROLL_DWELL_SECONDS = 20;
+/** Длинный текст: достаточно прокрутить почти до конца. */
+const SCROLL_COMPLETE_PCT = 95;
+
 export function MaterialViewer({ material, onBack, onStudyComplete, allMaterials = [], onSelectRelated }: MaterialViewerProps) {
   const [timeSpent, setTimeSpent] = useState(0);
   const [scrollProgress, setScrollProgress] = useState(0);
+  const [noScrollNeeded, setNoScrollNeeded] = useState(false);
   const [isStudied, setIsStudied] = useState(false);
   const [isMarking, setIsMarking] = useState(false);
   const startTimeRef = useRef<number>(Date.now());
   const contentRef = useRef<HTMLDivElement>(null);
-  const autoMarkedRef = useRef(false);
-  
-  // Отслеживаем время изучения
+  /** Защита от повторной отправки / двойного срабатывания эффектов */
+  const studySentRef = useRef(false);
+
+  // Сброс при смене материала
   useEffect(() => {
-    const interval = setInterval(() => {
-      setTimeSpent(Math.floor((Date.now() - startTimeRef.current) / 1000));
-    }, 5000);
-    
+    startTimeRef.current = Date.now();
+    studySentRef.current = false;
+    setIsStudied(false);
+    setScrollProgress(0);
+    setNoScrollNeeded(false);
+    setTimeSpent(0);
+  }, [material.id]);
+
+  // Время на странице (для коротких материалов и отображения)
+  useEffect(() => {
+    const tick = () => setTimeSpent(Math.floor((Date.now() - startTimeRef.current) / 1000));
+    tick();
+    const interval = setInterval(tick, 1000);
     return () => clearInterval(interval);
+  }, [material.id]);
+
+  const measureScroll = useCallback(() => {
+    const el = contentRef.current;
+    if (!el) return;
+    const maxScroll = el.scrollHeight - el.clientHeight;
+    const shortContent = maxScroll <= 4;
+    setNoScrollNeeded(shortContent);
+    if (shortContent) {
+      setScrollProgress(100);
+      return;
+    }
+    const scrollTop = el.scrollTop;
+    const progress = maxScroll > 0 ? (scrollTop / maxScroll) * 100 : 0;
+    setScrollProgress(Math.min(100, Math.max(0, progress)));
   }, []);
-  
-  // Отслеживаем прогресс прокрутки
-  useEffect(() => {
-    const handleScroll = () => {
-      if (contentRef.current) {
-        const element = contentRef.current;
-        const scrollTop = element.scrollTop;
-        const scrollHeight = element.scrollHeight - element.clientHeight;
-        const progress = scrollHeight > 0 ? (scrollTop / scrollHeight) * 100 : 0;
-        setScrollProgress(Math.min(100, Math.max(0, progress)));
-      }
+
+  useLayoutEffect(() => {
+    measureScroll();
+    const el = contentRef.current;
+    if (!el) return;
+    el.addEventListener('scroll', measureScroll);
+    const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(() => measureScroll()) : null;
+    if (ro) ro.observe(el);
+    const t = window.setTimeout(measureScroll, 100);
+    const t2 = window.setTimeout(measureScroll, 500);
+    return () => {
+      el.removeEventListener('scroll', measureScroll);
+      ro?.disconnect();
+      window.clearTimeout(t);
+      window.clearTimeout(t2);
     };
-    
-    const element = contentRef.current;
-    if (element) {
-      // Вызываем сразу для установки начального значения
-      handleScroll();
-      element.addEventListener('scroll', handleScroll);
-      return () => element.removeEventListener('scroll', handleScroll);
-    }
-  }, []);
-  
-  const handleMarkAsStudied = async () => {
-    try {
-      setIsMarking(true);
-      const userId = localStorage.getItem('user_id');
-      if (!userId) {
-        throw new Error('User ID not found');
+  }, [material.id, material.content, material.type, measureScroll]);
+
+  const handleMarkAsStudied = useCallback(
+    async (completionFraction: number) => {
+      if (studySentRef.current) return;
+      studySentRef.current = true;
+      try {
+        setIsMarking(true);
+        const userId = localStorage.getItem('user_id');
+        if (!userId) {
+          throw new Error('User ID not found');
+        }
+        const currentTimeSpent = Math.floor((Date.now() - startTimeRef.current) / 1000);
+        setTimeSpent(currentTimeSpent);
+
+        const topicLabel = (material.topic || material.title || material.subject || 'Материалы').trim();
+        const response = await api.post('/study/material', {
+          user_id: userId,
+          material_id: material.id,
+          topic: topicLabel,
+          subject: material.subject,
+          time_spent_seconds: currentTimeSpent,
+          completion_percentage: Math.min(1, Math.max(0, completionFraction)),
+        });
+
+        setIsStudied(true);
+
+        if (onStudyComplete) {
+          onStudyComplete(topicLabel);
+        }
+
+        toast.success(
+          `Отлично! Материал по теме «${material.topic || topicLabel}» засчитан. Очков: ${response.data.points_earned ?? 0}.`,
+          { duration: 4000 }
+        );
+      } catch (err: unknown) {
+        studySentRef.current = false;
+        console.error('Error marking material as studied:', err);
+        toast.error('Не удалось отметить материал как изученный. Попробуйте ещё раз.', { duration: 4000 });
+      } finally {
+        setIsMarking(false);
       }
-      const currentTimeSpent = Math.floor((Date.now() - startTimeRef.current) / 1000);
-      setTimeSpent(currentTimeSpent);
-      
-      const topicLabel = (material.topic || material.title || material.subject || 'Материалы').trim();
-      const response = await api.post('/study/material', {
-        user_id: userId,
-        material_id: material.id,
-        topic: topicLabel,
-        subject: material.subject,
-        time_spent_seconds: currentTimeSpent,
-        completion_percentage: scrollProgress / 100
-      });
-      
-      setIsStudied(true);
-      
-      // Вызываем callback для обновления прогресса
-      if (onStudyComplete) {
-        onStudyComplete(topicLabel);
-      }
-      
-      // Показываем уведомление об успехе
-      toast.success(`Отлично! Вы изучили материал по теме "${material.topic}". Получено ${response.data.points_earned || 0} очков!`, {
-        duration: 4000,
-      });
-    } catch (err: any) {
-      console.error('Error marking material as studied:', err);
-      toast.error('Не удалось отметить материал как изученный. Попробуйте еще раз.', {
-        duration: 4000,
-      });
-    } finally {
-      setIsMarking(false);
-    }
-  };
-  
+    },
+    [material.id, material.topic, material.title, material.subject, onStudyComplete]
+  );
+
+  // Авто: прокрутка почти до конца
   useEffect(() => {
-    if (scrollProgress >= 95 && !isStudied && !isMarking && !autoMarkedRef.current) {
-      autoMarkedRef.current = true;
-      handleMarkAsStudied();
-    }
-  }, [scrollProgress, isStudied, isMarking]);
+    if (noScrollNeeded) return;
+    if (scrollProgress < SCROLL_COMPLETE_PCT || isStudied || isMarking) return;
+    void handleMarkAsStudied(1);
+  }, [scrollProgress, noScrollNeeded, isStudied, isMarking, handleMarkAsStudied]);
+
+  // Авто: контент без прокрутки — после минимального времени на странице
+  useEffect(() => {
+    if (!noScrollNeeded || isStudied || isMarking) return;
+    if (timeSpent < NO_SCROLL_DWELL_SECONDS) return;
+    void handleMarkAsStudied(1);
+  }, [noScrollNeeded, timeSpent, isStudied, isMarking, handleMarkAsStudied]);
+
+  const dwellRemaining = Math.max(0, NO_SCROLL_DWELL_SECONDS - timeSpent);
 
   const handleShare = async () => {
     const shareData = {
@@ -694,8 +733,44 @@ export function MaterialViewer({ material, onBack, onStudyComplete, allMaterials
             {renderContent()}
           </div>
 
+          {!isStudied && (
+            <div className="bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 flex flex-wrap items-center justify-between gap-3">
+              <div className="flex-1 min-w-[200px]">
+                {noScrollNeeded ? (
+                  <p className="text-sm text-slate-700">
+                    Текст короткий, прокрутки нет. Автозасчёт через{' '}
+                    <span className="font-semibold tabular-nums">{dwellRemaining}</span>
+                    {' '}с или нажмите кнопку.
+                  </p>
+                ) : (
+                  <div className="space-y-1">
+                    <p className="text-sm text-slate-700">
+                      Прогресс чтения:{' '}
+                      <span className="font-semibold tabular-nums">{Math.round(scrollProgress)}</span>%
+                    </p>
+                    <div className="h-2 rounded-full bg-slate-200 overflow-hidden">
+                      <div
+                        className="h-full bg-gradient-to-r from-blue-500 to-purple-600 transition-all duration-300"
+                        style={{ width: `${Math.min(100, scrollProgress)}%` }}
+                      />
+                    </div>
+                  </div>
+                )}
+              </div>
+              <button
+                type="button"
+                disabled={isMarking}
+                onClick={() => void handleMarkAsStudied(1)}
+                className="flex items-center gap-2 px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 disabled:opacity-50 disabled:pointer-events-none shrink-0"
+              >
+                <CheckCircle className="w-4 h-4" />
+                {isMarking ? 'Сохраняем…' : 'Засчитать как изученное'}
+              </button>
+            </div>
+          )}
+
           {/* Practice Section (показываем в конце материала) */}
-          {(scrollProgress >= 95 || isStudied) && (
+          {(scrollProgress >= SCROLL_COMPLETE_PCT || isStudied) && (
             <div className="bg-gradient-to-br from-green-50 to-emerald-50 rounded-2xl p-6 border-2 border-green-200">
               <div className="flex items-center justify-between gap-4">
                 <div>
