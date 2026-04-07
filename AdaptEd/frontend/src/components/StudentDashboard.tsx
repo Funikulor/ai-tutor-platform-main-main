@@ -7,7 +7,7 @@ import { ChatTab } from './ChatTab';
 import { AIChatPanel } from './AIChatPanel';
 import { LibraryTab } from './LibraryTab';
 import { HomeworkTab } from './HomeworkTab';
-import { Brain, TrendingUp, Target, BookOpen, MessageCircle, Library, ClipboardCheck } from 'lucide-react';
+import { Brain, TrendingUp, Target, BookOpen, MessageCircle, Library, ClipboardCheck, AlertCircle } from 'lucide-react';
 import api from '../services/api';
 
 interface ProgressData {
