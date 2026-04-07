@@ -290,15 +290,15 @@ export function AdminLibraryEditor({ onOpenStructure, onEditCatalogTopic }: Admi
   return (
     <div className="space-y-6">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-        <div className="rounded-2xl bg-gradient-to-r from-blue-500 to-indigo-600 p-6 text-white shadow-md sm:max-w-3xl">
+        <div className="rounded-2xl bg-gradient-to-r from-indigo-700 via-indigo-700 to-violet-700 p-6 text-white shadow-md sm:max-w-3xl">
           <div className="flex flex-wrap items-start gap-3">
             <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-white/20 backdrop-blur-sm">
               <BookOpen className="h-7 w-7" />
             </div>
             <div>
-              <p className="text-xs font-semibold uppercase tracking-wide text-blue-100">Режим редактора</p>
+              <p className="text-xs font-semibold uppercase tracking-wide text-indigo-200">Режим редактора</p>
               <h2 className="mt-1 text-2xl font-bold">Библиотека — как у ученика</h2>
-              <p className="mt-2 text-sm text-blue-50/95">
+              <p className="mt-2 text-sm text-indigo-100/95">
                 Те же вкладки и карточки. Нажмите материал или курс — текст и шаги сохраняются автоматически. Привязка к
                 темам программы — в разделе «Структура программы».
               </p>

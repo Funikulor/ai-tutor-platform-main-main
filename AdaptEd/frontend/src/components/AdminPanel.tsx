@@ -541,18 +541,18 @@ export function AdminPanel() {
 
   return (
     <div className="space-y-8 pb-10">
-      <div className="relative overflow-hidden rounded-2xl border border-indigo-100 bg-gradient-to-br from-indigo-50 via-white to-violet-50 shadow-md">
-        <div className="pointer-events-none absolute -right-20 -top-20 h-56 w-56 rounded-full bg-fuchsia-200/40 blur-3xl" />
-        <div className="pointer-events-none absolute -bottom-16 -left-10 h-48 w-48 rounded-full bg-sky-200/50 blur-3xl" />
+      <div className="relative overflow-hidden rounded-2xl border border-indigo-200 bg-gradient-to-br from-indigo-100 via-slate-50 to-violet-100 shadow-md">
+        <div className="pointer-events-none absolute -right-20 -top-20 h-56 w-56 rounded-full bg-fuchsia-300/35 blur-3xl" />
+        <div className="pointer-events-none absolute -bottom-16 -left-10 h-48 w-48 rounded-full bg-indigo-300/35 blur-3xl" />
         <div className="relative flex flex-col gap-4 p-5 sm:flex-row sm:items-center sm:justify-between sm:p-6">
           <div className="flex gap-4">
             <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-indigo-600 text-white shadow-md shadow-indigo-500/25">
               <Shield className="h-6 w-6" />
             </div>
             <div>
-              <p className="text-[11px] font-semibold uppercase tracking-widest text-indigo-600/90">Администрирование</p>
+              <p className="text-[11px] font-semibold uppercase tracking-widest text-indigo-700">Администрирование</p>
               <h2 className="mt-0.5 text-xl font-semibold tracking-tight text-slate-900 sm:text-2xl">Панель администратора</h2>
-              <p className="mt-1 max-w-xl text-sm text-slate-600">
+              <p className="mt-1 max-w-xl text-sm text-slate-700">
                 Каталог тем, пользователи, тестовый seed и параметры адаптации — централизованно.
               </p>
             </div>
@@ -564,7 +564,7 @@ export function AdminPanel() {
               loadSystemSettings();
             }}
             disabled={loading}
-            className="inline-flex items-center justify-center gap-2 self-start rounded-xl border border-indigo-200 bg-white px-4 py-2.5 text-sm font-medium text-indigo-800 shadow-sm transition hover:bg-indigo-50 disabled:opacity-50 sm:self-center"
+            className="inline-flex items-center justify-center gap-2 self-start rounded-xl border border-indigo-300 bg-white/95 px-4 py-2.5 text-sm font-medium text-indigo-900 shadow-sm transition hover:bg-indigo-100 disabled:opacity-50 sm:self-center"
           >
             <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
             Обновить данные
@@ -659,7 +659,7 @@ export function AdminPanel() {
         </div>
       )}
 
-      <div className="rounded-2xl border border-slate-200/90 bg-slate-50/80 p-1.5 shadow-sm">
+      <div className="rounded-2xl border border-slate-300/90 bg-slate-100 p-1.5 shadow-sm">
         <div className="grid grid-cols-1 gap-1 sm:grid-cols-3">
           <button
             type="button"
