@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { fetchHomeworks, Homework } from '../services/homework';
-import { BookOpen, CheckCircle, Clock, Loader2, MessageCircle, Send } from 'lucide-react';
+import { BookOpen, CheckCircle, ChevronDown, ChevronRight, Clock, Loader2, MessageCircle, Send } from 'lucide-react';
 import {
   getTest,
   getTestSubmission,
@@ -49,6 +49,7 @@ export function HomeworkTab() {
   const [error, setError] = useState<string | null>(null);
   const [assignmentTests, setAssignmentTests] = useState<Record<number, TestDetail>>({});
   const [submissionResults, setSubmissionResults] = useState<Record<number, TestSubmissionDetail | null>>({});
+  const [expandedHomeworks, setExpandedHomeworks] = useState<Record<number, boolean>>({});
   const [draftAnswers, setDraftAnswers] = useState<Record<number, Record<number, {
     selected_option_indexes: number[];
     answer_text: string;
@@ -138,6 +139,16 @@ export function HomeworkTab() {
     } finally {
       setLoading(false);
     }
+  };
+
+  const isOverdue = (homework: Homework) => {
+    if (!homework.due_date) return false;
+    if (homework.status === 'submitted' || homework.status === 'checked') return false;
+    return new Date(homework.due_date).getTime() < Date.now();
+  };
+
+  const toggleHomework = (homeworkId: number) => {
+    setExpandedHomeworks((prev) => ({ ...prev, [homeworkId]: !prev[homeworkId] }));
   };
 
   useEffect(() => {
@@ -271,7 +282,7 @@ export function HomeworkTab() {
             : item
         )
       );
-      toast.success(`Тест отправлен. Результат: ${result.correct}/${result.total} (${result.score}%)`);
+      toast.success(`Тест отправлен. Результат: ${result.earned_points}/${result.max_points} балл. (${result.score}%)`);
       await load();
     } catch (e: any) {
       setError(e?.response?.data?.detail || 'Не удалось отправить тест');
@@ -319,24 +330,41 @@ export function HomeworkTab() {
               <span className="text-xs text-blue-700">{subjectHomeworks.length} шт.</span>
             </div>
             {subjectHomeworks.map((hw) => (
-              <div key={hw.id} className="bg-white border border-gray-200 rounded-xl p-4 shadow-sm">
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <p className="text-sm text-gray-500">{normalizeSubject(hw.subject)}</p>
-                <h3 className="text-lg font-semibold text-gray-900">{hw.title}</h3>
-                {hw.due_date && (
-                  <div className="flex items-center gap-2 text-sm text-gray-500 mt-1">
-                    <Clock className="w-4 h-4" />
-                    Дедлайн: {new Date(hw.due_date).toLocaleDateString('ru-RU')}
+              <div key={hw.id} className={`bg-white border rounded-xl p-4 shadow-sm ${isOverdue(hw) ? 'border-red-200' : 'border-gray-200'}`}>
+            <button
+              type="button"
+              onClick={() => toggleHomework(hw.id)}
+              className="flex w-full items-start justify-between gap-3 text-left"
+            >
+              <div className="flex items-start gap-3">
+                <div className="mt-1 text-gray-400">
+                  {expandedHomeworks[hw.id] ? <ChevronDown className="w-5 h-5" /> : <ChevronRight className="w-5 h-5" />}
+                </div>
+                <div>
+                  <p className="text-sm text-gray-500">{normalizeSubject(hw.subject)}</p>
+                  <h3 className="text-lg font-semibold text-gray-900">{hw.title}</h3>
+                  <div className="mt-2 flex flex-wrap items-center gap-3 text-sm text-gray-500">
+                    {hw.due_date && (
+                      <div className={`flex items-center gap-2 ${isOverdue(hw) ? 'text-red-600 font-medium' : ''}`}>
+                        <Clock className="w-4 h-4" />
+                        Дедлайн: {new Date(hw.due_date).toLocaleDateString('ru-RU')}
+                        {isOverdue(hw) && <span className="text-xs uppercase">Просрочено</span>}
+                      </div>
+                    )}
+                    {assignmentTests[hw.id] && (
+                      <span>
+                        Максимум: {assignmentTests[hw.id].max_points ?? assignmentTests[hw.id].questions.reduce((sum, question) => sum + Number(question.points || 1), 0)} балл.
+                      </span>
+                    )}
                   </div>
-                )}
+                </div>
               </div>
-              <span className={`px-3 py-1 rounded-full text-xs font-semibold ${statusColor(hw.status)}`}>
-                {statusLabel(hw.status)}
+              <span className={`px-3 py-1 rounded-full text-xs font-semibold ${isOverdue(hw) ? 'bg-red-100 text-red-700' : statusColor(hw.status)}`}>
+                {isOverdue(hw) ? 'Просрочено' : statusLabel(hw.status)}
               </span>
-            </div>
+            </button>
 
-            {(() => {
+            {expandedHomeworks[hw.id] && (() => {
               const test = assignmentTests[hw.id];
               const result = submissionResults[hw.id];
               const isTestAssignment = (hw.kind || 'test') === 'test' && !!test;
@@ -357,7 +385,7 @@ export function HomeworkTab() {
                           <div>
                             <div className="text-sm text-green-700">Результат отправлен учителю</div>
                             <div className="text-lg font-semibold text-gray-900">
-                              {result.correct_count ?? 0} из {result.total_questions ?? test.questions.length} правильных • {result.score}%
+                              {result.earned_points ?? 0} из {result.max_points ?? test.max_points ?? 0} балл. • {result.correct_count ?? 0} из {result.total_questions ?? test.questions.length} правильных • {result.score}%
                             </div>
                           </div>
                           <button
@@ -402,6 +430,9 @@ export function HomeworkTab() {
                                   {questionResult.question_explanation && (
                                     <p className="text-sm text-gray-700 mt-2">{questionResult.question_explanation}</p>
                                   )}
+                                  <p className="text-xs text-gray-500 mt-1">
+                                    Баллы: {questionResult.earned_points ?? 0}/{questionResult.max_points ?? questionResult.points ?? 0}
+                                  </p>
                                 </div>
                                 <button
                                   type="button"

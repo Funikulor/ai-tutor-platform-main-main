@@ -197,7 +197,7 @@ export function ChatTab() {
         )}
         
         <div className="h-full">
-          <AIChatPanel fullscreen={true} />
+          <AIChatPanel fullscreen={true} viewerRole="student" />
         </div>
       </div>
 

@@ -7,6 +7,7 @@ export interface ManualQuestion {
   question_type?: 'single' | 'multiple' | 'text' | 'numeric';
   correct_answer?: string | number | string[] | number[];
   explanation?: string;
+  points?: number;
 }
 
 export interface ManualTestCreate {
@@ -36,6 +37,7 @@ export interface TestSummary {
   source?: string;
   creator_id?: string;
   created_at?: string;
+  max_points?: number;
 }
 
 export interface TestQuestion {
@@ -46,6 +48,7 @@ export interface TestQuestion {
   question_type?: 'single' | 'multiple' | 'text' | 'numeric';
   correct_answer?: string | number | string[] | number[];
   explanation?: string;
+  points?: number;
 }
 
 export interface TestDetail extends TestSummary {
@@ -130,6 +133,9 @@ export interface QuestionResult {
   correct_answer?: string | number | string[] | number[];
   correct_answer_text?: string;
   question_explanation?: string;
+  points?: number;
+  earned_points?: number;
+  max_points?: number;
 }
 
 export interface TestSubmissionSummary {
@@ -137,6 +143,8 @@ export interface TestSubmissionSummary {
   user_id: string;
   homework_id?: number;
   score: number;
+  earned_points?: number;
+  max_points?: number;
   correct_count?: number;
   total_questions?: number;
   summary?: string;
@@ -164,6 +172,8 @@ export async function submitTest(
     submission_id: number;
     homework_id?: number;
     score: number;
+    earned_points: number;
+    max_points: number;
     correct: number;
     total: number;
     summary?: string;

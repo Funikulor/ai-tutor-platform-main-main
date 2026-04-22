@@ -13,7 +13,6 @@ from utils.orchestrator_singleton import get_orchestrator
 from models.homework import Homework, HomeworkSubmission
 from models.test import Test, TestQuestion, TestSubmission
 from services.assistant import get_assistant_service
-from services.debts_service import get_debts_service
 from services.student_analytics import get_analytics_service
 from utils.answer_parse import numeric_answers_equal
 from utils.db import get_db, has_db
@@ -30,6 +29,7 @@ class ManualQuestion(BaseModel):
 	question_type: Optional[str] = "single"
 	correct_answer: Optional[Any] = None
 	explanation: Optional[str] = None
+	points: Optional[int] = 1
 
 
 class ManualTestCreate(BaseModel):
@@ -94,24 +94,46 @@ def _normalize_question_type(question_type: Optional[str]) -> str:
 def _derive_correct_answer(question: ManualQuestion) -> Any:
 	qtype = _normalize_question_type(question.question_type)
 	if question.correct_answer is not None:
-		return question.correct_answer
-	if qtype in {"single", "multiple"}:
-		return [question.correct_index]
-	if qtype == "numeric":
+		value = question.correct_answer
+	elif qtype in {"single", "multiple"}:
+		value = [question.correct_index]
+	elif qtype == "numeric":
 		if question.options:
 			try:
-				return float(question.options[0])
+				value = float(question.options[0])
 			except Exception:
-				return question.options[0]
-		return None
-	if question.options:
-		return question.options[0]
-	return None
+				value = question.options[0]
+		else:
+			value = None
+	elif question.options:
+		value = question.options[0]
+	else:
+		value = None
+	return {
+		"value": value,
+		"points": max(1, int(question.points or 1)),
+	}
+
+
+def _unwrap_correct_answer(raw_value: Any) -> Any:
+	if isinstance(raw_value, dict) and "value" in raw_value:
+		return raw_value.get("value")
+	return raw_value
+
+
+def _question_points(question: TestQuestion) -> int:
+	raw_value = question.correct_answer
+	if isinstance(raw_value, dict):
+		try:
+			return max(1, int(raw_value.get("points", 1) or 1))
+		except Exception:
+			return 1
+	return 1
 
 
 def _question_correct_value(question: TestQuestion) -> Any:
 	if question.correct_answer is not None:
-		return question.correct_answer
+		return _unwrap_correct_answer(question.correct_answer)
 	qtype = _normalize_question_type(question.question_type)
 	if qtype in {"single", "multiple"}:
 		return [question.correct_index]
@@ -139,6 +161,7 @@ def _question_correct_display(question: TestQuestion) -> str:
 
 
 def _serialize_test(test: Test, include_questions: bool = False) -> Dict[str, Any]:
+	questions = sorted(test.questions, key=lambda q: q.id or 0) if getattr(test, "questions", None) else []
 	data = {
 		"id": test.id,
 		"title": test.title,
@@ -147,9 +170,9 @@ def _serialize_test(test: Test, include_questions: bool = False) -> Dict[str, An
 		"source": test.source,
 		"creator_id": test.creator_id,
 		"created_at": test.created_at.isoformat() if test.created_at else None,
+		"max_points": sum(_question_points(q) for q in questions),
 	}
 	if include_questions:
-		questions = sorted(test.questions, key=lambda q: q.id or 0)
 		data["questions"] = [
 			{
 				"id": q.id,
@@ -159,6 +182,7 @@ def _serialize_test(test: Test, include_questions: bool = False) -> Dict[str, An
 				"question_type": _normalize_question_type(q.question_type),
 				"correct_answer": _question_correct_value(q),
 				"explanation": q.explanation,
+				"points": _question_points(q),
 			}
 			for q in questions
 		]
@@ -166,15 +190,35 @@ def _serialize_test(test: Test, include_questions: bool = False) -> Dict[str, An
 
 
 def _serialize_submission(submission: TestSubmission, test: Optional[Test] = None) -> Dict[str, Any]:
+	question_results = submission.question_results or []
+	earned_points = 0
+	max_points = 0
+	if question_results:
+		earned_points = sum(int(item.get("earned_points", 0) or 0) for item in question_results)
+		max_points = sum(int(item.get("max_points", 0) or 0) for item in question_results)
+	if (not max_points) and test is not None:
+		question_points = {q.id: _question_points(q) for q in (test.questions or [])}
+		max_points = sum(question_points.values())
+		earned_points = sum(
+			question_points.get(item.get("question_id"), 1)
+			for item in question_results
+			if item.get("is_correct")
+		)
+	elif not max_points:
+		earned_points = int(submission.correct_count or 0)
+		max_points = int(submission.total_questions or 0)
+
 	data = {
 		"id": submission.id,
 		"test_id": submission.test_id,
 		"homework_id": submission.homework_id,
 		"user_id": submission.user_id,
 		"answers": submission.answers or [],
-		"question_results": submission.question_results or [],
+		"question_results": question_results,
 		"correct_count": submission.correct_count,
 		"total_questions": submission.total_questions,
+		"earned_points": earned_points,
+		"max_points": max_points,
 		"summary": submission.summary,
 		"score": submission.score,
 		"feedback": submission.feedback,
@@ -230,6 +274,9 @@ def _evaluate_question(question: TestQuestion, submitted: SubmittedAnswer) -> Di
 		"correct_answer": correct_value,
 		"correct_answer_text": _question_correct_display(question),
 		"question_explanation": question.explanation,
+		"points": _question_points(question),
+		"earned_points": _question_points(question) if is_correct else 0,
+		"max_points": _question_points(question),
 	}
 
 
@@ -540,6 +587,7 @@ async def generate_test(
 			question_type=generated_question.get("question_type") or "single",
 			correct_answer=generated_question.get("correct_answer"),
 			explanation=generated_question.get("explanation"),
+			points=generated_question.get("points") or 1,
 		)
 		_create_question_record(db, test.id, model)
 
@@ -653,7 +701,9 @@ async def submit_test(
 	question_results = [_evaluate_question(question, answer) for question, answer in zip(questions, payload.answers)]
 	correct_count = sum(1 for item in question_results if item.get("is_correct"))
 	total_questions = len(question_results)
-	score_pct = int(round(100 * correct_count / max(1, total_questions)))
+	earned_points = sum(int(item.get("earned_points", 0) or 0) for item in question_results)
+	max_points = sum(int(item.get("max_points", 0) or 0) for item in question_results)
+	score_pct = int(round(100 * earned_points / max(1, max_points)))
 	wrong_results = [item for item in question_results if not item.get("is_correct")]
 
 	feedback = None
@@ -666,7 +716,8 @@ async def submit_test(
 		)
 		prompt = (
 			f"Ученик выполнил тест '{test.title}'. "
-			f"Результат: {correct_count} из {total_questions} ({score_pct}%).\n"
+			f"Результат: {earned_points} из {max_points} баллов, "
+			f"{correct_count} из {total_questions} правильных ({score_pct}%).\n"
 			"Дай короткий разбор в СТРОГОМ формате без markdown и latex.\n"
 			"Требования к формату:\n"
 			"1) Только обычный русский текст, без символов #, **, `, $, \\\\, скобок LaTeX.\n"
@@ -752,34 +803,6 @@ async def submit_test(
 		pipeline_warnings.append(warn)
 		print(f"[tests.submit_test] {warn}")
 
-	try:
-		if has_db() and db is not None:
-			debts = get_debts_service()
-			main_topic = (test.topic or test.title or "Тест").strip()
-			if wrong_results:
-				debts.upsert_topic_debt(
-					db=db,
-					user_id=payload.user_id,
-					topic=main_topic,
-					source_type="test",
-					source_id=str(test_id),
-					created_by=str(current_user.get("user_id", "system")),
-					priority=1 if score_pct < 60 else 2,
-					notes=f"Работа над ошибками по тесту '{test.title}' ({score_pct}%).",
-					due_date=homework.due_date if homework else None,
-				)
-			else:
-				debts.resolve_or_progress_topic_debts(
-					db=db,
-					user_id=payload.user_id,
-					topic=main_topic,
-					delta=50.0,
-				)
-	except Exception as e:
-		warn = f"debt sync failed: {e}"
-		pipeline_warnings.append(warn)
-		print(f"[tests.submit_test] {warn}")
-
 	db.commit()
 	db.refresh(submission)
 
@@ -789,6 +812,8 @@ async def submit_test(
 		"score": score_pct,
 		"correct": correct_count,
 		"total": total_questions,
+		"earned_points": earned_points,
+		"max_points": max_points,
 		"summary": summary,
 		"feedback": feedback,
 		"question_results": question_results,

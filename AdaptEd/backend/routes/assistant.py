@@ -1,14 +1,21 @@
-from fastapi import APIRouter, HTTPException, UploadFile, File
+from fastapi import APIRouter, HTTPException, UploadFile, File, Depends
 from pydantic import BaseModel
 from typing import List, Optional, Dict, Any
 from datetime import datetime
 from uuid import uuid4
 import json
+from sqlalchemy import select
+from sqlalchemy.orm import Session
 
 from services.assistant import get_assistant_service
 from services.student_analytics import get_analytics_service
 from utils.persistent_storage import persistent_storage
 from utils.db import has_db, get_db
+from utils.auth_service import auth_service, role_to_str
+from utils.orchestrator_singleton import get_orchestrator
+from routes.auth import get_current_user, assert_can_view_user_data
+from models.homework import Homework
+from models.test import TestSubmission, Test
 
 router = APIRouter()
 
@@ -24,6 +31,12 @@ class ChatRequest(BaseModel):
 	context: Optional[Dict[str, Any]] = None
 	user_id: Optional[str] = None  # ID ученика для персонализации
 	user_name: Optional[str] = None  # Имя ученика
+	viewer_role: Optional[str] = None  # student | teacher | admin
+	target_user_id: Optional[str] = None  # Ученик, о котором спрашивает учитель
+
+
+class QuickReplyOption(BaseModel):
+	text: str
 
 
 class MotivationRequest(BaseModel):
@@ -96,6 +109,264 @@ def _safe_parse_messages(raw: Any) -> List[Dict[str, Any]]:
 			return parsed if isinstance(parsed, list) else []
 		except Exception:
 			return []
+	return []
+
+
+def _normalize_viewer_role(requested_role: Optional[str], current_user: Dict[str, Any]) -> str:
+	actual_role = role_to_str(current_user.get("role"))
+	requested = (requested_role or actual_role or "student").lower()
+	if actual_role == "admin" and requested in {"student", "teacher", "admin"}:
+		return requested
+	return actual_role
+
+
+def _analytics_to_lines(analytics: Any) -> List[str]:
+	if not isinstance(analytics, dict):
+		return []
+
+	lines: List[str] = []
+	struggling_topics = analytics.get("struggling_topics")
+	if isinstance(struggling_topics, list) and struggling_topics:
+		formatted = []
+		for item in struggling_topics[:5]:
+			if isinstance(item, dict):
+				name = item.get("topic") or item.get("name")
+				value = item.get("score") or item.get("mastery")
+				if name and value is not None:
+					formatted.append(f"{name} ({value})")
+				elif name:
+					formatted.append(str(name))
+			elif item:
+				formatted.append(str(item))
+		if formatted:
+			lines.append("Проблемные темы по аналитике: " + ", ".join(formatted))
+
+	recommendations = analytics.get("recommendations")
+	if isinstance(recommendations, list) and recommendations:
+		formatted = []
+		for item in recommendations[:3]:
+			if isinstance(item, dict):
+				text = item.get("title") or item.get("action") or item.get("recommendation")
+				if text:
+					formatted.append(str(text))
+			elif item:
+				formatted.append(str(item))
+		if formatted:
+			lines.append("Текущие рекомендации аналитики: " + "; ".join(formatted))
+
+	return lines
+
+
+def _build_teacher_student_context(target_user_id: str, db: Optional[Session]) -> str:
+	student = auth_service.get_user_by_id(target_user_id)
+	if not student:
+		return "Данные по ученику не найдены."
+
+	profile = get_orchestrator().profiler.get_profile(target_user_id)
+	analytics = get_analytics_service().get_analytics(target_user_id)
+	lines = [
+		f"Ученик: {student.get('full_name') or student.get('email') or target_user_id}.",
+		f"Класс: {student.get('class_id') or 'не указан'}.",
+	]
+
+	if profile:
+		lines.append(
+			f"Профиль: точность {round(float(getattr(profile, 'accuracy_rate', 0.0) or 0.0), 1)}%, "
+			f"баллы {int(getattr(profile, 'points', 0) or 0)}, "
+			f"уровень {int(getattr(profile, 'level', 1) or 1)}."
+		)
+		topic_mastery = getattr(profile, "topic_mastery", {}) or {}
+		if topic_mastery:
+			weak_topics = sorted(
+				[(topic, mastery) for topic, mastery in topic_mastery.items()],
+				key=lambda item: float(item[1]),
+			)
+			if weak_topics:
+				lines.append(
+					"Слабые темы: "
+					+ ", ".join(f"{topic} ({round(float(mastery) * 100)}%)" for topic, mastery in weak_topics[:5])
+				)
+			strong_topics = sorted(
+				[(topic, mastery) for topic, mastery in topic_mastery.items()],
+				key=lambda item: float(item[1]),
+				reverse=True,
+			)
+			if strong_topics:
+				lines.append(
+					"Сильные темы: "
+					+ ", ".join(f"{topic} ({round(float(mastery) * 100)}%)" for topic, mastery in strong_topics[:3])
+				)
+
+	lines.extend(_analytics_to_lines(analytics))
+
+	if has_db() and db is not None:
+		submissions = (
+			db.execute(
+				select(TestSubmission)
+				.where(TestSubmission.user_id == target_user_id)
+				.order_by(TestSubmission.created_at.desc())
+			)
+			.scalars()
+			.all()
+		)
+		recent_submissions = submissions[:5]
+		if recent_submissions:
+			scores = [float(sub.score or 0.0) for sub in recent_submissions]
+			lines.append(
+				f"Последние тесты: {len(recent_submissions)} попыток, средний результат {round(sum(scores) / max(1, len(scores)), 1)}%."
+			)
+			detailed_scores = []
+			for sub in recent_submissions[:3]:
+				test_title = "Тест"
+				if sub.test_id:
+					test_obj = db.get(Test, sub.test_id)
+					if test_obj and (test_obj.title or test_obj.topic):
+						test_title = test_obj.title or test_obj.topic
+				detailed_scores.append(
+					f"{test_title}: {sub.correct_count or 0}/{sub.total_questions or 0} ({sub.score or 0}%)"
+				)
+			if detailed_scores:
+				lines.append("Последние результаты: " + "; ".join(detailed_scores))
+
+		homeworks = (
+			db.execute(
+				select(Homework)
+				.where(Homework.assigned_to == target_user_id)
+				.order_by(Homework.created_at.desc())
+			)
+			.scalars()
+			.all()
+		)
+		active_homeworks = [hw for hw in homeworks if hw.status in {"new", "in_progress"}]
+		if active_homeworks:
+			now = datetime.utcnow()
+			overdue = [
+				hw for hw in active_homeworks
+				if hw.due_date and hw.due_date < now
+			]
+			lines.append(
+				f"Активные назначения: {len(active_homeworks)}, просроченные: {len(overdue)}."
+			)
+			for hw in active_homeworks[:5]:
+				deadline = hw.due_date.strftime("%d.%m.%Y") if hw.due_date else "без дедлайна"
+				lines.append(
+					f"- {hw.title}: статус {hw.status}, дедлайн {deadline}, тип {hw.assignment_type or hw.kind or 'задание'}."
+				)
+
+	return "\n".join(lines)
+
+
+def _build_teacher_class_context(db: Optional[Session]) -> str:
+	students = [u for u in auth_service.get_all_users() if role_to_str(u.get("role")) == "student"]
+	if not students:
+		return "В системе пока нет учеников."
+
+	lines = [f"В системе учеников: {len(students)}."]
+	snapshot = []
+	for student in students:
+		user_id = str(student.get("user_id", "")).strip()
+		if not user_id:
+			continue
+		profile = get_orchestrator().profiler.get_profile(user_id)
+		accuracy = round(float(getattr(profile, "accuracy_rate", 0.0) or 0.0), 1) if profile else 0.0
+		weakest_topic = None
+		if profile and getattr(profile, "topic_mastery", None):
+			weakest_topic = min(profile.topic_mastery.items(), key=lambda item: float(item[1]))
+		snapshot.append({
+			"name": student.get("full_name") or student.get("email") or user_id,
+			"accuracy": accuracy,
+			"weakest_topic": weakest_topic,
+		})
+
+	snapshot.sort(key=lambda item: item["accuracy"])
+	if snapshot:
+		lines.append("Ученики, которым сейчас нужна помощь:")
+		for item in snapshot[:5]:
+			weakest = item["weakest_topic"]
+			weak_text = (
+				f", слабая тема {weakest[0]} ({round(float(weakest[1]) * 100)}%)"
+				if weakest else ""
+			)
+			lines.append(f"- {item['name']}: точность {item['accuracy']}%{weak_text}.")
+
+	if has_db() and db is not None:
+		now = datetime.utcnow()
+		active_homeworks = (
+			db.execute(
+				select(Homework)
+				.where(Homework.status.in_(["new", "in_progress"]))
+				.order_by(Homework.due_date.asc())
+			)
+			.scalars()
+			.all()
+		)
+		overdue = [hw for hw in active_homeworks if hw.due_date and hw.due_date < now]
+		if active_homeworks:
+			lines.append(
+				f"По всему классу активных домашних заданий и тестов: {len(active_homeworks)}, из них просроченных: {len(overdue)}."
+			)
+
+	return "\n".join(lines)
+
+
+def _build_quick_replies(
+	viewer_role: str,
+	assistant_text: str,
+	last_user_message: Optional[str],
+	target_user_name: Optional[str] = None,
+) -> List[Dict[str, str]]:
+	text = (assistant_text or "").lower()
+	last_user = (last_user_message or "").lower()
+
+	if viewer_role == "teacher":
+		name = target_user_name or "ученика"
+		if target_user_name:
+			return [
+				{"text": f"Какие темы {name} нужно повторить в первую очередь?"},
+				{"text": f"Какой короткий тест лучше дать {name} следующим?"},
+				{"text": f"Составь план работы с {name} на неделю."},
+				{"text": f"Какие задания сейчас висят у {name}?"},
+			]
+		return [
+			{"text": "У кого сейчас самые большие пробелы?"},
+			{"text": "Какие темы проседают у класса чаще всего?"},
+			{"text": "Какой тест лучше дать классу следующим?"},
+			{"text": "Составь краткий план работы с группой на неделю."},
+		]
+
+	if any(phrase in text for phrase in ["увлеч", "интерес", "нравится делать", "любишь"]):
+		return [
+			{"text": "Люблю игры"},
+			{"text": "Люблю спорт"},
+			{"text": "Люблю музыку"},
+			{"text": "Люблю рисовать"},
+			{"text": "Мне нравится программирование"},
+		]
+
+	if any(phrase in text for phrase in ["что было сложно", "что сложнее", "что не получается", "что вызывает трудности"]):
+		return [
+			{"text": "Сложно понять условие"},
+			{"text": "Путаюсь в формулах"},
+			{"text": "Не знаю, с чего начать"},
+			{"text": "Считаю медленно"},
+		]
+
+	if any(phrase in last_user for phrase in ["не понимаю", "сложно", "трудно", "не получается"]):
+		return [
+			{"text": "Объясни совсем простыми словами"},
+			{"text": "Покажи похожий пример"},
+			{"text": "Дай маленькую подсказку"},
+			{"text": "Задай мне наводящий вопрос"},
+		]
+
+	if "?" in assistant_text or len(assistant_text) > 260:
+		return [
+			{"text": "Понял, идем дальше"},
+			{"text": "Можно короче"},
+			{"text": "Покажи пример"},
+			{"text": "Дай задание для тренировки"},
+		]
+
 	return []
 
 
@@ -484,11 +755,17 @@ async def save_chat_messages(user_id: str, chat_id: str, req: ChatSessionMessage
 
 
 @router.post("/assistant/chat", response_model=Dict[str, Any])
-async def assistant_chat(req: ChatRequest):
+async def assistant_chat(
+	req: ChatRequest,
+	db: Session = Depends(get_db),
+	current_user: dict = Depends(get_current_user),
+):
 	try:
 		assistant_service = get_assistant_service()
 		analytics_service = get_analytics_service()
 		messages = [m.dict() for m in req.messages]
+		viewer_role = _normalize_viewer_role(req.viewer_role, current_user)
+		chat_user_id = str(current_user.get("user_id", "") or "")
 		
 		# Получаем последнее сообщение пользователя для анализа
 		last_user_message = None
@@ -501,12 +778,32 @@ async def assistant_chat(req: ChatRequest):
 		student_weaknesses = None
 		cognitive_profile = None
 		analytics_result = None
+		teacher_target_name = None
+		teacher_system_prompt = None
+		teacher_context_payload = None
 		
-		if req.user_id:
-			# Получаем профиль когнитивный для слабых мест
-			from utils.orchestrator_singleton import get_orchestrator
+		if viewer_role == "teacher":
+			target_user_id = req.target_user_id
+			if target_user_id:
+				assert_can_view_user_data(current_user, target_user_id)
+				target_user = auth_service.get_user_by_id(target_user_id)
+				teacher_target_name = (
+					target_user.get("full_name") if target_user else None
+				)
+				teacher_context_payload = _build_teacher_student_context(target_user_id, db)
+			else:
+				teacher_context_payload = _build_teacher_class_context(db)
 
-			profile = get_orchestrator().profiler.get_profile(req.user_id)
+			teacher_system_prompt = (
+				"Ты AI-ассистент для учителя. Отвечай как помощник педагога, а не как ученик. "
+				"Анализируй пробелы, выделяй риски, предлагай темы для повторения, короткие тесты, домашние задания "
+				"и конкретные педагогические действия. Если данных мало, прямо скажи об этом и предложи, что посмотреть дальше. "
+				"Отвечай структурировано, по делу, без ролевой игры от лица ученика.\n\n"
+				f"Контекст учителя:\n{teacher_context_payload or 'Нет дополнительных данных.'}"
+			)
+		elif chat_user_id:
+			# Получаем профиль когнитивный для слабых мест
+			profile = get_orchestrator().profiler.get_profile(chat_user_id)
 			cognitive_profile = profile
 			if profile:
 				# Извлекаем слабые места из профиля
@@ -525,12 +822,12 @@ async def assistant_chat(req: ChatRequest):
 				student_weaknesses = weaknesses if weaknesses else None
 			
 			# Обновляем профиль личности на основе диалога
-			assistant_service.update_personality_from_chat(req.user_id, messages)
+			assistant_service.update_personality_from_chat(chat_user_id, messages)
 			
 			# Обрабатываем сообщение через адаптивного педагога-аналитика
 			if last_user_message:
 				analytics_result = analytics_service.process_chat_message(
-					user_id=req.user_id,
+					user_id=chat_user_id,
 					message=last_user_message,
 					cognitive_profile=cognitive_profile
 				)
@@ -541,27 +838,39 @@ async def assistant_chat(req: ChatRequest):
 			text = assistant_service.hint(task_text=task_text, student_level=student_level)
 			
 			# Записываем запрос подсказки
-			if req.user_id:
-				analytics_service.record_hint_request(req.user_id)
+			if chat_user_id and viewer_role != "teacher":
+				analytics_service.record_hint_request(chat_user_id)
 		else:
 			text = assistant_service.chat(
 				messages=messages,
-				user_id=req.user_id,
-				user_name=req.user_name,
-				student_weaknesses=student_weaknesses,
+				system_prompt=teacher_system_prompt,
+				user_id=chat_user_id if viewer_role != "teacher" else None,
+				user_name=req.user_name if viewer_role != "teacher" else teacher_target_name,
+				student_weaknesses=student_weaknesses if viewer_role != "teacher" else None,
 				context=req.context,
 			)
 		
-		response = {"message": text}
+		response = {
+			"message": text,
+			"viewer_role": viewer_role,
+			"target_user_id": req.target_user_id,
+			"quick_replies": _build_quick_replies(
+				viewer_role=viewer_role,
+				assistant_text=text,
+				last_user_message=last_user_message,
+				target_user_name=teacher_target_name,
+			),
+		}
 		
 		# Добавляем информацию о профиле личности если есть
-		if req.user_id:
-			personality_profile = assistant_service.get_personality_profile(req.user_id)
+		if chat_user_id and viewer_role != "teacher":
+			personality_profile = assistant_service.get_personality_profile(chat_user_id)
 			if personality_profile:
 				response["personality_insights"] = {
 					"communication_style": personality_profile.communication_style.dict(),
 					"traits": {k: v.score for k, v in personality_profile.traits.items()},
-					"mentioned_weaknesses": personality_profile.mentioned_weaknesses
+					"mentioned_weaknesses": personality_profile.mentioned_weaknesses,
+					"interests": personality_profile.interests,
 				}
 			
 			# Добавляем сообщение об этике если это первое взаимодействие

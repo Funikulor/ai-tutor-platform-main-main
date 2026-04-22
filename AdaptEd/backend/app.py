@@ -89,8 +89,10 @@ def _get_allowed_origins() -> list[str]:
     defaults = [
         "http://localhost:3000",
         "http://localhost:5173",
+        "http://localhost:5174",
         "http://127.0.0.1:3000",
         "http://127.0.0.1:5173",
+        "http://127.0.0.1:5174",
         "https://loving-flow-production-6ddf.up.railway.app",
         "https://ai-tutor-platform-main-main-production.up.railway.app",
     ]

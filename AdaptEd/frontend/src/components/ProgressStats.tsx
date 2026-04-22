@@ -4,8 +4,12 @@ import { TrendingUp, AlertTriangle, Clock } from 'lucide-react';
 interface ProgressData {
   totalTopics: number;
   completedTopics: number;
+  studiedTopics?: number;
+  masteredTopics?: number;
   currentStreak: number;
   totalPoints: number;
+  earnedPoints?: number;
+  maxPoints?: number;
   averageAccuracy: number;
   weakTopics: Array<{
     name: string;
@@ -17,6 +21,8 @@ interface ProgressData {
     topic: string;
     score: number;
     time: number;
+    earned_points?: number;
+    max_points?: number;
   }>;
   errorTypes?: Array<{
     type: string;
@@ -43,9 +49,11 @@ export function ProgressStats({
   ];
 
   // Topic distribution
+  const studiedTopics = progress.studiedTopics ?? progress.completedTopics;
+  const masteredTopics = progress.masteredTopics ?? progress.completedTopics;
   const topicDistribution = [
-    { name: 'Освоено', value: progress.completedTopics, color: '#10b981' },
-    { name: 'В процессе', value: progress.totalTopics - progress.completedTopics, color: '#3b82f6' }
+    { name: 'Освоено', value: masteredTopics, color: '#10b981' },
+    { name: 'Изучено, но не закреплено', value: Math.max(studiedTopics - masteredTopics, 0), color: '#3b82f6' }
   ];
 
   return (
@@ -62,7 +70,9 @@ export function ProgressStats({
                   activity.score >= 70 ? 'bg-blue-100 text-blue-600' :
                   'bg-yellow-100 text-yellow-600'
                 }`}>
-                  {activity.score}%
+                  {activity.earned_points !== undefined && activity.max_points !== undefined
+                    ? `${activity.earned_points}/${activity.max_points}`
+                    : `${activity.score}%`}
                 </div>
                 <div className="flex-1">
                   <h4 className="text-gray-900">{activity.topic}</h4>
@@ -83,7 +93,7 @@ export function ProgressStats({
         <div className="flex items-center justify-between mb-4">
           <div>
             <h3 className="text-gray-900">Успеваемость за неделю</h3>
-            <p className="text-sm text-gray-500">Средний балл и количество заданий</p>
+            <p className="text-sm text-gray-500">Процент набранных баллов и количество заданий</p>
           </div>
           <TrendingUp className="w-6 h-6 text-green-600" />
         </div>
@@ -105,7 +115,7 @@ export function ProgressStats({
               dataKey="score" 
               stroke="#3b82f6" 
               strokeWidth={3}
-              name="Балл (%)"
+              name="Набрано (%)"
               dot={{ fill: '#3b82f6', r: 5 }}
             />
             <Line 
@@ -149,7 +159,7 @@ export function ProgressStats({
 
         {/* Topic Distribution Pie Chart */}
         <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-          <h3 className="text-gray-900 mb-4">Распределение тем</h3>
+          <h3 className="text-gray-900 mb-4">Изученные и освоенные темы</h3>
           <ResponsiveContainer width="100%" height={200}>
             <PieChart>
               <Pie

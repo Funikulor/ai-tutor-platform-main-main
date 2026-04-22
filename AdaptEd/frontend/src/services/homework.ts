@@ -35,6 +35,25 @@ export interface HomeworkCreatePayload {
   created_by?: string;
 }
 
+export interface AssignedHomeworkQuestionUpdate {
+  question: string;
+  options: string[];
+  correct_index: number;
+  question_type?: 'single' | 'multiple' | 'text' | 'numeric';
+  correct_answer?: string | number | string[] | number[];
+  explanation?: string;
+  points?: number;
+}
+
+export interface AssignedHomeworkUpdatePayload {
+  title?: string;
+  topic?: string;
+  difficulty?: string;
+  questions?: AssignedHomeworkQuestionUpdate[];
+  due_date?: string;
+  assignment_type?: 'homework' | 'control' | 'quiz';
+}
+
 export async function fetchHomeworks(userId?: string) {
   const resp = await api.get<Homework[]>('/homeworks', {
     params: userId ? { user_id: userId } : undefined,
@@ -49,6 +68,16 @@ export async function submitHomework(homeworkId: number, payload: HomeworkSubmis
 
 export async function createHomework(payload: HomeworkCreatePayload) {
   const resp = await api.post<Homework>('/homeworks', payload);
+  return resp.data;
+}
+
+export async function updateAssignedHomework(homeworkId: number, payload: AssignedHomeworkUpdatePayload) {
+  const resp = await api.put(`/teacher/homeworks/${homeworkId}`, payload);
+  return resp.data;
+}
+
+export async function deleteAssignedHomework(homeworkId: number) {
+  const resp = await api.delete(`/teacher/homeworks/${homeworkId}`);
   return resp.data;
 }
 

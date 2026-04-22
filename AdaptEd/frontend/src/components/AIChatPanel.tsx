@@ -25,6 +25,7 @@ interface Message {
   sender: 'user' | 'ai';
   timestamp: Date;
   emotion?: 'happy' | 'thinking' | 'excited' | 'encouraging' | 'surprised';
+  quickReplies?: Array<{ text: string }>;
 }
 
 /** Приводит LaTeX в формате \( \) и \[ \] к виду $ $ и $$ $$ для remark-math */
@@ -39,6 +40,9 @@ interface AIChatPanelProps {
   isMinimized?: boolean;
   onToggleMinimize?: () => void;
   fullscreen?: boolean;
+  viewerRole?: 'student' | 'teacher' | 'admin';
+  targetUserId?: string | null;
+  targetUserName?: string | null;
 }
 
 interface ChatContextPayload {
@@ -52,16 +56,53 @@ interface ChatContextPayload {
   label?: string;
 }
 
-export function AIChatPanel({ isMinimized = false, onToggleMinimize, fullscreen = false }: AIChatPanelProps) {
+export function AIChatPanel({
+  isMinimized = false,
+  onToggleMinimize,
+  fullscreen = false,
+  viewerRole = 'student',
+  targetUserId = null,
+  targetUserName = null,
+}: AIChatPanelProps) {
   const userId = localStorage.getItem('user_id') || '';
 
-  const getInitialMessage = (): Message => ({
-    id: 1,
-    text: 'Привет! Я твой AI-помощник 🌟 Готов помочь тебе с учебой! О чем хочешь поговорить?',
-    sender: 'ai',
-    timestamp: new Date(),
-    emotion: 'happy',
-  });
+  const getInitialMessage = (): Message => {
+    if (viewerRole === 'teacher') {
+      return {
+        id: 1,
+        text: targetUserName
+          ? `Здравствуйте! Я помогу проанализировать прогресс ученика ${targetUserName}, найти пробелы и подобрать следующие задания или тесты.`
+          : 'Здравствуйте! Я помогу проанализировать класс, найти учеников с пробелами и предложить темы, задания и тесты.',
+        sender: 'ai',
+        timestamp: new Date(),
+        emotion: 'happy',
+        quickReplies: targetUserName
+          ? [
+              { text: `Какие темы ${targetUserName} нужно повторить в первую очередь?` },
+              { text: `Какой тест лучше дать ${targetUserName}?` },
+              { text: `Какие задания сейчас висят у ${targetUserName}?` },
+            ]
+          : [
+              { text: 'У кого сейчас самые большие пробелы?' },
+              { text: 'Какие темы чаще всего проседают у класса?' },
+              { text: 'Какой тест лучше дать следующим?' },
+            ],
+      };
+    }
+
+    return {
+      id: 1,
+      text: 'Привет! Я твой AI-помощник. Помогу с учебой, разберу ошибки и иногда задам наводящие вопросы, чтобы лучше понять, как тебе удобнее учиться.',
+      sender: 'ai',
+      timestamp: new Date(),
+      emotion: 'happy',
+      quickReplies: [
+        { text: 'Помоги с домашкой' },
+        { text: 'Объясни тему простыми словами' },
+        { text: 'Задай мне вопрос по теме' },
+      ],
+    };
+  };
 
   // Fallback only when user_id is missing.
   const loadMessagesFromStorage = (): Message[] => {
@@ -98,6 +139,7 @@ export function AIChatPanel({ isMinimized = false, onToggleMinimize, fullscreen 
       sender: m.sender,
       timestamp: m.timestamp.toISOString(),
       emotion: m.emotion,
+      quickReplies: m.quickReplies,
     }));
 
   const fromPersisted = (saved: PersistedChatMessage[]): Message[] =>
@@ -211,12 +253,25 @@ export function AIChatPanel({ isMinimized = false, onToggleMinimize, fullscreen 
     }
   }, [messages]);
 
-  const starterQuestions = [
-    { text: 'Расскажи про дроби', icon: '🔢' },
-    { text: 'Помоги с задачей', icon: '📝' },
-    { text: 'Почему небо голубое?', icon: '🌈' },
-    { text: 'Как учить английский?', icon: '🌍' }
-  ];
+  const starterQuestions = viewerRole === 'teacher'
+    ? [
+        { text: targetUserName ? `Какие пробелы есть у ${targetUserName}?` : 'У кого в классе самые большие пробелы?', icon: '📊' },
+        { text: targetUserName ? `Какую тему лучше дать ${targetUserName} на повторение?` : 'Какие темы чаще всего проседают у класса?', icon: '🧭' },
+        { text: targetUserName ? `Какой тест сделать для ${targetUserName}?` : 'Какой короткий тест лучше дать классу?', icon: '📝' },
+        { text: targetUserName ? `Какие задания у ${targetUserName} сейчас висят?` : 'Что сейчас просрочено у учеников?', icon: '⏰' },
+      ]
+    : [
+        { text: 'Расскажи про дроби', icon: '🔢' },
+        { text: 'Помоги с задачей', icon: '📝' },
+        { text: 'Что мне повторить в первую очередь?', icon: '🎯' },
+        { text: 'Хочу учиться на примерах из моих интересов', icon: '✨' },
+      ];
+
+  useEffect(() => {
+    if (messages.length === 1 && messages[0]?.sender === 'ai') {
+      setMessages([getInitialMessage()]);
+    }
+  }, [viewerRole, targetUserId, targetUserName]);
 
   const scrollToBottom = () => {
     // Прокручиваем только контейнер сообщений, а не всю страницу
@@ -286,11 +341,14 @@ export function AIChatPanel({ isMinimized = false, onToggleMinimize, fullscreen 
         context: effectiveContext || undefined,
         user_id: localStorage.getItem('user_id') || null,
         user_name: userName,
+        viewer_role: viewerRole,
+        target_user_id: targetUserId,
       }, {
         timeout: 120000, // 120 секунд для OpenAI
       });
 
       const aiResponseText = response.data.message || 'Извините, не удалось получить ответ.';
+      const quickReplies = Array.isArray(response.data.quick_replies) ? response.data.quick_replies : [];
       const emotion = determineEmotion(aiResponseText);
 
       const aiMessage: Message = {
@@ -298,7 +356,8 @@ export function AIChatPanel({ isMinimized = false, onToggleMinimize, fullscreen 
         text: aiResponseText,
         sender: 'ai',
         timestamp: new Date(),
-        emotion: emotion
+        emotion: emotion,
+        quickReplies,
       };
 
       const nextWithAi = [...nextWithUser, aiMessage];
@@ -454,6 +513,21 @@ export function AIChatPanel({ isMinimized = false, onToggleMinimize, fullscreen 
         </div>
       )}
 
+      <div className={`px-4 py-2 border-b text-xs flex items-center justify-between gap-3 ${
+        viewerRole === 'teacher' ? 'bg-amber-50 border-amber-100 text-amber-800' : 'bg-violet-50 border-violet-100 text-violet-700'
+      }`}>
+        <span>
+          {viewerRole === 'teacher'
+            ? targetUserName
+              ? `Режим учителя: анализ ученика ${targetUserName}`
+              : 'Режим учителя: анализ класса'
+            : 'Режим ученика'}
+        </span>
+        {targetUserId && viewerRole === 'teacher' && (
+          <span className="text-[11px] opacity-80">ID: {targetUserId}</span>
+        )}
+      </div>
+
       {/* Messages Area */}
       <div 
         ref={messagesContainerRef}
@@ -518,6 +592,20 @@ export function AIChatPanel({ isMinimized = false, onToggleMinimize, fullscreen 
                   }`}>
                   {message.timestamp.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}
                 </p>
+                {message.sender === 'ai' && message.quickReplies && message.quickReplies.length > 0 && (
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {message.quickReplies.map((reply, quickReplyIdx) => (
+                      <button
+                        key={`${message.id}-reply-${quickReplyIdx}`}
+                        type="button"
+                        onClick={() => handleSendMessage(reply.text)}
+                        className="rounded-full border border-purple-200 bg-purple-50 px-3 py-1 text-xs text-purple-700 transition hover:bg-purple-100"
+                      >
+                        {reply.text}
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
 
               {message.sender === 'user' && (
@@ -570,7 +658,7 @@ export function AIChatPanel({ isMinimized = false, onToggleMinimize, fullscreen 
             type="text"
             value={inputValue}
             onChange={(e) => setInputValue(e.target.value)}
-            placeholder="Напиши свой вопрос..."
+            placeholder={viewerRole === 'teacher' ? 'Спросите про пробелы, темы или тесты...' : 'Напиши свой вопрос...'}
             className="flex-1 px-4 py-3 bg-purple-50 border-2 border-purple-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-purple-400 focus:border-transparent text-gray-800 placeholder-gray-500"
           />
           <button

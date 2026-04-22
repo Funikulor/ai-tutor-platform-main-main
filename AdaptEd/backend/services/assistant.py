@@ -783,8 +783,11 @@ class AssistantService:
 				comm_style = profile.communication_style
 				style_text = f"Стиль общения: {'формальный' if comm_style.formality > 0.5 else 'неформальный'}, "
 				style_text += f"{'подробный' if comm_style.verbosity > 0.5 else 'краткий'}"
+				interests_text = ""
+				if profile.interests:
+					interests_text = f"\nИнтересы ученика: {', '.join(profile.interests[:5])}."
 				
-				personality_context = f"\n[Контекст ученика: {style_text}.{weaknesses_text}]\n"
+				personality_context = f"\n[Контекст ученика: {style_text}.{weaknesses_text}{interests_text}]\n"
 		
 		# Контекст по ДЗ
 		homeworks_ctx = ""
@@ -797,7 +800,10 @@ class AssistantService:
 		name_text = f"\nИмя ученика: {user_name}." if user_name else ""
 
 		# Формируем системный промпт
-		base_system = system_prompt or "Ты дружелюбный образовательный ассистент. Помогай ученику учиться, объясняй понятно и поддерживай."
+		base_system = system_prompt or (
+			"Ты дружелюбный образовательный ассистент. Помогай ученику учиться, объясняй понятно и поддерживай. "
+			"Если задаешь ученику вопрос, на который трудно ответить одним точным значением, предложи 3-5 коротких вариантов ответа на выбор."
+		)
 		base_system = base_system + name_text
 		
 		# Для OpenAI используем формат с системным сообщением
@@ -956,6 +962,7 @@ class AssistantService:
 		
 		# Выявляем черты личности на основе поведения
 		self._update_personality_traits(profile, all_text_lower)
+		self._update_interests(profile, all_text_lower)
 		
 		# Выявляем упоминания слабых мест
 		weakness_keywords = ["не понимаю", "сложно", "трудно", "не получается", "не знаю", "забыл", "не помню"]
@@ -977,6 +984,23 @@ class AssistantService:
 		self._personality_profiles[user_id] = profile
 		# Сохраняем профиль после обновления
 		self._save_personality_profile(user_id)
+
+	def _update_interests(self, profile: PersonalityProfile, text: str):
+		"""Пытается выделить интересы ученика из формулировок в диалоге."""
+		interest_keywords = {
+			"игры": ["игр", "minecraft", "роблокс", "roblox", "genshin", "steam", "playstation"],
+			"спорт": ["спорт", "футбол", "баскетбол", "волейбол", "трениров", "бег", "танцы"],
+			"музыка": ["музык", "песн", "гитара", "пианино", "вокал", "рэп"],
+			"рисование": ["рисую", "рисован", "скетч", "иллюстрац", "аниме"],
+			"программирование": ["программ", "код", "python", "javascript", "робот", "unity"],
+			"чтение": ["читаю", "книг", "роман", "манга", "комикс"],
+			"кино": ["фильм", "сериал", "кино", "мультфильм"],
+		}
+		for interest, keywords in interest_keywords.items():
+			if any(keyword in text for keyword in keywords) and interest not in profile.interests:
+				profile.interests.append(interest)
+		if len(profile.interests) > 10:
+			profile.interests = profile.interests[:10]
 	
 	def _update_personality_traits(self, profile: PersonalityProfile, text: str):
 		"""Обновляет черты личности на основе анализа текста"""

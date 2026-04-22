@@ -14,6 +14,7 @@ export interface ChatMessage {
   sender: 'user' | 'ai';
   timestamp: string;
   emotion?: 'happy' | 'thinking' | 'excited' | 'encouraging' | 'surprised';
+  quickReplies?: Array<{ text: string }>;
 }
 
 export interface ChatSessionDetail {

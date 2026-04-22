@@ -6,14 +6,18 @@ import { ChatTab } from './ChatTab';
 import { AIChatPanel } from './AIChatPanel';
 import { LibraryTab } from './LibraryTab';
 import { HomeworkTab } from './HomeworkTab';
-import { Brain, TrendingUp, Target, BookOpen, MessageCircle, Library, ClipboardCheck, AlertCircle } from 'lucide-react';
+import { Brain, TrendingUp, Target, BookOpen, MessageCircle, Library, ClipboardCheck } from 'lucide-react';
 import api from '../services/api';
 
 interface ProgressData {
   totalTopics: number;
   completedTopics: number;
+  studiedTopics?: number;
+  masteredTopics?: number;
   currentStreak: number;
   totalPoints: number;
+  earnedPoints?: number;
+  maxPoints?: number;
   averageAccuracy: number;
   weakTopics: Array<{
     name: string;
@@ -25,34 +29,30 @@ interface ProgressData {
     topic: string;
     score: number;
     time: number;
+    earned_points?: number;
+    max_points?: number;
   }>;
 }
 
-interface DebtItem {
-  id: number;
-  topic: string;
-  status: string;
-  progress: number;
-  due_date?: string | null;
-  priority: number;
-}
-
 export function StudentDashboard() {
-  const [currentView, setCurrentView] = useState<'overview' | 'task' | 'chat' | 'library' | 'homework' | 'debts'>('overview');
+  const [currentView, setCurrentView] = useState<'overview' | 'task' | 'chat' | 'library' | 'homework'>('overview');
   const [lastError, setLastError] = useState<any>(null);
   const [isChatMinimized, setIsChatMinimized] = useState(false);
   const [selectedMaterialId, setSelectedMaterialId] = useState<string | undefined>(undefined);
   const [studentProgress, setStudentProgress] = useState<ProgressData>({
     totalTopics: 0,
     completedTopics: 0,
+    studiedTopics: 0,
+    masteredTopics: 0,
     currentStreak: 0,
     totalPoints: 0,
+    earnedPoints: 0,
+    maxPoints: 0,
     averageAccuracy: 0,
     weakTopics: [],
     recentActivities: []
   });
   const [weeklyData, setWeeklyData] = useState<Array<{day: string; score: number; tasks: number}>>([]);
-  const [debts, setDebts] = useState<DebtItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -78,8 +78,6 @@ export function StudentDashboard() {
       if (data.weeklyData) {
         setWeeklyData(data.weeklyData);
       }
-      const debtResponse = await api.get<{ debts: DebtItem[] }>('/student/debts');
-      setDebts(debtResponse.data?.debts || []);
     } catch (err: any) {
       console.error('Error loading progress data:', err);
       setError(err.response?.data?.detail || 'Не удалось загрузить данные прогресса');
@@ -87,13 +85,16 @@ export function StudentDashboard() {
       setStudentProgress({
         totalTopics: 0,
         completedTopics: 0,
+        studiedTopics: 0,
+        masteredTopics: 0,
         currentStreak: 0,
         totalPoints: 0,
+        earnedPoints: 0,
+        maxPoints: 0,
         averageAccuracy: 0,
         weakTopics: [],
         recentActivities: []
       });
-      setDebts([]);
     } finally {
       setLoading(false);
     }
@@ -112,15 +113,6 @@ export function StudentDashboard() {
     loadProgressData();
   };
 
-  const handleDebtProgress = async (debtId: number) => {
-    try {
-      await api.post(`/student/debts/${debtId}/progress`);
-      await loadProgressData();
-    } catch (err: any) {
-      console.error('Error updating debt progress:', err);
-    }
-  };
-  
   const handleStudyComplete = (topic: string) => {
     // Обновляем прогресс после изучения материала
     loadProgressData();
@@ -192,17 +184,6 @@ export function StudentDashboard() {
           Домашка
         </button>
         <button
-          onClick={() => setCurrentView('debts')}
-          className={`flex-1 py-3 px-4 rounded-lg transition-all ${
-            currentView === 'debts'
-              ? 'bg-red-50 text-red-600'
-              : 'text-gray-600 hover:bg-gray-50'
-          }`}
-        >
-          <AlertCircle className="w-5 h-5 inline mr-2" />
-          Мои долги
-        </button>
-        <button
           onClick={() => setCurrentView('chat')}
           className={`flex-1 py-3 px-4 rounded-lg transition-all ${
             currentView === 'chat'
@@ -234,7 +215,10 @@ export function StudentDashboard() {
                 <div className="flex items-center justify-between">
                   <div>
                     <p className="text-blue-100">Изучено тем</p>
-                    <p className="text-3xl mt-2">{studentProgress.completedTopics}/{studentProgress.totalTopics || 0}</p>
+                    <p className="text-3xl mt-2">{studentProgress.studiedTopics ?? studentProgress.completedTopics}</p>
+                    <p className="text-xs mt-2 text-blue-100">
+                      Освоено: {studentProgress.masteredTopics ?? 0}
+                    </p>
                   </div>
                   <BookOpen className="w-12 h-12 text-blue-200 opacity-80" />
                 </div>
@@ -264,7 +248,10 @@ export function StudentDashboard() {
                 <div className="flex items-center justify-between">
                   <div>
                     <p className="text-orange-100">Баллы</p>
-                    <p className="text-3xl mt-2">{studentProgress.totalPoints}</p>
+                    <p className="text-3xl mt-2">{studentProgress.earnedPoints ?? 0}/{studentProgress.maxPoints ?? 0}</p>
+                    <p className="text-xs mt-2 text-orange-100">
+                      Внутренние очки профиля: {studentProgress.totalPoints}
+                    </p>
                   </div>
                   <Brain className="w-12 h-12 text-orange-200 opacity-80" />
                 </div>
@@ -321,65 +308,12 @@ export function StudentDashboard() {
         </div>
       )}
 
-      {currentView === 'debts' && (
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-          <h3 className="text-lg font-semibold text-gray-900 mb-2">Закрытие пробелов и долгов</h3>
-          <p className="text-sm text-gray-600 mb-4">
-            Закрывай долги через похожие задания и материалы из библиотеки — за это растут баллы и рейтинг.
-          </p>
-          <div className="space-y-3">
-            {debts.map((debt) => (
-              <div key={debt.id} className="rounded-lg border border-gray-200 p-4">
-                <div className="flex items-center justify-between gap-3">
-                  <div>
-                    <p className="font-medium text-gray-900">{debt.topic}</p>
-                    <p className="text-xs text-gray-500">
-                      Статус: {debt.status} · Приоритет: {debt.priority}
-                      {debt.due_date ? ` · Дедлайн: ${new Date(debt.due_date).toLocaleDateString()}` : ''}
-                    </p>
-                  </div>
-                  <span className="text-sm font-semibold text-gray-900">{debt.progress.toFixed(0)}%</span>
-                </div>
-                <div className="mt-2 h-2 rounded-full bg-gray-100">
-                  <div className="h-2 rounded-full bg-red-500" style={{ width: `${Math.max(0, Math.min(100, debt.progress))}%` }} />
-                </div>
-                <div className="mt-3 flex flex-wrap gap-2">
-                  <button
-                    onClick={() => {
-                      localStorage.setItem('selectedTopic', debt.topic);
-                      setCurrentView('task');
-                    }}
-                    className="rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700"
-                  >
-                    Решать похожие задания
-                  </button>
-                  <button
-                    onClick={() => setCurrentView('library')}
-                    className="rounded-lg border border-gray-200 px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50"
-                  >
-                    Читать материал/курс
-                  </button>
-                  <button
-                    onClick={() => handleDebtProgress(debt.id)}
-                    className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-medium text-emerald-700 hover:bg-emerald-100"
-                  >
-                    Отметить прогресс
-                  </button>
-                </div>
-              </div>
-            ))}
-            {debts.length === 0 && (
-              <p className="text-sm text-gray-500">Активных долгов нет. Отличный темп!</p>
-            )}
-          </div>
-        </div>
-      )}
-
       {/* Floating Chat Button (only visible when not on chat tab) */}
       {currentView !== 'chat' && (
         <AIChatPanel 
           isMinimized={isChatMinimized}
           onToggleMinimize={() => setIsChatMinimized(!isChatMinimized)}
+          viewerRole="student"
         />
       )}
     </div>

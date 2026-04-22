@@ -18,7 +18,7 @@ from sqlalchemy.orm import Session
 from models.homework import Homework, HomeworkSubmission as HomeworkSubmissionORM
 from utils.db import Base
 from sqlalchemy import select
-from models.test import TestSubmission, Test
+from models.test import TestSubmission, Test, TestQuestion
 
 router = APIRouter()
 orchestrator = get_orchestrator()
@@ -69,6 +69,19 @@ def _classify_student_status(profile) -> str:
     if profile.accuracy_rate >= 72 or recent_accuracy >= 70:
         return "good"
     return "average"
+
+
+def _extract_submission_points(submission: TestSubmission) -> Dict[str, int]:
+    question_results = submission.question_results or []
+    if question_results:
+        earned = sum(int(item.get("earned_points", 0) or 0) for item in question_results)
+        maximum = sum(int(item.get("max_points", 0) or 0) for item in question_results)
+        if maximum > 0:
+            return {"earned": earned, "max": maximum}
+    return {
+        "earned": int(getattr(submission, "correct_count", 0) or 0),
+        "max": int(getattr(submission, "total_questions", 0) or 0),
+    }
 
 
 class HomeworkSubmissionPayload(BaseModel):
@@ -128,6 +141,109 @@ class HomeworkSubmitDB(BaseModel):
     answer_text: Optional[str] = None
     user_id: str
     test_submission_id: Optional[int] = None
+
+
+class AssignedTestQuestionUpdate(BaseModel):
+    question: str
+    options: List[str]
+    correct_index: int = 0
+    question_type: Optional[str] = "single"
+    correct_answer: Optional[Any] = None
+    explanation: Optional[str] = None
+    points: Optional[int] = 1
+
+
+class AssignedHomeworkUpdate(BaseModel):
+    title: Optional[str] = None
+    topic: Optional[str] = None
+    difficulty: Optional[str] = None
+    questions: Optional[List[AssignedTestQuestionUpdate]] = None
+    due_date: Optional[datetime] = None
+    assignment_type: Optional[str] = None
+
+
+def _is_shared_test_assignment(db: Session, test_id: Optional[int], homework_id: int) -> bool:
+    if not test_id:
+        return False
+    rows = (
+        db.execute(
+            select(Homework).where(
+                Homework.test_id == test_id,
+                Homework.id != homework_id,
+            )
+        )
+        .scalars()
+        .all()
+    )
+    return bool(rows)
+
+
+def _clone_test(db: Session, source_test: Test, creator_id: str) -> Test:
+    cloned = Test(
+        title=source_test.title,
+        topic=source_test.topic,
+        difficulty=source_test.difficulty,
+        source="manual",
+        creator_id=creator_id,
+        created_at=datetime.utcnow(),
+    )
+    db.add(cloned)
+    db.flush()
+    for source_question in sorted(source_test.questions, key=lambda item: item.id or 0):
+        db.add(
+            TestQuestion(
+                test_id=cloned.id,
+                question=source_question.question,
+                options=copy.deepcopy(source_question.options or []),
+                correct_index=source_question.correct_index,
+                question_type=source_question.question_type,
+                correct_answer=copy.deepcopy(source_question.correct_answer),
+                explanation=source_question.explanation,
+            )
+        )
+    db.flush()
+    return cloned
+
+
+def _clear_homework_results(db: Session, homework_id: int) -> Dict[str, int]:
+    homework_submissions = (
+        db.execute(select(HomeworkSubmissionORM).where(HomeworkSubmissionORM.homework_id == homework_id))
+        .scalars()
+        .all()
+    )
+    deleted_homework_submissions = len(homework_submissions)
+    linked_submission_ids = [
+        sub.test_submission_id
+        for sub in homework_submissions
+        if getattr(sub, "test_submission_id", None)
+    ]
+    for submission in homework_submissions:
+        db.delete(submission)
+    db.flush()
+
+    test_submissions = (
+        db.execute(select(TestSubmission).where(TestSubmission.homework_id == homework_id))
+        .scalars()
+        .all()
+    )
+    for submission_id in linked_submission_ids:
+        submission = db.get(TestSubmission, submission_id)
+        if submission and submission not in test_submissions:
+            test_submissions.append(submission)
+
+    deleted_test_submissions = 0
+    seen_submission_ids = set()
+    for submission in test_submissions:
+        if submission.id in seen_submission_ids:
+            continue
+        seen_submission_ids.add(submission.id)
+        db.delete(submission)
+        deleted_test_submissions += 1
+
+    return {
+        "homework_submissions": deleted_homework_submissions,
+        "test_submissions": deleted_test_submissions,
+    }
 
 
 # ====== Новые эндпоинты на Postgres ======
@@ -315,6 +431,137 @@ async def create_homework(
     }
 
 
+@router.put("/teacher/homeworks/{homework_id}", response_model=Dict[str, Any])
+async def update_assigned_homework(
+    homework_id: int,
+    payload: AssignedHomeworkUpdate,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(require_roles("teacher", "admin")),
+):
+    if not has_db() or db is None:
+        raise HTTPException(status_code=503, detail="Database is not configured")
+
+    homework = db.get(Homework, homework_id)
+    if not homework:
+        raise HTTPException(status_code=404, detail="Homework not found")
+
+    teacher_id = str(current_user.get("user_id", "teacher"))
+    changed_test_payload = any(
+        value is not None for value in (payload.title, payload.topic, payload.difficulty, payload.questions)
+    )
+
+    if payload.due_date is not None:
+        homework.due_date = payload.due_date
+    if payload.assignment_type is not None:
+        homework.assignment_type = payload.assignment_type
+
+    updated_test = None
+    deleted_results = {"homework_submissions": 0, "test_submissions": 0}
+    if changed_test_payload:
+        from routes.tests import ManualQuestion, _create_question_record
+
+        if homework.test_id:
+            existing_test = db.get(Test, homework.test_id)
+        else:
+            existing_test = None
+
+        target_test = existing_test
+        if target_test is None:
+            target_test = Test(
+                title=payload.title or homework.title,
+                topic=payload.topic or homework.subject,
+                difficulty=payload.difficulty or "medium",
+                source="manual",
+                creator_id=teacher_id,
+                created_at=datetime.utcnow(),
+            )
+            db.add(target_test)
+            db.flush()
+            homework.test_id = target_test.id
+        elif _is_shared_test_assignment(db, target_test.id, homework.id):
+            target_test = _clone_test(db, target_test, teacher_id)
+            homework.test_id = target_test.id
+
+        if payload.title is not None:
+            target_test.title = payload.title
+            homework.title = payload.title
+        if payload.topic is not None:
+            target_test.topic = payload.topic
+            if not homework.subject:
+                homework.subject = payload.topic
+        if payload.difficulty is not None:
+            target_test.difficulty = payload.difficulty
+
+        if payload.questions is not None:
+            for question in list(target_test.questions):
+                db.delete(question)
+            db.flush()
+            for question in payload.questions:
+                manual_question = ManualQuestion(
+                    question=question.question,
+                    options=question.options,
+                    correct_index=question.correct_index,
+                    question_type=question.question_type,
+                    correct_answer=question.correct_answer,
+                    explanation=question.explanation,
+                    points=question.points or 1,
+                )
+                _create_question_record(db, target_test.id, manual_question)
+
+        deleted_results = _clear_homework_results(db, homework.id)
+        homework.status = "new"
+        updated_test = target_test
+
+    db.add(homework)
+    db.commit()
+    db.refresh(homework)
+    if updated_test is not None:
+        db.refresh(updated_test)
+
+    response: Dict[str, Any] = {
+        "homework": HomeworkOut.model_validate(homework).model_dump(),
+        "deleted_results": deleted_results,
+    }
+    if updated_test is not None:
+        from routes.tests import _serialize_test
+
+        response["test"] = _serialize_test(updated_test, include_questions=True)
+    return response
+
+
+@router.delete("/teacher/homeworks/{homework_id}", response_model=Dict[str, Any])
+async def delete_assigned_homework(
+    homework_id: int,
+    db: Session = Depends(get_db),
+    _staff: dict = Depends(require_roles("teacher", "admin")),
+):
+    if not has_db() or db is None:
+        raise HTTPException(status_code=503, detail="Database is not configured")
+
+    homework = db.get(Homework, homework_id)
+    if not homework:
+        raise HTTPException(status_code=404, detail="Homework not found")
+
+    deleted_results = _clear_homework_results(db, homework.id)
+    test_id = homework.test_id
+    db.delete(homework)
+    db.flush()
+
+    if test_id and not _is_shared_test_assignment(db, test_id, homework_id):
+        orphan_test = db.get(Test, test_id)
+        if orphan_test is not None:
+            has_remaining_submissions = (
+                db.execute(select(TestSubmission).where(TestSubmission.test_id == test_id))
+                .scalars()
+                .first()
+            )
+            if has_remaining_submissions is None:
+                db.delete(orphan_test)
+
+    db.commit()
+    return {"ok": True, "deleted_results": deleted_results}
+
+
 @router.post("/homeworks/{homework_id}/submit", response_model=Dict[str, Any])
 async def submit_homework_db(
     homework_id: int,
@@ -364,30 +611,6 @@ async def submit_homework_db(
             # Обновляем статус домашки
             hw.status = "submitted"
             db.add(hw)
-
-            try:
-                from services.debts_service import get_debts_service
-                from models.debts import StudentDebt
-
-                debt_service = get_debts_service()
-                if getattr(hw, "debt_id", None):
-                    debt = db.get(StudentDebt, hw.debt_id)
-                    if debt:
-                        debt_service.resolve_or_progress_topic_debts(
-                            db=db,
-                            user_id=payload.user_id,
-                            topic=debt.topic,
-                            delta=35.0,
-                        )
-                if getattr(hw, "adaptive_topic", None):
-                    debt_service.resolve_or_progress_topic_debts(
-                        db=db,
-                        user_id=payload.user_id,
-                        topic=str(hw.adaptive_topic),
-                        delta=25.0,
-                    )
-            except Exception as sync_err:
-                print(f"Error syncing debt on homework submit: {sync_err}")
 
             db.commit()
             db.refresh(submission)
@@ -656,6 +879,22 @@ async def get_student_statistics(
                 "name": w,
                 "description": f"Упомянуто в диалоге: {w}"
             } for w in personality_profile.mentioned_weaknesses])
+
+        earned_points_total = 0
+        max_points_total = 0
+        if has_db():
+            db = get_db()
+            if db is not None:
+                try:
+                    submissions = db.execute(
+                        select(TestSubmission).where(TestSubmission.user_id == user_id)
+                    ).scalars().all()
+                    for submission in submissions:
+                        points = _extract_submission_points(submission)
+                        earned_points_total += points["earned"]
+                        max_points_total += points["max"]
+                finally:
+                    db.close()
         
         return {
             "user_id": user_id,
@@ -664,7 +903,9 @@ async def get_student_statistics(
                 "correct_tasks": profile.correct_tasks_count,
                 "accuracy_rate": profile.accuracy_rate,
                 "level": profile.level,
-                "points": profile.points
+                "points": profile.points,
+                "earned_points": earned_points_total,
+                "max_points": max_points_total,
             },
             "weaknesses": weaknesses,
             "strengths": [
@@ -706,9 +947,19 @@ async def get_student_progress(
         test_submissions = []
         weekly_data = defaultdict(lambda: {"scores": [], "tasks": 0})
         recent_activities = []
+        earned_points_total = 0
+        max_points_total = 0
         
         if has_db() and db is not None:
             try:
+                all_submissions = db.execute(
+                    select(TestSubmission).where(TestSubmission.user_id == user_id)
+                ).scalars().all()
+                for sub in all_submissions:
+                    points = _extract_submission_points(sub)
+                    earned_points_total += points["earned"]
+                    max_points_total += points["max"]
+
                 # Получаем последние 30 дней тестов
                 thirty_days_ago = datetime.utcnow() - timedelta(days=30)
                 stmt = select(TestSubmission).where(
@@ -728,10 +979,13 @@ async def get_student_progress(
                     except Exception:
                         pass
                     
+                    points = _extract_submission_points(sub)
                     test_submissions.append({
                         "date": sub.created_at.isoformat() if sub.created_at else None,
                         "topic": topic,
                         "score": sub.score or 0,
+                        "earned_points": points["earned"],
+                        "max_points": points["max"],
                         "test_id": sub.test_id
                     })
                     
@@ -741,7 +995,9 @@ async def get_student_progress(
                             "date": sub.created_at.strftime("%Y-%m-%d") if sub.created_at else "",
                             "topic": topic,
                             "score": sub.score or 0,
-                            "time": 0  # Время не сохраняется в TestSubmission
+                            "time": 0,  # Время не сохраняется в TestSubmission
+                            "earned_points": points["earned"],
+                            "max_points": points["max"],
                         })
                     
                     # Группируем по неделям для графика
@@ -848,9 +1104,17 @@ async def get_student_progress(
         weak_topics.sort(key=lambda x: x["progress"])
         weak_topics = weak_topics[:3]  # Топ-3 слабых места
         
-        # Подсчитываем общее количество тем
-        total_topics = len(profile.topic_mastery) if profile.topic_mastery else 24
-        completed_topics = sum(1 for mastery in profile.topic_mastery.values() if mastery >= 0.7) if profile.topic_mastery else 0
+        studied_topics_set = set((profile.topic_mastery or {}).keys())
+        material_history = getattr(profile, "material_study_history", None) or []
+        for study in material_history:
+            if getattr(study, "completed", False):
+                topic_name = (getattr(study, "topic", None) or "").strip()
+                if topic_name:
+                    studied_topics_set.add(topic_name)
+
+        studied_topics = len(studied_topics_set)
+        mastered_topics = sum(1 for mastery in (profile.topic_mastery or {}).values() if mastery >= 0.7)
+        total_topics = max(studied_topics, len(profile.topic_mastery or {}))
         
         # Подсчитываем streak (дни подряд с активностью)
         current_streak = 0
@@ -870,9 +1134,13 @@ async def get_student_progress(
             "user_id": user_id,
             "progress": {
                 "totalTopics": total_topics,
-                "completedTopics": completed_topics,
+                "completedTopics": studied_topics,
+                "studiedTopics": studied_topics,
+                "masteredTopics": mastered_topics,
                 "currentStreak": current_streak,
                 "totalPoints": profile.points,
+                "earnedPoints": earned_points_total,
+                "maxPoints": max_points_total,
                 "averageAccuracy": round(profile.accuracy_rate, 1),
                 "weakTopics": weak_topics,
                 "recentActivities": recent_activities[:10],  # Последние 10 активностей
@@ -884,7 +1152,9 @@ async def get_student_progress(
                 "correct_tasks": profile.correct_tasks_count,
                 "accuracy_rate": profile.accuracy_rate,
                 "level": profile.level,
-                "points": profile.points
+                "points": profile.points,
+                "earned_points": earned_points_total,
+                "max_points": max_points_total,
             }
         }
     except HTTPException:
@@ -1390,28 +1660,9 @@ async def mark_material_studied(
         
         orchestrator.profiler.persist_profile(user_id)
 
-        # Синхронизация долгов и назначений из библиотеки/работы над ошибками
+        # Синхронизация назначений из библиотеки
         if has_db() and db is not None:
             try:
-                from services.debts_service import get_debts_service
-
-                debt_service = get_debts_service()
-                debt_service.resolve_or_progress_topic_debts(
-                    db=db,
-                    user_id=user_id,
-                    topic=topic,
-                    delta=30.0 if completion_percentage >= 0.8 else 15.0,
-                )
-                touched_debts = debt_service.mark_assignment_progress(
-                    db=db,
-                    user_id=user_id,
-                    kind="material",
-                    ref_value=str(material_id),
-                    progress_delta=50.0 if completion_percentage >= 1.0 else 25.0,
-                )
-                for debt_id in touched_debts:
-                    debt_service.recalculate_debt_from_assignments(db=db, debt_id=debt_id)
-
                 # Закрываем назначение типа "material", если выполнено.
                 if completion_percentage >= 1.0:
                     stmt_hw = select(Homework).where(
@@ -1427,7 +1678,7 @@ async def mark_material_studied(
                 db.commit()
             except Exception as sync_err:
                 db.rollback()
-                print(f"Error syncing debts/material assignments: {sync_err}")
+                print(f"Error syncing material assignments: {sync_err}")
 
         return {
             "success": True,

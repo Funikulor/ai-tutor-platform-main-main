@@ -244,6 +244,7 @@ export function TestCreator({ onSaved }: TestCreatorProps) {
           question_type: q.type,
           correct_answer: correctAnswer,
           explanation: q.explanation,
+          points: q.points,
         };
       });
 

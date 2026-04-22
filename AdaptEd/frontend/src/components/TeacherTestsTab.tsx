@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Eye, Loader2, ListPlus, Save, Send, Trash2 } from 'lucide-react';
 import api from '../services/api';
+import { deleteAssignedHomework, fetchHomeworks, updateAssignedHomework } from '../services/homework';
 import {
   getTestSubmission,
   listTests,
@@ -26,10 +27,15 @@ interface StudentUser {
 
 interface TeacherTestsTabProps {
   preselectedStudentId?: string | null;
+  preselectedHomeworkId?: number | null;
   mode?: 'create' | 'manage' | 'results';
 }
 
-export function TeacherTestsTab({ preselectedStudentId = null, mode = 'manage' }: TeacherTestsTabProps) {
+export function TeacherTestsTab({
+  preselectedStudentId = null,
+  preselectedHomeworkId = null,
+  mode = 'manage',
+}: TeacherTestsTabProps) {
   const creatorId = localStorage.getItem('user_id') || '';
 
   const [tests, setTests] = useState<TestSummary[]>([]);
@@ -46,6 +52,8 @@ export function TeacherTestsTab({ preselectedStudentId = null, mode = 'manage' }
     id: number;
     user_id: string;
     score: number;
+    earned_points?: number;
+    max_points?: number;
     correct_count?: number;
     total_questions?: number;
     summary?: string;
@@ -54,6 +62,7 @@ export function TeacherTestsTab({ preselectedStudentId = null, mode = 'manage' }
   }>>([]);
   const [selectedSubmission, setSelectedSubmission] = useState<TestSubmissionDetail | null>(null);
   const [submissionLoading, setSubmissionLoading] = useState<number | null>(null);
+  const [selectedHomeworkId, setSelectedHomeworkId] = useState<number | null>(preselectedHomeworkId);
 
   const [editTitle, setEditTitle] = useState('');
   const [editTopic, setEditTopic] = useState('');
@@ -116,6 +125,7 @@ export function TeacherTestsTab({ preselectedStudentId = null, mode = 'manage' }
           question_type: q.question_type || 'single',
           correct_answer: q.correct_answer,
           explanation: q.explanation,
+          points: q.points || 1,
         }))
       );
       const subs = await listTestSubmissions(id);
@@ -131,6 +141,7 @@ export function TeacherTestsTab({ preselectedStudentId = null, mode = 'manage' }
     try {
       const normalizedQuestions = editQuestions.map((question) => ({
         ...question,
+        points: question.points || 1,
         question_type: question.question_type || 'single',
         correct_answer:
           question.question_type === 'single'
@@ -141,12 +152,19 @@ export function TeacherTestsTab({ preselectedStudentId = null, mode = 'manage' }
             ? Number(question.correct_answer ?? 0)
             : String(question.correct_answer ?? question.options?.[0] ?? ''),
       }));
-      const updated = await updateTest(selectedTest.id, {
+      const basePayload = {
         title: editTitle.trim() || selectedTest.title,
         topic: editTopic || undefined,
         difficulty: editDifficulty || undefined,
         questions: normalizedQuestions,
-      });
+      };
+      const updated = selectedHomeworkId != null
+        ? (await updateAssignedHomework(selectedHomeworkId, {
+            ...basePayload,
+            due_date: dueDate ? new Date(dueDate).toISOString() : undefined,
+            assignment_type: assignmentType,
+          })).test
+        : await updateTest(selectedTest.id, basePayload);
       setSelectedTest(updated);
       setEditQuestions(
         updated.questions.map((q) => ({
@@ -156,16 +174,19 @@ export function TeacherTestsTab({ preselectedStudentId = null, mode = 'manage' }
           question_type: q.question_type || 'single',
           correct_answer: q.correct_answer,
           explanation: q.explanation,
+          points: q.points || 1,
         }))
       );
       setTests((prev) =>
-        prev.map((t) =>
-          t.id === updated.id
-            ? { ...t, title: updated.title, topic: updated.topic, difficulty: updated.difficulty }
-            : t
-        )
+        prev.some((t) => t.id === updated.id)
+          ? prev.map((t) =>
+              t.id === updated.id
+                ? { ...t, title: updated.title, topic: updated.topic, difficulty: updated.difficulty, max_points: updated.max_points }
+                : t
+            )
+          : [{ id: updated.id, title: updated.title, topic: updated.topic, difficulty: updated.difficulty, max_points: updated.max_points }, ...prev]
       );
-      toast.success('Тест обновлен');
+      toast.success(selectedHomeworkId != null ? 'Назначение ученика обновлено' : 'Тест обновлен');
     } catch (e: any) {
       toast.error(e?.response?.data?.detail || 'Не удалось сохранить изменения');
     } finally {
@@ -175,13 +196,18 @@ export function TeacherTestsTab({ preselectedStudentId = null, mode = 'manage' }
 
   const handleDelete = async () => {
     if (!selectedTest) return;
-    if (!confirm('Удалить тест?')) return;
+    if (!confirm(selectedHomeworkId != null ? 'Удалить это назначение и результаты ученика?' : 'Удалить тест?')) return;
     try {
-      await deleteTest(selectedTest.id);
+      if (selectedHomeworkId != null) {
+        await deleteAssignedHomework(selectedHomeworkId);
+        setSelectedHomeworkId(null);
+      } else {
+        await deleteTest(selectedTest.id);
+      }
       setSelectedTest(null);
       setSubmissions([]);
       await loadTests();
-      toast.success('Тест удален');
+      toast.success(selectedHomeworkId != null ? 'Назначение удалено' : 'Тест удален');
     } catch (e: any) {
       toast.error(e?.response?.data?.detail || 'Не удалось удалить тест');
     }
@@ -240,6 +266,7 @@ export function TeacherTestsTab({ preselectedStudentId = null, mode = 'manage' }
         question_type: 'single',
         correct_answer: [0],
         explanation: '',
+        points: 1,
       },
     ]);
   };
@@ -254,10 +281,38 @@ export function TeacherTestsTab({ preselectedStudentId = null, mode = 'manage' }
   }, []);
 
   useEffect(() => {
+    setSelectedHomeworkId(preselectedHomeworkId);
+  }, [preselectedHomeworkId]);
+
+  useEffect(() => {
     if (preselectedStudentId && students.some((student) => student.user_id === preselectedStudentId)) {
       setSelectedStudentIds((prev) => (prev.includes(preselectedStudentId) ? prev : [...prev, preselectedStudentId]));
     }
   }, [preselectedStudentId, students]);
+
+  useEffect(() => {
+    const loadPreselectedAssignment = async () => {
+      if (!preselectedStudentId || !preselectedHomeworkId || mode === 'create') return;
+      try {
+        const homeworks = await fetchHomeworks(preselectedStudentId);
+        const assignment = homeworks.find((homework) => homework.id === preselectedHomeworkId);
+        if (!assignment || !assignment.test_id) return;
+        setSelectedHomeworkId(assignment.id);
+        setAssignmentType((assignment.assignment_type as AssignmentType) || 'homework');
+        setDueDate(
+          assignment.due_date
+            ? new Date(new Date(assignment.due_date).getTime() - new Date(assignment.due_date).getTimezoneOffset() * 60000)
+                .toISOString()
+                .slice(0, 16)
+            : ''
+        );
+        await handleSelectTest(assignment.test_id);
+      } catch {
+        // no-op
+      }
+    };
+    loadPreselectedAssignment();
+  }, [preselectedStudentId, preselectedHomeworkId, mode]);
 
   return (
     <div className="space-y-6">
@@ -332,7 +387,14 @@ export function TeacherTestsTab({ preselectedStudentId = null, mode = 'manage' }
             <div className="space-y-4">
               {mode === 'manage' && (
                 <div className="flex items-center justify-between">
-                  <div className="text-gray-900 font-semibold">Управление тестом</div>
+                  <div>
+                    <div className="text-gray-900 font-semibold">Управление тестом</div>
+                    {selectedHomeworkId != null && (
+                      <div className="text-xs text-amber-700 mt-1">
+                        Индивидуальное назначение ученика: изменения не затронут остальных, а прошлые результаты этого ученика будут очищены.
+                      </div>
+                    )}
+                  </div>
                   <div className="flex items-center gap-2">
                     <button
                       onClick={handleSave}
@@ -379,7 +441,9 @@ export function TeacherTestsTab({ preselectedStudentId = null, mode = 'manage' }
               {mode === 'manage' && (
               <div className="space-y-2">
                 <div className="flex items-center justify-between gap-3">
-                  <div className="text-sm text-gray-700">Вопросы ({editQuestions.length})</div>
+                  <div className="text-sm text-gray-700">
+                    Вопросы ({editQuestions.length}) • максимум {editQuestions.reduce((sum, question) => sum + Number(question.points || 1), 0)} балл.
+                  </div>
                   <button
                     type="button"
                     onClick={addQuestion}
@@ -392,6 +456,16 @@ export function TeacherTestsTab({ preselectedStudentId = null, mode = 'manage' }
                   <div key={`${selectedTest.id}-${idx}`} className="p-3 border border-gray-200 rounded-lg bg-gray-50 space-y-3">
                     <div className="flex items-center justify-between gap-3">
                       <div className="text-sm font-medium text-gray-800">Вопрос {idx + 1}</div>
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="number"
+                          min={1}
+                          value={q.points || 1}
+                          onChange={(e) => updateQuestion(idx, (current) => ({ ...current, points: Math.max(1, Number(e.target.value) || 1) }))}
+                          className="w-20 border border-gray-200 rounded-lg px-2 py-1.5 text-sm"
+                        />
+                        <span className="text-xs text-gray-500">балл.</span>
+                      </div>
                       <button
                         type="button"
                         onClick={() => removeQuestion(idx)}
@@ -440,7 +514,7 @@ export function TeacherTestsTab({ preselectedStudentId = null, mode = 'manage' }
               </div>
               )}
 
-              {mode === 'manage' && (
+              {mode === 'manage' && selectedHomeworkId == null && (
               <div className="pt-4 border-t border-gray-200 space-y-3">
                 <div className="text-sm font-semibold text-gray-900">Назначить как ДЗ/КР/проверочную</div>
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
@@ -493,7 +567,8 @@ export function TeacherTestsTab({ preselectedStudentId = null, mode = 'manage' }
                     <div className="flex items-start justify-between gap-3">
                       <div>
                         <div className="text-sm text-gray-900">
-                          {studentNameById[s.user_id] || s.user_id} — {s.score}%
+                          {studentNameById[s.user_id] || s.user_id} — {s.earned_points ?? 0}/{s.max_points ?? 0} балл.
+                          <span className="text-gray-500"> • {s.score}%</span>
                           {typeof s.correct_count === 'number' && typeof s.total_questions === 'number' && (
                             <span className="text-gray-500"> • {s.correct_count}/{s.total_questions}</span>
                           )}
@@ -532,7 +607,7 @@ export function TeacherTestsTab({ preselectedStudentId = null, mode = 'manage' }
                   Работа ученика: {studentNameById[selectedSubmission.user_id] || selectedSubmission.user_id}
                 </h3>
                 <p className="text-sm text-gray-600">
-                  {selectedSubmission.correct_count ?? 0}/{selectedSubmission.total_questions ?? 0} правильных • {selectedSubmission.score}%
+                  {selectedSubmission.earned_points ?? 0}/{selectedSubmission.max_points ?? 0} балл. • {selectedSubmission.correct_count ?? 0}/{selectedSubmission.total_questions ?? 0} правильных • {selectedSubmission.score}%
                 </p>
               </div>
               <button
@@ -574,6 +649,9 @@ export function TeacherTestsTab({ preselectedStudentId = null, mode = 'manage' }
                       {result.question_explanation && (
                         <p className="text-sm text-gray-700">Разбор: {result.question_explanation}</p>
                       )}
+                      <p className="text-xs text-gray-500">
+                        Баллы: {result.earned_points ?? 0}/{result.max_points ?? result.points ?? 0}
+                      </p>
                     </div>
                     <span className={`px-3 py-1 rounded-full text-xs font-medium ${result.is_correct ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
                       {result.is_correct ? 'Верно' : 'Ошибка'}

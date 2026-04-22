@@ -9,8 +9,6 @@ import json
 import re
 import random
 from utils.orchestrator_singleton import get_orchestrator
-from services.debts_service import get_debts_service
-from utils.db import get_db, has_db
 
 router = APIRouter()
 orchestrator = get_orchestrator()
@@ -98,36 +96,6 @@ async def submit_task(submission: TaskSubmission):
         except Exception as e:
             print(f"Error saving to analytics: {e}")
 
-        # Обновляем долги/пробелы по теме
-        try:
-            if has_db():
-                sess = get_db()
-                if sess is not None:
-                    try:
-                        debt_service = get_debts_service()
-                        if is_correct:
-                            debt_service.resolve_or_progress_topic_debts(
-                                db=sess,
-                                user_id=submission.user_id,
-                                topic=effective_topic,
-                                delta=34.0,
-                            )
-                        else:
-                            debt_service.upsert_topic_debt(
-                                db=sess,
-                                user_id=submission.user_id,
-                                topic=effective_topic,
-                                source_type="adaptive_task",
-                                source_id=str(submission.task_id),
-                                created_by="system",
-                                priority=2,
-                            )
-                        sess.commit()
-                    finally:
-                        sess.close()
-        except Exception as e:
-            print(f"Error syncing debts on adaptive task: {e}")
-        
         # Добавляем объяснение, если оно передано в запросе
         explanation = getattr(submission, 'explanation', None)
         
