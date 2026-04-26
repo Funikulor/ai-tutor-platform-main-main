@@ -5,10 +5,13 @@ import { TeacherTestsTab } from './TeacherTestsTab';
 import { AIChatPanel } from './AIChatPanel';
 import api from '../services/api';
 import { deleteAssignedHomework } from '../services/homework';
+import { fetchLibraryCourses, fetchMaterials } from '../services/materials';
+import { assignTestAsHomework, listTests, type TestSummary } from '../services/tests';
 import { avatarInitial } from '../utils/avatar';
 import { toast } from 'sonner';
 
 type StudentStatus = 'excellent' | 'good' | 'average' | 'needs-help';
+type AssignmentType = 'homework' | 'control' | 'quiz';
 
 interface StudentRow {
   student: string;
@@ -57,6 +60,12 @@ interface ParentContact {
   phone: string;
 }
 
+interface LibraryPickerItem {
+  id: string;
+  title: string;
+  subtitle: string;
+}
+
 interface StudentCardData {
   student: { user_id: string; full_name?: string; email?: string; class_id?: string };
   stats: { points: number; level: number; accuracy_rate: number; total_tasks: number; correct_tasks: number; earned_points?: number; max_points?: number };
@@ -82,6 +91,25 @@ export function TeacherDashboard() {
   const [parentContactsByStudentId, setParentContactsByStudentId] = useState<Record<string, ParentContact>>({});
   const [loading, setLoading] = useState(false);
   const [assigningStudentId, setAssigningStudentId] = useState<string | null>(null);
+  const [testAssignModal, setTestAssignModal] = useState<{
+    open: boolean;
+    student: StudentRow | null;
+    tests: TestSummary[];
+    selectedTestId: number | null;
+    dueDate: string;
+    assignmentType: AssignmentType;
+    loading: boolean;
+    submitting: boolean;
+  }>({
+    open: false,
+    student: null,
+    tests: [],
+    selectedTestId: null,
+    dueDate: '',
+    assignmentType: 'homework',
+    loading: false,
+    submitting: false,
+  });
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [statusFilter, setStatusFilter] = useState<'all' | StudentStatus>('all');
   const [minScoreFilter, setMinScoreFilter] = useState(0);
@@ -89,6 +117,22 @@ export function TeacherDashboard() {
   const [detailCard, setDetailCard] = useState<StudentCardData | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [tablePage, setTablePage] = useState(0);
+  const [parentContactModal, setParentContactModal] = useState<{ studentName: string; contact: ParentContact } | null>(null);
+  const [libraryPicker, setLibraryPicker] = useState<{
+    open: boolean;
+    student: StudentRow | null;
+    kind: 'material' | 'course';
+    items: LibraryPickerItem[];
+    selectedId: string;
+    loading: boolean;
+  }>({
+    open: false,
+    student: null,
+    kind: 'material',
+    items: [],
+    selectedId: '',
+    loading: false,
+  });
   const performanceTableRef = useRef<HTMLDivElement>(null);
   const [isChatMinimized, setIsChatMinimized] = useState(true);
 
@@ -268,13 +312,61 @@ export function TeacherDashboard() {
     toast.success('Экспорт аналитики завершен');
   };
 
-  const handleAssignBeforeLesson = async (student: StudentRow) => {
+  const openAssignTestModal = async (student: StudentRow) => {
     setAssigningStudentId(student.user_id);
-    setPreselectedStudentId(student.user_id);
-    setPreselectedHomeworkId(null);
-    setCurrentView('created-tests');
-    toast.info(`Выберите тест и назначьте ${student.student} во вкладке "Созданные тесты"`);
-    setTimeout(() => setAssigningStudentId(null), 300);
+    setTestAssignModal({
+      open: true,
+      student,
+      tests: [],
+      selectedTestId: null,
+      dueDate: '',
+      assignmentType: 'homework',
+      loading: true,
+      submitting: false,
+    });
+    try {
+      const tests = await listTests();
+      const sorted = [...(Array.isArray(tests) ? tests : [])].sort((a, b) => {
+        const ta = new Date(a.created_at || '').getTime() || 0;
+        const tb = new Date(b.created_at || '').getTime() || 0;
+        return tb - ta;
+      });
+      setTestAssignModal((prev) => ({
+        ...prev,
+        open: true,
+        student,
+        tests: sorted,
+        selectedTestId: sorted[0]?.id ?? null,
+        loading: false,
+      }));
+    } catch (error: any) {
+      const message = error?.response?.data?.detail || 'Не удалось загрузить список тестов';
+      toast.error(message);
+      setTestAssignModal((prev) => ({ ...prev, open: false, loading: false }));
+    } finally {
+      setAssigningStudentId(null);
+    }
+  };
+
+  const submitAssignTest = async () => {
+    const student = testAssignModal.student;
+    if (!student || !testAssignModal.selectedTestId || testAssignModal.submitting) return;
+    setTestAssignModal((prev) => ({ ...prev, submitting: true }));
+    try {
+      await assignTestAsHomework(
+        testAssignModal.selectedTestId,
+        [student.user_id],
+        testAssignModal.dueDate || undefined,
+        testAssignModal.assignmentType
+      );
+      toast.success(`Тест назначен ученику ${student.student}`);
+      setTestAssignModal((prev) => ({ ...prev, open: false, submitting: false }));
+      await handleOpenStudentCard(student);
+    } catch (error: any) {
+      const message = error?.response?.data?.detail || 'Не удалось назначить тест';
+      toast.error(message);
+      setTestAssignModal((prev) => ({ ...prev, submitting: false }));
+    }
   };
 
   const handleShowParentContact = (student: StudentRow) => {
@@ -283,7 +375,10 @@ export function TeacherDashboard() {
       toast.error(`Контакт родителя для ${student.student} не найден`);
       return;
     }
-    toast.info(`Родитель: ${contact.full_name} • ${contact.phone}`);
+    setParentContactModal({
+      studentName: student.student,
+      contact,
+    });
   };
 
   const handleOpenStudentCard = async (student: StudentRow) => {
@@ -321,19 +416,72 @@ export function TeacherDashboard() {
     }
   };
 
-  const assignLibrary = async (student: StudentRow, kind: 'material' | 'course') => {
+  const openLibraryPicker = async (student: StudentRow, kind: 'material' | 'course') => {
+    setLibraryPicker({
+      open: true,
+      student,
+      kind,
+      items: [],
+      selectedId: '',
+      loading: true,
+    });
+
     try {
-      const idPrompt = kind === 'material' ? 'ID материала (например m1)' : 'ID курса (например fractions-course)';
-      const value = window.prompt(idPrompt, '');
-      if (!value) return;
+      if (kind === 'material') {
+        const materials = await fetchMaterials();
+        const items = (Array.isArray(materials) ? materials : []).map((m) => ({
+          id: String(m.id),
+          title: m.title || String(m.id),
+          subtitle: [m.subject, m.topic, m.difficulty].filter(Boolean).join(' • '),
+        }));
+        setLibraryPicker((prev) => ({
+          ...prev,
+          open: true,
+          student,
+          kind,
+          items,
+          selectedId: items[0]?.id || '',
+          loading: false,
+        }));
+      } else {
+        const courses = await fetchLibraryCourses();
+        const items = (Array.isArray(courses) ? courses : []).map((c) => ({
+          id: String(c.id),
+          title: c.title || String(c.id),
+          subtitle: [c.subject, c.topic, c.difficulty].filter(Boolean).join(' • '),
+        }));
+        setLibraryPicker((prev) => ({
+          ...prev,
+          open: true,
+          student,
+          kind,
+          items,
+          selectedId: items[0]?.id || '',
+          loading: false,
+        }));
+      }
+    } catch (error: any) {
+      const message = error?.response?.data?.detail || 'Не удалось загрузить библиотеку';
+      toast.error(message);
+      setLibraryPicker((prev) => ({ ...prev, open: false, loading: false }));
+    }
+  };
+
+  const submitLibraryAssignment = async () => {
+    if (!libraryPicker.student || !libraryPicker.selectedId) return;
+    const student = libraryPicker.student;
+    const kind = libraryPicker.kind;
+
+    try {
       await api.post(`/teacher/students/${student.user_id}/assign-library`, {
         kind,
-        material_id: kind === 'material' ? value : undefined,
-        course_id: kind === 'course' ? value : undefined,
+        material_id: kind === 'material' ? libraryPicker.selectedId : undefined,
+        course_id: kind === 'course' ? libraryPicker.selectedId : undefined,
         topic: detailCard?.weaknesses?.[0]?.topic || detailStudent?.student || 'Библиотека',
         title: kind === 'material' ? 'Чтение материала' : 'Прохождение курса',
       });
       toast.success(kind === 'material' ? 'Материал назначен' : 'Курс назначен');
+      setLibraryPicker((prev) => ({ ...prev, open: false }));
       await handleOpenStudentCard(student);
     } catch (error: any) {
       const message = error?.response?.data?.detail || 'Не удалось назначить из библиотеки';
@@ -707,8 +855,8 @@ export function TeacherDashboard() {
                         <>
                           <button
                             type="button"
-                            title="Назначить до занятия"
-                            onClick={() => handleAssignBeforeLesson(student)}
+                            title="Назначить тест"
+                            onClick={() => openAssignTestModal(student)}
                             disabled={assigningStudentId === student.user_id}
                             className="inline-flex items-center justify-center rounded-lg border border-rose-200 bg-white p-2 text-rose-700 shadow-sm transition hover:bg-rose-50 disabled:opacity-60"
                           >
@@ -1019,13 +1167,12 @@ export function TeacherDashboard() {
                   <button
                     type="button"
                     onClick={() => {
-                      handleAssignBeforeLesson(detailStudent);
-                      setDetailStudent(null);
+                      openAssignTestModal(detailStudent);
                     }}
                     disabled={assigningStudentId === detailStudent.user_id}
                     className="w-full rounded-xl bg-rose-600 py-2.5 text-sm font-medium text-white shadow-sm transition hover:bg-rose-700 disabled:opacity-60"
                   >
-                    {assigningStudentId === detailStudent.user_id ? 'Назначаем...' : 'Назначить работу до занятия'}
+                    {assigningStudentId === detailStudent.user_id ? 'Назначаем...' : 'Назначить тест'}
                   </button>
                   <button
                     type="button"
@@ -1037,14 +1184,14 @@ export function TeacherDashboard() {
                   <div className="grid grid-cols-2 gap-2">
                     <button
                       type="button"
-                      onClick={() => assignLibrary(detailStudent, 'material')}
+                      onClick={() => openLibraryPicker(detailStudent, 'material')}
                       className="rounded-xl border border-slate-200 bg-white py-2 text-xs font-medium text-slate-700 transition hover:bg-slate-50"
                     >
                       Назначить статью
                     </button>
                     <button
                       type="button"
-                      onClick={() => assignLibrary(detailStudent, 'course')}
+                      onClick={() => openLibraryPicker(detailStudent, 'course')}
                       className="rounded-xl border border-slate-200 bg-white py-2 text-xs font-medium text-slate-700 transition hover:bg-slate-50"
                     >
                       Назначить курс
@@ -1052,6 +1199,234 @@ export function TeacherDashboard() {
                   </div>
                 </div>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+      {parentContactModal && (
+        <div
+          className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-900/40 p-4 backdrop-blur-sm"
+          onClick={() => setParentContactModal(null)}
+        >
+          <div
+            className="w-full max-w-sm rounded-2xl border border-slate-200 bg-white p-5 shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="mb-3 flex items-center justify-between gap-3">
+              <div>
+                <p className="text-xs font-medium uppercase tracking-wide text-slate-500">Контакт родителя</p>
+                <h3 className="mt-1 text-lg font-semibold text-slate-900">{parentContactModal.studentName}</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setParentContactModal(null)}
+                className="rounded-lg p-2 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
+                aria-label="Закрыть"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            <div className="rounded-xl border border-slate-100 bg-slate-50/80 p-4">
+              <p className="text-sm font-medium text-slate-900">{parentContactModal.contact.full_name}</p>
+              <a
+                href={`tel:${parentContactModal.contact.phone}`}
+                className="mt-1 inline-flex text-sm font-semibold text-indigo-600 hover:underline"
+              >
+                {parentContactModal.contact.phone}
+              </a>
+            </div>
+          </div>
+        </div>
+      )}
+      {libraryPicker.open && (
+        <div
+          className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-900/40 p-4 backdrop-blur-sm"
+          onClick={() => setLibraryPicker((prev) => ({ ...prev, open: false }))}
+        >
+          <div
+            className="w-full max-w-lg rounded-2xl border border-slate-200 bg-white shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-start justify-between gap-3 border-b border-slate-100 px-5 py-4">
+              <div>
+                <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
+                  {libraryPicker.kind === 'material' ? 'Выбор материала' : 'Выбор курса'}
+                </p>
+                <h3 className="mt-1 text-lg font-semibold text-slate-900">
+                  {libraryPicker.kind === 'material' ? 'Назначить статью' : 'Назначить курс'}
+                </h3>
+                <p className="mt-1 text-xs text-slate-500">
+                  {libraryPicker.student?.student ? `Ученик: ${libraryPicker.student.student}` : ''}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setLibraryPicker((prev) => ({ ...prev, open: false }))}
+                className="rounded-lg p-2 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
+                aria-label="Закрыть"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            <div className="max-h-80 overflow-y-auto p-4">
+              {libraryPicker.loading ? (
+                <div className="rounded-xl bg-slate-50 p-4 text-center text-sm text-slate-600">Загрузка списка...</div>
+              ) : libraryPicker.items.length === 0 ? (
+                <div className="rounded-xl bg-slate-50 p-4 text-center text-sm text-slate-600">
+                  В библиотеке пока нет доступных элементов.
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {libraryPicker.items.map((item) => (
+                    <label key={item.id} className="flex cursor-pointer items-start gap-3 rounded-xl border border-slate-200 p-3 transition hover:bg-slate-50">
+                      <input
+                        type="radio"
+                        name="library-picker-item"
+                        checked={libraryPicker.selectedId === item.id}
+                        onChange={() => setLibraryPicker((prev) => ({ ...prev, selectedId: item.id }))}
+                        className="mt-1 h-4 w-4"
+                      />
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium text-slate-900">{item.title}</p>
+                        {item.subtitle && <p className="mt-0.5 text-xs text-slate-500">{item.subtitle}</p>}
+                        <p className="mt-0.5 text-[11px] text-slate-400">ID: {item.id}</p>
+                      </div>
+                    </label>
+                  ))}
+                </div>
+              )}
+            </div>
+            <div className="flex items-center justify-end gap-2 border-t border-slate-100 px-4 py-3">
+              <button
+                type="button"
+                onClick={() => setLibraryPicker((prev) => ({ ...prev, open: false }))}
+                className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
+              >
+                Отмена
+              </button>
+              <button
+                type="button"
+                disabled={libraryPicker.loading || !libraryPicker.selectedId}
+                onClick={submitLibraryAssignment}
+                className="rounded-xl bg-indigo-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-indigo-700 disabled:opacity-50"
+              >
+                Назначить
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {testAssignModal.open && (
+        <div
+          className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-900/40 p-4 backdrop-blur-sm"
+          onClick={() => setTestAssignModal((prev) => ({ ...prev, open: false }))}
+        >
+          <div
+            className="w-full max-w-lg rounded-2xl border border-slate-200 bg-white shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-start justify-between gap-3 border-b border-slate-100 px-5 py-4">
+              <div>
+                <p className="text-xs font-medium uppercase tracking-wide text-slate-500">Назначение теста</p>
+                <h3 className="mt-1 text-lg font-semibold text-slate-900">Назначить тест</h3>
+                <p className="mt-1 text-xs text-slate-500">
+                  {testAssignModal.student?.student ? `Ученик: ${testAssignModal.student.student}` : ''}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setTestAssignModal((prev) => ({ ...prev, open: false }))}
+                className="rounded-lg p-2 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
+                aria-label="Закрыть"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            <div className="space-y-4 p-4">
+              {testAssignModal.loading ? (
+                <div className="rounded-xl bg-slate-50 p-4 text-center text-sm text-slate-600">Загрузка тестов...</div>
+              ) : (
+                <>
+                  <div>
+                    <label className="mb-1.5 block text-sm font-medium text-slate-700">Тест</label>
+                    <select
+                      value={testAssignModal.selectedTestId ?? ''}
+                      onChange={(e) =>
+                        setTestAssignModal((prev) => ({
+                          ...prev,
+                          selectedTestId: Number(e.target.value) || null,
+                        }))
+                      }
+                      className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm focus:border-indigo-300 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+                    >
+                      {testAssignModal.tests.map((test) => (
+                        <option key={test.id} value={test.id}>
+                          {test.title} {test.topic ? `• ${test.topic}` : ''}
+                        </option>
+                      ))}
+                    </select>
+                    {testAssignModal.tests.length === 0 && (
+                      <p className="mt-2 text-xs text-slate-500">
+                        Нет созданных тестов. Создайте тест во вкладке `Созданные тесты`.
+                      </p>
+                    )}
+                  </div>
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                    <div>
+                      <label className="mb-1.5 block text-sm font-medium text-slate-700">Тип назначения</label>
+                      <select
+                        value={testAssignModal.assignmentType}
+                        onChange={(e) =>
+                          setTestAssignModal((prev) => ({
+                            ...prev,
+                            assignmentType: e.target.value as AssignmentType,
+                          }))
+                        }
+                        className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm focus:border-indigo-300 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+                      >
+                        <option value="homework">Домашнее задание</option>
+                        <option value="control">Контрольная</option>
+                        <option value="quiz">Проверочная</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="mb-1.5 block text-sm font-medium text-slate-700">Дедлайн (необязательно)</label>
+                      <input
+                        type="datetime-local"
+                        value={testAssignModal.dueDate}
+                        onChange={(e) =>
+                          setTestAssignModal((prev) => ({
+                            ...prev,
+                            dueDate: e.target.value,
+                          }))
+                        }
+                        className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm focus:border-indigo-300 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+                      />
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
+            <div className="flex items-center justify-end gap-2 border-t border-slate-100 px-4 py-3">
+              <button
+                type="button"
+                onClick={() => setTestAssignModal((prev) => ({ ...prev, open: false }))}
+                className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
+              >
+                Отмена
+              </button>
+              <button
+                type="button"
+                onClick={submitAssignTest}
+                disabled={
+                  testAssignModal.loading ||
+                  testAssignModal.submitting ||
+                  !testAssignModal.selectedTestId
+                }
+                className="rounded-xl bg-indigo-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-indigo-700 disabled:opacity-50"
+              >
+                {testAssignModal.submitting ? 'Назначаем...' : 'Назначить тест'}
+              </button>
             </div>
           </div>
         </div>
