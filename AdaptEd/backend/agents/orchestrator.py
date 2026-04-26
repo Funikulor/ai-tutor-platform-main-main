@@ -24,9 +24,17 @@ class AgentOrchestrator:
         self.mentor = MentorAgent()
         self.teacher_analytics = TeacherAnalyticsAgent()
     
-    def process_task_submission(self, user_id: str, task_id: int, question: str, 
-                                user_answer: str, correct_answer: str, topic: Optional[str] = None, 
-                                time_spent_seconds: Optional[int] = None) -> Dict[str, Any]:
+    def process_task_submission(
+        self,
+        user_id: str,
+        task_id: int,
+        question: str,
+        user_answer: str,
+        correct_answer: str,
+        topic: Optional[str] = None,
+        time_spent_seconds: Optional[int] = None,
+        verified_is_correct: Optional[bool] = None,
+    ) -> Dict[str, Any]:
         """
         Обрабатывает отправку задания учеником
         
@@ -36,13 +44,17 @@ class AgentOrchestrator:
         - mentor_message: сообщение от наставника
         - updated_profile: обновленный профиль
         """
-        # Проверяем ответ: дроби (27/8) и десятичные (3.375) считаем эквивалентными
-        user_ans_normalized = str(user_answer).strip().lower()
-        correct_ans_normalized = str(correct_answer).strip().lower()
-        if numeric_answers_equal(user_answer, correct_answer, tolerance=0.001):
-            is_correct = True
+        # Если источник уже проверил ответ (например, модуль тестов), не переоцениваем —
+        # иначе профиль и «типовые ошибки» расходятся с фактической проверкой теста.
+        if verified_is_correct is not None:
+            is_correct = bool(verified_is_correct)
         else:
-            is_correct = user_ans_normalized == correct_ans_normalized
+            user_ans_normalized = str(user_answer).strip().lower()
+            correct_ans_normalized = str(correct_answer).strip().lower()
+            if numeric_answers_equal(user_answer, correct_answer, tolerance=0.001):
+                is_correct = True
+            else:
+                is_correct = user_ans_normalized == correct_ans_normalized
         
         # Создаем попытку выполнения
         task_attempt = TaskAttempt(

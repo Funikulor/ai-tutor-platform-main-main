@@ -73,7 +73,8 @@ async def submit_task(submission: TaskSubmission):
             user_answer=submission.user_answer,
             correct_answer=submission.correct_answer,
             topic=effective_topic,
-            time_spent_seconds=submission.time_spent_seconds
+            time_spent_seconds=submission.time_spent_seconds,
+            verified_is_correct=is_correct,
         )
         
         # Также сохраняем в аналитику

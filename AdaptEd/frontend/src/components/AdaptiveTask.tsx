@@ -751,7 +751,11 @@ export function AdaptiveTask({ onComplete }: { onComplete: (result: any) => void
                       <span className="font-mono bg-gray-100 px-2 py-0.5 rounded">
                         {currentTask.correctAnswer}
                       </span>
-                      <span className="text-gray-500 ml-1">(можно ввести как число или дробь, например 1/2)</span>
+                      {currentTask.type === 'numeric' && (
+                        <span className="text-gray-500 ml-1">
+                          (можно ввести как число или дробь, например 1/2)
+                        </span>
+                      )}
                     </p>
                   )}
                   {!result.correct && result.errorAnalysis && (

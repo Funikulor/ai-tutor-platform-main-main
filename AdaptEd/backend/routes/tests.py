@@ -149,6 +149,17 @@ def _question_correct_value(question: TestQuestion) -> Any:
 	return None
 
 
+def _normalize_text_answer_for_match(value: str) -> str:
+	"""Сжимает пробелы и приводит к нижнему регистру для сопоставления развёрнутых ответов."""
+	t = str(value or "").strip().lower()
+	t = re.sub(r"\s+", "", t)
+	t = t.replace("·", "").replace("×", "*")
+	# Часто опускают модуль и константу интегрирования в школьных ответах
+	t = re.sub(r"\|([^|]+)\|", r"\1", t)
+	t = re.sub(r"\+c$|\+с$|\+const$", "", t)
+	return t
+
+
 def _question_correct_display(question: TestQuestion) -> str:
 	qtype = _normalize_question_type(question.question_type)
 	correct_value = _question_correct_value(question)
@@ -251,8 +262,14 @@ def _evaluate_question(question: TestQuestion, submitted: SubmittedAnswer) -> Di
 		user_numeric_text = str(student_number) if student_number is not None else student_text
 		is_correct = numeric_answers_equal(user_numeric_text, correct_text)
 	elif qtype == "text":
-		expected = str(correct_value or "").strip().lower()
-		is_correct = bool(student_text) and student_text.strip().lower() == expected
+		expected_raw = str(correct_value or "")
+		st_raw = student_text.strip()
+		expected = expected_raw.strip().lower()
+		st_lower = st_raw.lower()
+		is_correct = bool(st_raw) and (
+			st_lower == expected
+			or _normalize_text_answer_for_match(st_raw) == _normalize_text_answer_for_match(expected_raw)
+		)
 
 	student_answer_value: Any
 	if qtype in {"single", "multiple"}:
@@ -790,6 +807,9 @@ async def submit_test(
 	try:
 		orchestrator = get_orchestrator()
 		for idx, item in enumerate(question_results):
+			ts_val = None
+			if payload.time_spent_seconds is not None and idx == 0:
+				ts_val = int(round(float(payload.time_spent_seconds)))
 			orchestrator.process_task_submission(
 				user_id=payload.user_id,
 				task_id=item.get("question_id") or idx + 1,
@@ -797,6 +817,8 @@ async def submit_test(
 				user_answer=str(item.get("student_answer") or ""),
 				correct_answer=str(item.get("correct_answer_text") or ""),
 				topic=test.topic or test.title,
+				time_spent_seconds=ts_val,
+				verified_is_correct=bool(item.get("is_correct")),
 			)
 	except Exception as e:
 		warn = f"profile update failed: {e}"
@@ -814,6 +836,7 @@ async def submit_test(
 		"total": total_questions,
 		"earned_points": earned_points,
 		"max_points": max_points,
+		"time_spent_seconds": payload.time_spent_seconds,
 		"summary": summary,
 		"feedback": feedback,
 		"question_results": question_results,

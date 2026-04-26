@@ -292,6 +292,7 @@ async def submit_library_checkpoint(
         correct_answer=ca,
         topic=topic,
         time_spent_seconds=None,
+        verified_is_correct=ok,
     )
 
     feedback = (

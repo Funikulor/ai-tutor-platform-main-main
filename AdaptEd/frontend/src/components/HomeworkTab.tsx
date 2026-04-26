@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { fetchHomeworks, Homework } from '../services/homework';
 import { BookOpen, CheckCircle, ChevronDown, ChevronRight, Clock, Loader2, MessageCircle, Send } from 'lucide-react';
 import {
@@ -50,6 +50,8 @@ export function HomeworkTab() {
   const [assignmentTests, setAssignmentTests] = useState<Record<number, TestDetail>>({});
   const [submissionResults, setSubmissionResults] = useState<Record<number, TestSubmissionDetail | null>>({});
   const [expandedHomeworks, setExpandedHomeworks] = useState<Record<number, boolean>>({});
+  const testAttemptStartedAt = useRef<Record<number, number>>({});
+  const [submissionElapsedSeconds, setSubmissionElapsedSeconds] = useState<Record<number, number>>({});
   const [draftAnswers, setDraftAnswers] = useState<Record<number, Record<number, {
     selected_option_indexes: number[];
     answer_text: string;
@@ -148,7 +150,13 @@ export function HomeworkTab() {
   };
 
   const toggleHomework = (homeworkId: number) => {
-    setExpandedHomeworks((prev) => ({ ...prev, [homeworkId]: !prev[homeworkId] }));
+    setExpandedHomeworks((prev) => {
+      const nextOpen = !prev[homeworkId];
+      if (nextOpen && !testAttemptStartedAt.current[homeworkId]) {
+        testAttemptStartedAt.current[homeworkId] = Date.now();
+      }
+      return { ...prev, [homeworkId]: nextOpen };
+    });
   };
 
   useEffect(() => {
@@ -263,11 +271,22 @@ export function HomeworkTab() {
     setTestSubmitLoading(hw.id);
     setError(null);
     try {
+      const started = testAttemptStartedAt.current[hw.id];
+      const elapsedSec =
+        started != null ? Math.max(1, Math.round((Date.now() - started) / 1000)) : undefined;
       const result = await submitTest(test.id, {
         user_id: userId,
         homework_id: hw.id,
+        time_spent_seconds: elapsedSec,
         answers: buildPayload(hw.id, test),
       });
+      const elapsed =
+        result.time_spent_seconds != null && result.time_spent_seconds > 0
+          ? Math.round(Number(result.time_spent_seconds))
+          : elapsedSec;
+      if (elapsed != null) {
+        setSubmissionElapsedSeconds((prev) => ({ ...prev, [hw.id]: elapsed }));
+      }
       const detailedSubmission = await getTestSubmission(result.submission_id);
       setSubmissionResults((prev) => ({ ...prev, [hw.id]: detailedSubmission }));
       setHomeworks((prev) =>
@@ -387,6 +406,12 @@ export function HomeworkTab() {
                             <div className="text-lg font-semibold text-gray-900">
                               {result.earned_points ?? 0} из {result.max_points ?? test.max_points ?? 0} балл. • {result.correct_count ?? 0} из {result.total_questions ?? test.questions.length} правильных • {result.score}%
                             </div>
+                            {submissionElapsedSeconds[hw.id] != null && (
+                              <div className="mt-1 flex items-center gap-1 text-sm text-gray-600">
+                                <Clock className="h-4 w-4" />
+                                Время на тест: {submissionElapsedSeconds[hw.id]} сек
+                              </div>
+                            )}
                           </div>
                           <button
                             type="button"

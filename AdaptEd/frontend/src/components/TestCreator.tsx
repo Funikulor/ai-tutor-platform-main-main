@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { Plus, Wand2, Trash2, Save, Eye, Copy, Download, Loader2 } from 'lucide-react';
 import { generateTest, createManualTest, updateTest } from '../services/tests';
 import api from '../services/api';
+import { toast } from 'sonner';
 
 interface Question {
   id: string;
@@ -122,16 +123,17 @@ export function TestCreator({ onSaved }: TestCreatorProps) {
         };
       });
 
+      const topicLabel = (testData.topic || topics || '').trim();
       setTest({
         ...test,
         title: testData.title || `Тест: ${topics}`,
-        description: testData.topic ? `Автоматически сгенерированный тест по теме "${testData.topic}"` : test.description,
+        description: topicLabel || test.description,
         questions: convertedQuestions
       });
       
       setSavedTestId(testData.id);
       onSaved?.();
-      alert(`Тест успешно сгенерирован! Создано ${convertedQuestions.length} вопросов.`);
+      toast.success(`Тест сгенерирован: ${convertedQuestions.length} вопросов`, { duration: 5000 });
     } catch (error: any) {
       console.error('Ошибка генерации теста:', error);
       
@@ -257,7 +259,10 @@ export function TestCreator({ onSaved }: TestCreatorProps) {
           questions: apiQuestions,
         });
         onSaved?.();
-        alert(`Изменения в тесте «${test.title}» сохранены.\n\nВопросов: ${test.questions.length}\nОбщий балл: ${test.questions.reduce((sum, q) => sum + q.points, 0)}`);
+        toast.success(
+          `Тест «${test.title}» сохранён. Вопросов: ${test.questions.length}, баллов: ${test.questions.reduce((sum, q) => sum + q.points, 0)}`,
+          { duration: 5000 }
+        );
       } else {
         const testData = await createManualTest({
           title: test.title,
@@ -268,7 +273,10 @@ export function TestCreator({ onSaved }: TestCreatorProps) {
         });
         setSavedTestId(testData.id);
         onSaved?.();
-        alert(`Тест «${test.title}» создан и сохранён!\n\nВопросов: ${test.questions.length}\nОбщий балл: ${test.questions.reduce((sum, q) => sum + q.points, 0)}`);
+        toast.success(
+          `Тест «${test.title}» создан. Вопросов: ${test.questions.length}, баллов: ${test.questions.reduce((sum, q) => sum + q.points, 0)}`,
+          { duration: 5000 }
+        );
       }
     } catch (error: any) {
       console.error('Ошибка сохранения теста:', error);

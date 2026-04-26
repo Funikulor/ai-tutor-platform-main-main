@@ -176,6 +176,7 @@ export async function submitTest(
     max_points: number;
     correct: number;
     total: number;
+    time_spent_seconds?: number | null;
     summary?: string;
     feedback?: string;
     question_results: QuestionResult[];
