@@ -674,7 +674,7 @@ export function AdminPanel() {
               <BookOpen className={`h-5 w-5 ${activeTab === 'content' ? 'text-indigo-600' : 'text-slate-400'}`} />
               Контент
             </span>
-            <span className="pl-7 text-xs text-slate-500">Библиотека как у ученика и структура тем</span>
+            <span className="pl-7 text-xs text-slate-500">Библиотека как у ученика: курсы и материалы</span>
           </button>
           <button
             type="button"
