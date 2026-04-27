@@ -9,7 +9,6 @@ import {
   GraduationCap,
   Layers,
   Route,
-  LayoutList,
   Plus,
   Pencil,
 } from 'lucide-react';
@@ -30,11 +29,10 @@ import { MaterialAdminEditor } from './MaterialAdminEditor';
 import { CourseAdminEditor } from './CourseAdminEditor';
 
 interface AdminLibraryEditorProps {
-  onOpenStructure: () => void;
   onEditCatalogTopic: (topicId: number) => void;
 }
 
-export function AdminLibraryEditor({ onOpenStructure, onEditCatalogTopic }: AdminLibraryEditorProps) {
+export function AdminLibraryEditor({ onEditCatalogTopic }: AdminLibraryEditorProps) {
   const [librarySection, setLibrarySection] = useState<'courses' | 'materials' | 'program'>('courses');
   const [selectedMaterial, setSelectedMaterial] = useState<Material | null>(null);
   const [courseEditor, setCourseEditor] = useState<null | { mode: 'edit'; id: string } | { mode: 'new' }>(null);
@@ -289,8 +287,7 @@ export function AdminLibraryEditor({ onOpenStructure, onEditCatalogTopic }: Admi
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-        <div className="rounded-2xl bg-gradient-to-r from-indigo-700 via-indigo-700 to-violet-700 p-6 text-white shadow-md sm:max-w-3xl">
+      <div className="rounded-2xl bg-gradient-to-r from-indigo-700 via-indigo-700 to-violet-700 p-6 text-white shadow-md">
           <div className="flex flex-wrap items-start gap-3">
             <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-white/20 backdrop-blur-sm">
               <BookOpen className="h-7 w-7" />
@@ -299,22 +296,10 @@ export function AdminLibraryEditor({ onOpenStructure, onEditCatalogTopic }: Admi
               <p className="text-xs font-semibold uppercase tracking-wide text-indigo-200">Режим редактора</p>
               <h2 className="mt-1 text-2xl font-bold">Библиотека — как у ученика</h2>
               <p className="mt-2 text-sm text-indigo-100/95">
-                Те же вкладки и карточки. Нажмите материал или курс — текст и шаги сохраняются автоматически. Привязка к
-                темам программы — в разделе «Структура программы».
+                Те же вкладки и карточки. Нажмите материал или курс — текст и шаги сохраняются автоматически.
               </p>
             </div>
           </div>
-        </div>
-        <div className="flex flex-col gap-2 sm:items-end">
-          <button
-            type="button"
-            onClick={onOpenStructure}
-            className="inline-flex items-center justify-center gap-2 rounded-xl border-2 border-indigo-200 bg-white px-4 py-3 text-sm font-semibold text-indigo-800 shadow-sm transition hover:bg-indigo-50"
-          >
-            <LayoutList className="h-4 w-4" />
-            Структура программы (темы)
-          </button>
-        </div>
       </div>
 
       <div className="flex flex-wrap gap-2">

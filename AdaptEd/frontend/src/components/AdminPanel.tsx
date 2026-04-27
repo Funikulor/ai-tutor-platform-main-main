@@ -714,7 +714,6 @@ export function AdminPanel() {
         <div className="space-y-6">
           {contentMode === 'library' ? (
             <AdminLibraryEditor
-              onOpenStructure={() => setContentMode('structure')}
               onEditCatalogTopic={openTopicFromLibrary}
             />
           ) : null}
