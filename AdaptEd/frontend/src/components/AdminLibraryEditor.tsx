@@ -1,6 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
 import {
-  BookOpen,
   Video,
   FileText,
   ChevronRight,
@@ -218,21 +217,6 @@ export function AdminLibraryEditor() {
 
   return (
     <div className="space-y-6">
-      <div className="rounded-2xl border border-indigo-400/70 bg-gradient-to-r from-indigo-800 via-violet-700 to-fuchsia-700 p-6 text-white shadow-sm ring-1 ring-indigo-300/30">
-          <div className="flex flex-wrap items-start gap-3">
-            <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-white/20 backdrop-blur-sm">
-              <BookOpen className="h-7 w-7" />
-            </div>
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-wide text-indigo-200">Режим редактора</p>
-              <h2 className="mt-1 text-2xl font-bold">Библиотека — как у ученика</h2>
-              <p className="mt-2 text-sm text-indigo-100/95">
-                Те же вкладки и карточки. Нажмите материал или курс — текст и шаги сохраняются автоматически.
-              </p>
-            </div>
-          </div>
-      </div>
-
       <div className="flex flex-wrap gap-2">
         <button
           type="button"
@@ -286,13 +270,15 @@ export function AdminLibraryEditor() {
       <div className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
         <div className="flex flex-col gap-4 lg:flex-row">
           <div className="relative flex-1">
-            <Search className="absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-gray-400" />
+            <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3">
+              <Search className="h-4 w-4 text-gray-400" />
+            </div>
             <input
               type="text"
               placeholder={librarySection === 'courses' ? 'Поиск курсов…' : 'Поиск материалов…'}
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full rounded-lg border border-gray-300 py-2 pl-10 pr-4 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20"
+              className="h-11 w-full rounded-lg border border-gray-300 py-2 pl-10 pr-4 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20"
             />
           </div>
           <select
