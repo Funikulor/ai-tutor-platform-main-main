@@ -350,20 +350,6 @@ export function AdminPanel() {
     setShowEditTopicModal(true);
   };
 
-  const openTopicFromLibrary = (topicId: number) => {
-    for (const sub of contentStructure) {
-      for (const sec of sub.sections) {
-        const t = sec.topics.find((x) => x.id === topicId);
-        if (t) {
-          handleEditTopic(t, sec.id);
-          setContentMode('structure');
-          return;
-        }
-      }
-    }
-    toast.error('Тема не найдена в каталоге. Нажмите «Обновить данные».');
-  };
-
   const handleAddTask = (topic: any, sectionId: number) => {
     setAddTaskTopic({ id: topic.id, name: topic.name, sectionId });
     setShowAddTaskModal(true);
@@ -713,9 +699,7 @@ export function AdminPanel() {
       {activeTab === 'content' && (
         <div className="space-y-6">
           {contentMode === 'library' ? (
-            <AdminLibraryEditor
-              onEditCatalogTopic={openTopicFromLibrary}
-            />
+            <AdminLibraryEditor />
           ) : null}
 
           {contentMode === 'structure' ? (
@@ -759,8 +743,8 @@ export function AdminPanel() {
             <div className="border-b border-indigo-100 bg-indigo-50/40 px-5 py-4 text-sm leading-relaxed text-slate-700 sm:px-6">
               <p>
                 <span className="font-semibold text-slate-900">Назначение:</span> методический каталог (что изучаем, текст для ученика, заметки учителю, класс). Кнопка{' '}
-                <span className="font-medium text-indigo-700">«Библиотека»</span> привязывает материалы и мини-курсы — они появятся у ученика в разделе{' '}
-                <span className="font-medium">«По программе»</span>. <span className="font-medium">«+ Задание»</span> — элементы плана в каталоге, это не тесты в БД.
+                <span className="font-medium text-indigo-700">«Библиотека»</span> привязывает материалы и мини-курсы к темам — ученик увидит их в библиотеке по предметам.{' '}
+                <span className="font-medium">«+ Задание»</span> — элементы плана в каталоге, это не тесты в БД.
               </p>
               <p className="mt-2 text-xs text-slate-600">
                 Хранение: при Postgres — таблицы <code className="rounded bg-white px-1.5 py-0.5 text-[11px] ring-1 ring-slate-200">curriculum_*</code>; без БД —{' '}

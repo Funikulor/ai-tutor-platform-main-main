@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Eye, Loader2, ListPlus, Save, Send, Trash2 } from 'lucide-react';
 import api from '../services/api';
 import { deleteAssignedHomework, fetchHomeworks, updateAssignedHomework } from '../services/homework';
@@ -63,6 +63,7 @@ export function TeacherTestsTab({
   const [selectedSubmission, setSelectedSubmission] = useState<TestSubmissionDetail | null>(null);
   const [submissionLoading, setSubmissionLoading] = useState<number | null>(null);
   const [selectedHomeworkId, setSelectedHomeworkId] = useState<number | null>(preselectedHomeworkId);
+  const assignBlockRef = useRef<HTMLDivElement>(null);
 
   const [editTitle, setEditTitle] = useState('');
   const [editTopic, setEditTopic] = useState('');
@@ -357,19 +358,38 @@ export function TeacherTestsTab({
           )}
           <div className="space-y-2 max-h-[500px] overflow-auto">
             {tests.map((t) => (
-              <button
+              <div
                 key={t.id}
-                type="button"
-                onClick={() => handleSelectTest(t.id)}
-                className={`w-full rounded-xl border p-3 text-left text-sm transition ${
+                className={`flex gap-2 rounded-xl border p-1 text-sm transition ${
                   selectedTest?.id === t.id
                     ? 'border-indigo-300 bg-white shadow-md ring-2 ring-indigo-500/10'
                     : 'border-slate-200/90 bg-white hover:border-slate-300 hover:shadow-sm'
                 }`}
               >
-                <div className="text-sm font-semibold text-gray-900">{t.title}</div>
-                <div className="text-xs text-gray-500">{t.topic || '—'} • {t.difficulty || '—'}</div>
-              </button>
+                <button
+                  type="button"
+                  onClick={() => handleSelectTest(t.id)}
+                  className="min-w-0 flex-1 rounded-lg p-2 text-left"
+                >
+                  <div className="font-semibold text-gray-900">{t.title}</div>
+                  <div className="text-xs text-gray-500">{t.topic || '—'} • {t.difficulty || '—'}</div>
+                </button>
+                {mode === 'manage' && (
+                  <button
+                    type="button"
+                    className="shrink-0 self-center whitespace-nowrap rounded-lg bg-green-600 px-2.5 py-2 text-xs font-medium text-white hover:bg-green-700 sm:px-3 sm:text-sm"
+                    onClick={async (e) => {
+                      e.stopPropagation();
+                      await handleSelectTest(t.id);
+                      requestAnimationFrame(() =>
+                        assignBlockRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+                      );
+                    }}
+                  >
+                    Назначить ДЗ
+                  </button>
+                )}
+              </div>
             ))}
             {!loading && tests.length === 0 && (
               <div className="text-sm text-gray-500">Тесты пока не найдены. Создайте тест во вкладке "Создание тестов".</div>
@@ -515,7 +535,7 @@ export function TeacherTestsTab({
               )}
 
               {mode === 'manage' && selectedHomeworkId == null && (
-              <div className="pt-4 border-t border-gray-200 space-y-3">
+              <div ref={assignBlockRef} className="pt-4 border-t border-gray-200 space-y-3">
                 <div className="text-sm font-semibold text-gray-900">Назначить как ДЗ/КР/проверочную</div>
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
                   <select

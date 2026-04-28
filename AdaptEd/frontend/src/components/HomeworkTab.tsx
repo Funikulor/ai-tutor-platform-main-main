@@ -48,6 +48,7 @@ export function HomeworkTab() {
   const [testSubmitLoading, setTestSubmitLoading] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [assignmentTests, setAssignmentTests] = useState<Record<number, TestDetail>>({});
+  const [assignmentTestErrors, setAssignmentTestErrors] = useState<Record<number, string>>({});
   const [submissionResults, setSubmissionResults] = useState<Record<number, TestSubmissionDetail | null>>({});
   const [expandedHomeworks, setExpandedHomeworks] = useState<Record<number, boolean>>({});
   const testAttemptStartedAt = useRef<Record<number, number>>({});
@@ -99,14 +100,8 @@ export function HomeworkTab() {
       setHomeworks(data);
       const testHomeworks = data.filter((hw) => (hw.kind || 'test') === 'test' && hw.test_id);
 
-      const loadedTests = await Promise.all(
-        testHomeworks.map(async (hw) => {
-          const test = await getTest(hw.test_id!);
-          return { homeworkId: hw.id, test };
-        })
-      );
-
       const testsMap: Record<number, TestDetail> = {};
+      const errorsMap: Record<number, string> = {};
       const nextDrafts: Record<number, Record<number, {
         selected_option_indexes: number[];
         answer_text: string;
@@ -114,10 +109,24 @@ export function HomeworkTab() {
         student_explanation: string;
       }>> = {};
 
-      loadedTests.forEach(({ homeworkId, test }) => {
-        testsMap[homeworkId] = test;
-        nextDrafts[homeworkId] = buildEmptyDrafts(test);
-      });
+      await Promise.all(
+        testHomeworks.map(async (hw) => {
+          try {
+            const test = await getTest(hw.test_id!);
+            testsMap[hw.id] = test;
+            nextDrafts[hw.id] = buildEmptyDrafts(test);
+          } catch (e: unknown) {
+            const detail =
+              typeof e === 'object' && e !== null && 'response' in e
+                ? (e as { response?: { data?: { detail?: string } } }).response?.data?.detail
+                : undefined;
+            errorsMap[hw.id] =
+              typeof detail === 'string'
+                ? detail
+                : 'Не удалось загрузить тест. Возможно, он удалён — попросите учителя назначить задание заново.';
+          }
+        })
+      );
 
       const resultEntries = await Promise.all(
         testHomeworks
@@ -134,6 +143,7 @@ export function HomeworkTab() {
       });
 
       setAssignmentTests(testsMap);
+      setAssignmentTestErrors(errorsMap);
       setSubmissionResults(resultsMap);
       setDraftAnswers((prev) => ({ ...nextDrafts, ...prev }));
     } catch (e: any) {
@@ -573,6 +583,28 @@ export function HomeworkTab() {
                 );
               }
 
+              if (
+                (hw.kind || 'test') === 'test' &&
+                (hw.test_id == null || hw.test_id === undefined)
+              ) {
+                return (
+                  <div className="mt-4 p-4 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-800">
+                    Задание создано без привязки к тесту в базе. Учителю нужно назначить тест через «Назначить тест ученику»
+                    или «Назначить ДЗ» у сохранённого теста — тогда у задания появится связь с тестом, и его можно будет пройти.
+                  </div>
+                );
+              }
+              if (assignmentTestErrors[hw.id]) {
+                return (
+                  <div className="mt-4 space-y-2 rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-800">
+                    <p className="font-medium">Тест недоступен</p>
+                    <p>{assignmentTestErrors[hw.id]}</p>
+                    <p className="text-red-700/90">
+                      Если тест удалили или база сброшена, попросите учителя удалить это задание и назначить тест снова.
+                    </p>
+                  </div>
+                );
+              }
               return (
                 <div className="mt-4 p-4 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-800">
                   Это домашнее задание еще не привязано к тесту. Для нового сценария назначайте ученикам тесты как ДЗ.

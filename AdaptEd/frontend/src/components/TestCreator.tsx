@@ -124,10 +124,16 @@ export function TestCreator({ onSaved }: TestCreatorProps) {
       });
 
       const topicLabel = (testData.topic || topics || '').trim();
+      const catalogDifficulty: Test['difficulty'] = (() => {
+        const raw = (testData as { difficulty?: string }).difficulty ?? generateSettings.difficulty;
+        if (raw === 'easy' || raw === 'medium' || raw === 'hard') return raw;
+        return generateSettings.difficulty;
+      })();
       setTest({
         ...test,
         title: testData.title || `Тест: ${topics}`,
         description: topicLabel || test.description,
+        difficulty: catalogDifficulty,
         questions: convertedQuestions
       });
       

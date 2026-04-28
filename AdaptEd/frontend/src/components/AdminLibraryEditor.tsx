@@ -8,9 +8,7 @@ import {
   Star,
   GraduationCap,
   Layers,
-  Route,
   Plus,
-  Pencil,
 } from 'lucide-react';
 import { motion } from 'motion/react';
 import api from '../services/api';
@@ -19,21 +17,14 @@ import type { Material } from './LibraryTab';
 import {
   fetchMaterials,
   fetchLibraryCourses,
-  fetchCurriculumOverview,
   createLibraryMaterial,
   type LibraryCourse,
-  type CurriculumProgramSubject,
-  type CurriculumMaterialCard,
 } from '../services/materials';
 import { MaterialAdminEditor } from './MaterialAdminEditor';
 import { CourseAdminEditor } from './CourseAdminEditor';
 
-interface AdminLibraryEditorProps {
-  onEditCatalogTopic: (topicId: number) => void;
-}
-
-export function AdminLibraryEditor({ onEditCatalogTopic }: AdminLibraryEditorProps) {
-  const [librarySection, setLibrarySection] = useState<'courses' | 'materials' | 'program'>('courses');
+export function AdminLibraryEditor() {
+  const [librarySection, setLibrarySection] = useState<'courses' | 'materials'>('courses');
   const [selectedMaterial, setSelectedMaterial] = useState<Material | null>(null);
   const [courseEditor, setCourseEditor] = useState<null | { mode: 'edit'; id: string } | { mode: 'new' }>(null);
   const [searchQuery, setSearchQuery] = useState('');
@@ -44,8 +35,6 @@ export function AdminLibraryEditor({ onEditCatalogTopic }: AdminLibraryEditorPro
   const [materialsLoading, setMaterialsLoading] = useState(true);
   const [coursesLoading, setCoursesLoading] = useState(true);
   const [materialRatings, setMaterialRatings] = useState<Record<string, number>>({});
-  const [programTree, setProgramTree] = useState<CurriculumProgramSubject[]>([]);
-  const [programOverviewLoading, setProgramOverviewLoading] = useState(true);
   const [showNewMaterialModal, setShowNewMaterialModal] = useState(false);
   const [newMatTitle, setNewMatTitle] = useState('');
   const [newMatCreating, setNewMatCreating] = useState(false);
@@ -89,64 +78,7 @@ export function AdminLibraryEditor({ onEditCatalogTopic }: AdminLibraryEditorPro
     loadMaterialRatings();
   }, [loadMaterials, loadCourses, loadMaterialRatings]);
 
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const tree = await fetchCurriculumOverview();
-        if (!cancelled) setProgramTree(tree);
-      } catch {
-        if (!cancelled) setProgramTree([]);
-      } finally {
-        if (!cancelled) setProgramOverviewLoading(false);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
   const q = searchQuery.toLowerCase();
-  const programSearchOk = (text: string) => {
-    if (!q) return true;
-    return text.toLowerCase().includes(q);
-  };
-
-  const filteredProgram = programTree
-    .filter((subj) => selectedSubject === 'all' || subj.subject === selectedSubject)
-    .map((subj) => ({
-      ...subj,
-      sections: subj.sections
-        .map((sec) => ({
-          ...sec,
-          topics: sec.topics.filter(
-            (t) =>
-              programSearchOk(t.name) ||
-              programSearchOk(t.description || '') ||
-              programSearchOk(subj.subject) ||
-              programSearchOk(sec.name)
-          ),
-        }))
-        .filter((sec) => sec.topics.length > 0),
-    }))
-    .filter((subj) => subj.sections.length > 0);
-
-  const openProgramMaterial = async (card: CurriculumMaterialCard) => {
-    let full = materials.find((m) => m.id === card.id);
-    if (!full) {
-      try {
-        const list = await fetchMaterials();
-        const arr = Array.isArray(list) ? list : [];
-        setMaterials(arr);
-        full = arr.find((m) => m.id === card.id);
-      } catch {
-        toast.error('Не удалось загрузить материалы');
-        return;
-      }
-    }
-    if (full) setSelectedMaterial(full);
-    else toast.error('Материал не найден');
-  };
 
   const filteredCourses = courses.filter((c) => {
     const subOk = selectedSubject === 'all' || c.subject === selectedSubject;
@@ -173,7 +105,6 @@ export function AdminLibraryEditor({ onEditCatalogTopic }: AdminLibraryEditorPro
       new Set([
         ...materials.map((m) => m.subject),
         ...courses.map((c) => c.subject),
-        ...programTree.map((s) => s.subject),
       ])
     ),
   ];
@@ -287,7 +218,7 @@ export function AdminLibraryEditor({ onEditCatalogTopic }: AdminLibraryEditorPro
 
   return (
     <div className="space-y-6">
-      <div className="rounded-2xl bg-gradient-to-r from-indigo-700 via-indigo-700 to-violet-700 p-6 text-white shadow-md">
+      <div className="rounded-2xl border border-indigo-400/70 bg-gradient-to-r from-indigo-800 via-violet-700 to-fuchsia-700 p-6 text-white shadow-sm ring-1 ring-indigo-300/30">
           <div className="flex flex-wrap items-start gap-3">
             <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-white/20 backdrop-blur-sm">
               <BookOpen className="h-7 w-7" />
@@ -327,18 +258,6 @@ export function AdminLibraryEditor({ onEditCatalogTopic }: AdminLibraryEditorPro
           <Layers className="h-5 w-5" />
           Статьи, видео, PDF
         </button>
-        <button
-          type="button"
-          onClick={() => setLibrarySection('program')}
-          className={`inline-flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-medium transition-colors ${
-            librarySection === 'program'
-              ? 'bg-indigo-600 text-white shadow-md'
-              : 'border border-gray-200 bg-white text-gray-700 hover:bg-gray-50'
-          }`}
-        >
-          <Route className="h-5 w-5" />
-          По программе
-        </button>
       </div>
 
       <div className="flex flex-wrap items-center gap-2 rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
@@ -370,13 +289,7 @@ export function AdminLibraryEditor({ onEditCatalogTopic }: AdminLibraryEditorPro
             <Search className="absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-gray-400" />
             <input
               type="text"
-              placeholder={
-                librarySection === 'courses'
-                  ? 'Поиск курсов…'
-                  : librarySection === 'program'
-                    ? 'Поиск по темам программы…'
-                    : 'Поиск материалов…'
-              }
+              placeholder={librarySection === 'courses' ? 'Поиск курсов…' : 'Поиск материалов…'}
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className="w-full rounded-lg border border-gray-300 py-2 pl-10 pr-4 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20"
@@ -414,86 +327,6 @@ export function AdminLibraryEditor({ onEditCatalogTopic }: AdminLibraryEditorPro
           ) : null}
         </div>
       </div>
-
-      {librarySection === 'program' && (
-        <>
-          {programOverviewLoading && (
-            <div className="rounded-xl border border-gray-200 bg-white p-4 text-sm text-gray-500">Загружаем программу…</div>
-          )}
-          {!programOverviewLoading && filteredProgram.length === 0 && (
-            <div className="rounded-xl border border-gray-200 bg-white py-12 text-center">
-              <Route className="mx-auto mb-3 h-14 w-14 text-gray-300" />
-              <p className="font-medium text-gray-700">Нет данных программы или ничего не найдено</p>
-              <p className="mx-auto mt-2 max-w-md text-sm text-gray-500">
-                Настройте каталог тем в «Структуре программы» и привяжите материалы к темам.
-              </p>
-            </div>
-          )}
-          {!programOverviewLoading && filteredProgram.length > 0 && (
-            <div className="space-y-8">
-              {filteredProgram.map((subj) => (
-                <div key={subj.id} className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">
-                  <div className="border-b border-gray-200 bg-gradient-to-r from-emerald-50 to-teal-50 px-6 py-4">
-                    <h2 className="text-lg font-bold text-gray-900">{subj.subject}</h2>
-                  </div>
-                  <div className="space-y-6 p-6">
-                    {subj.sections.map((sec) => (
-                      <div key={sec.id}>
-                        <h3 className="mb-3 text-sm font-semibold uppercase tracking-wide text-emerald-900">{sec.name}</h3>
-                        <div className="space-y-4">
-                          {sec.topics.map((top) => (
-                            <div
-                              key={top.id}
-                              className="rounded-xl border border-gray-100 bg-gray-50/80 p-4 transition-colors hover:bg-gray-50"
-                            >
-                              <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-                                <h4 className="text-base font-semibold text-gray-900">{top.name}</h4>
-                                <button
-                                  type="button"
-                                  onClick={() => onEditCatalogTopic(top.id)}
-                                  className="inline-flex items-center gap-1 rounded-lg border border-indigo-200 bg-white px-3 py-1.5 text-xs font-semibold text-indigo-700 hover:bg-indigo-50"
-                                >
-                                  <Pencil className="h-3.5 w-3.5" />
-                                  Каталог темы и библиотека
-                                </button>
-                              </div>
-                              {top.description ? <p className="mb-3 text-sm text-gray-600 line-clamp-3">{top.description}</p> : null}
-                              <div className="flex flex-wrap gap-2">
-                                {top.materials.map((m) => (
-                                  <button
-                                    key={m.id}
-                                    type="button"
-                                    onClick={() => openProgramMaterial(m)}
-                                    className={`inline-flex max-w-[240px] items-center gap-2 truncate rounded-lg border-2 px-3 py-2 text-sm font-medium transition-all hover:shadow ${getTypeColor(m.type || 'article')}`}
-                                  >
-                                    {getTypeIcon(m.type || 'article')}
-                                    <span className="truncate">{m.title}</span>
-                                  </button>
-                                ))}
-                                {top.courses.map((c) => (
-                                  <button
-                                    key={c.id}
-                                    type="button"
-                                    onClick={() => setCourseEditor({ mode: 'edit', id: c.id })}
-                                    className="inline-flex max-w-[240px] items-center gap-2 truncate rounded-lg border-2 border-violet-200 bg-violet-50 px-3 py-2 text-sm font-medium text-violet-900 hover:border-violet-400 hover:shadow"
-                                  >
-                                    <GraduationCap className="h-4 w-4 shrink-0" />
-                                    <span className="truncate">{c.title}</span>
-                                  </button>
-                                ))}
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </>
-      )}
 
       {librarySection === 'courses' && (
         <>
