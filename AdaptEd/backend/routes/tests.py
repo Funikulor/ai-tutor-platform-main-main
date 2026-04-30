@@ -171,6 +171,43 @@ def _question_correct_display(question: TestQuestion) -> str:
 	return str(correct_value or "")
 
 
+def _extract_numeric_candidates_from_explanation(explanation: Optional[str]) -> List[str]:
+	"""
+	Извлекает числовые кандидаты финального ответа из объяснения.
+	Нужен как страховка, если AI сгенерировал неверный correct_answer,
+	но в explanation указан корректный итог.
+	"""
+	text = str(explanation or "")
+	if not text:
+		return []
+
+	candidates: List[str] = []
+	patterns = [
+		r"[Оо]твет[:\s]+(-?\d+(?:[.,]\d+)?(?:/\d+(?:[.,]\d+)?)?)",
+		r"[Ии]тог[:\s]+(-?\d+(?:[.,]\d+)?(?:/\d+(?:[.,]\d+)?)?)",
+		r"=\s*(-?\d+(?:[.,]\d+)?(?:/\d+(?:[.,]\d+)?)?)\s*(?:$|[.\n,;])",
+	]
+	for pattern in patterns:
+		for match in re.finditer(pattern, text):
+			raw = (match.group(1) or "").strip()
+			if raw:
+				candidates.append(raw.replace(",", "."))
+	return candidates
+
+
+def _numeric_alternative_correct_answers(question: TestQuestion) -> List[str]:
+	if _normalize_question_type(question.question_type) != "numeric":
+		return []
+	candidates = _extract_numeric_candidates_from_explanation(question.explanation)
+	if not candidates:
+		return []
+	unique: List[str] = []
+	for value in candidates:
+		if value not in unique:
+			unique.append(value)
+	return unique
+
+
 def _serialize_test(test: Test, include_questions: bool = False) -> Dict[str, Any]:
 	questions = sorted(test.questions, key=lambda q: q.id or 0) if getattr(test, "questions", None) else []
 	data = {
@@ -261,6 +298,13 @@ def _evaluate_question(question: TestQuestion, submitted: SubmittedAnswer) -> Di
 		correct_text = str(correct_value if correct_value is not None else "")
 		user_numeric_text = str(student_number) if student_number is not None else student_text
 		is_correct = numeric_answers_equal(user_numeric_text, correct_text)
+		if not is_correct:
+			# Фолбэк: если ключ от AI ошибочный, пробуем альтернативы из explanation.
+			for alt in _numeric_alternative_correct_answers(question):
+				if numeric_answers_equal(user_numeric_text, alt):
+					is_correct = True
+					correct_value = alt
+					break
 	elif qtype == "text":
 		expected_raw = str(correct_value or "")
 		st_raw = student_text.strip()
