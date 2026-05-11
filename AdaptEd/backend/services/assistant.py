@@ -54,7 +54,11 @@ class AssistantService:
 	"""AI Assistant wrapper with provider selection: hf_api or local pipeline."""
 
 	def __init__(self, model_name: str = None):
-		self.provider = os.getenv("ASSISTANT_PROVIDER", "openai")  # openai | proxyapi | hf_api | local
+		# openai | proxyapi | neuroapi (алиас proxyapi — тот же OpenAI-compatible HTTP клиент) | hf_api | local
+		raw = (os.getenv("ASSISTANT_PROVIDER", "openai") or "openai").strip().lower()
+		if raw == "neuroapi":
+			raw = "proxyapi"
+		self.provider = raw
 		self.hf_model = os.getenv("HF_MODEL", model_name or "microsoft/DialoGPT-medium")
 		self.hf_token = os.getenv("HF_API_TOKEN", "")
 		self.openai_api_key = os.getenv("OPENAI_API_KEY", "")

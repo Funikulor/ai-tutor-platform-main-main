@@ -17,10 +17,15 @@ try:
 	env_path = os.path.join(os.path.dirname(__file__), '.env')
 	load_dotenv(env_path)
 	print(f"[App] Загружен .env из: {env_path}")
-	print(f"[App] ASSISTANT_PROVIDER={os.getenv('ASSISTANT_PROVIDER', 'не установлен')}")
+	raw_prov = os.getenv('ASSISTANT_PROVIDER', 'не установлен')
+	print(f"[App] ASSISTANT_PROVIDER={raw_prov}")
+	if str(raw_prov).strip().lower() == 'neuroapi':
+		print("[App] Подсказка: ASSISTANT_PROVIDER=neuroapi обрабатывается как совместимый с ProxyAPI (те же PROXYAPI_* переменные).")
 	print(f"[App] OPENAI_MODEL={os.getenv('OPENAI_MODEL', 'не установлен')}")
 	print(f"[App] OPENAI_API_KEY={'установлен' if os.getenv('OPENAI_API_KEY') else 'не установлен'}")
-	provider = os.getenv('ASSISTANT_PROVIDER', 'openai')
+	provider = (os.getenv('ASSISTANT_PROVIDER', 'openai') or 'openai').strip().lower()
+	if provider == 'neuroapi':
+		provider = 'proxyapi'
 	openai_set = bool(os.getenv('OPENAI_API_KEY'))
 	proxy_set = bool(os.getenv('PROXYAPI_KEY'))
 	if provider == 'openai' and not openai_set:
