@@ -11,17 +11,6 @@ try:
 except Exception:
 	external_available = False
 
-try:
-	from openai import OpenAI, RateLimitError, APIError, APIConnectionError  # type: ignore
-	openai_available = True
-except Exception:
-	openai_available = False
-	RateLimitError = None
-	APIError = None
-	APIConnectionError = None
-
-# PROXYAPI использует requests (уже импортирован)
-
 from utils.persistent_storage import persistent_storage
 from utils.batched_saver import get_personality_batcher
 from utils.personalization_store import (
@@ -51,40 +40,38 @@ def assistant_response_means_llm_down(text: Optional[str]) -> bool:
 
 
 class AssistantService:
-	"""AI Assistant wrapper with provider selection: hf_api or local pipeline."""
+	"""Обёртка ассистента: онлайн (Proxy/OpenAI-compatible HTTP, Hugging Face Inference), локально — только при ASSISTANT_PROVIDER=local."""
 
 	def __init__(self, model_name: str = None):
 		self.hf_model = os.getenv("HF_MODEL", model_name or "microsoft/DialoGPT-medium")
 		self.hf_token = os.getenv("HF_API_TOKEN", "")
-		self.openai_api_key = os.getenv("OPENAI_API_KEY", "")
-		self.openai_model = os.getenv("OPENAI_MODEL", "gpt-4o")  # gpt-4o (рекомендуется), gpt-4o-mini, gpt-3.5-turbo; при появлении — gpt-5
 		self.proxyapi_key = os.getenv("PROXYAPI_KEY", "")
-		# OpenAI-compatible POST (ProxyAPI, NeuroAPI и др.)
+		# OpenAI Chat Completions-совместимый POST (ProxyAPI, NeuroAPI и др.)
 		self.proxyapi_url = os.getenv("PROXYAPI_URL", "https://api.proxyapi.ru/openai/v1/chat/completions")
 		self.proxyapi_model = os.getenv("PROXYAPI_MODEL", "gpt-4o")  # gpt-4o (рекомендуется), gpt-4o-mini и т.д.
 
 		explicit = (os.getenv("ASSISTANT_PROVIDER") or "").strip().lower()
 		if explicit == "neuroapi":
 			explicit = "proxyapi"
-		if explicit in ("openai", "proxyapi", "hf_api", "local"):
+		elif explicit == "openai":
+			print(
+				"[AssistantService] ASSISTANT_PROVIDER=openai игнорируется как официальный OpenAI SDK: "
+				"используется только OpenAI-compatible HTTP (PROXYAPI_KEY)."
+			)
+			explicit = "proxyapi"
+		if explicit in ("proxyapi", "hf_api", "local"):
 			self.provider = explicit
 			self._provider_source = "env"
 		else:
 			self._provider_source = "auto"
-			# Автовыбор: прямой OpenAI, иначе HTTP-совместимый прокси; без ключей — openai (ответ будет заглушкой)
-			if self.openai_api_key:
-				self.provider = "openai"
-			elif self.proxyapi_key:
+			# Онлайн в приоритете: сначала прокси, иначе Hugging Face; без ключей — канал proxyapi (ответ будет недоступен до настройки)
+			if self.proxyapi_key:
 				self.provider = "proxyapi"
+			elif self.hf_token:
+				self.provider = "hf_api"
 			else:
-				self.provider = "openai"
+				self.provider = "proxyapi"
 
-		self._openai_client = None
-		if openai_available and self.openai_api_key:
-			try:
-				self._openai_client = OpenAI(api_key=self.openai_api_key)
-			except Exception as e:
-				print(f"[AssistantService] Ошибка инициализации OpenAI клиента: {e}")
 		self._pipe = None
 		self._tokenizer = None
 		self._model = None
@@ -94,11 +81,10 @@ class AssistantService:
 		
 		ps = getattr(self, "_provider_source", "env")
 		print(f"[AssistantService] Провайдер: {self.provider}" + (f" ({ps})" if ps else ""))
-		print(f"[AssistantService] OpenAI модель: {self.openai_model}")
-		print(f"[AssistantService] OpenAI API ключ: {'установлен' if self.openai_api_key else 'не установлен'}")
 		print(f"[AssistantService] PROXYAPI URL: {self.proxyapi_url}")
 		print(f"[AssistantService] PROXYAPI модель: {self.proxyapi_model}")
 		print(f"[AssistantService] PROXYAPI ключ: {'установлен' if self.proxyapi_key else 'не установлен'}")
+		print(f"[AssistantService] Hugging Face модель: {self.hf_model}; HF_API_TOKEN: {'установлен' if self.hf_token else 'не установлен'}")
 	
 	def _load_personality_profiles(self):
 		"""Загружает профили личности из БД (с fallback)."""
@@ -220,106 +206,19 @@ class AssistantService:
 				except Exception:
 					self._pipe = None
 
-	def _generate_openai(self, prompt: str, messages: Optional[List[Dict[str, str]]] = None, max_new_tokens: int = 512) -> Optional[str]:
-		"""
-		Генерация через OpenAI API с обработкой rate limits
-		
-		Лимиты для gpt-4o / gpt-4o-mini:
-		- 60,000 TPM (токенов в минуту)
-		- 3 RPM (запросов в минуту)
-		- 200 RPD (запросов в день)
-		- 200,000 TPD (токенов в день)
-		"""
-		if not openai_available or not self._openai_client:
-			print(f"[OpenAI] OpenAI клиент недоступен")
-			return None
-		
-		# Формируем сообщения для OpenAI
-		openai_messages = []
+	def _prompt_for_hf_api(self, prompt: str, messages: Optional[List[Dict[str, str]]]) -> str:
 		if messages:
-			# Конвертируем формат сообщений для OpenAI
+			lines = []
 			for msg in messages:
 				role = msg.get("role", "user")
-				content = msg.get("content", "")
-				if role in ["user", "assistant", "system"]:
-					openai_messages.append({"role": role, "content": content})
-		else:
-			# Если нет истории, используем prompt как user сообщение
-			openai_messages = [{"role": "user", "content": prompt}]
-		
-		# Retry логика для обработки rate limits
-		max_retries = 3
-		base_delay = 1  # секунда
-		
-		for attempt in range(max_retries):
-			try:
-				print(f"[OpenAI] Отправка запроса, модель: {self.openai_model} (попытка {attempt + 1}/{max_retries})")
-				response = self._openai_client.chat.completions.create(
-					model=self.openai_model,
-					messages=openai_messages,
-					temperature=0.7,
-					max_tokens=max_new_tokens,
-				)
-				
-				if response and response.choices:
-					content = response.choices[0].message.content
-					result = content.strip() if content else None
-					if result:
-						print(f"[OpenAI] Успешно получен ответ (длина: {len(result)})")
-					else:
-						print(f"[OpenAI] Пустой ответ от модели")
-					return result
-				else:
-					print(f"[OpenAI] Пустой ответ от API")
-					return None
-					
-			except RateLimitError as e:
-				# Обработка rate limit ошибок
-				retry_after = getattr(e, 'retry_after', None)
-				if retry_after:
-					wait_time = float(retry_after)
-				else:
-					# Exponential backoff: 1s, 2s, 4s
-					wait_time = base_delay * (2 ** attempt)
-				
-				if attempt < max_retries - 1:
-					print(f"[OpenAI] Rate limit превышен. Ожидание {wait_time:.1f} секунд перед повтором...")
-					time.sleep(wait_time)
-				else:
-					print(f"[OpenAI] Rate limit превышен после {max_retries} попыток. Лимиты: 3 RPM, 60,000 TPM для {self.openai_model}")
-					return "Извините, превышен лимит запросов к OpenAI API. Пожалуйста, подождите немного и попробуйте снова. Лимиты: 3 запроса в минуту, 60,000 токенов в минуту."
-					
-			except APIConnectionError as e:
-				# Ошибки подключения
-				if attempt < max_retries - 1:
-					wait_time = base_delay * (2 ** attempt)
-					print(f"[OpenAI] Ошибка подключения. Повтор через {wait_time:.1f} секунд...")
-					time.sleep(wait_time)
-				else:
-					print(f"[OpenAI] Ошибка подключения после {max_retries} попыток: {e}")
-					return None
-					
-			except APIError as e:
-				# Другие ошибки API
-				error_code = getattr(e, 'code', None)
-				if error_code == 'insufficient_quota':
-					print(f"[OpenAI] Недостаточно средств на счету. Проверьте баланс на https://platform.openai.com/account/usage")
-					return "Извините, недостаточно средств на счету OpenAI. Пожалуйста, пополните баланс."
-				else:
-					print(f"[OpenAI] Ошибка API: {type(e).__name__}: {e}")
-					if attempt < max_retries - 1:
-						wait_time = base_delay * (2 ** attempt)
-						time.sleep(wait_time)
-					else:
-						return None
-						
-			except Exception as e:
-				print(f"[OpenAI] Неожиданная ошибка: {type(e).__name__}: {e}")
-				import traceback
-				traceback.print_exc()
-				return None
-		
-		return None
+				content = (msg.get("content") or "").strip()
+				if not content:
+					continue
+				if role in ("user", "assistant", "system"):
+					lines.append(f"{role}: {content}")
+			if lines:
+				return "\n".join(lines) + "\nassistant:"
+		return prompt or ""
 
 	def _generate_proxyapi(self, prompt: str, messages: Optional[List[Dict[str, str]]] = None, max_new_tokens: int = 512) -> Optional[str]:
 		"""
@@ -513,59 +412,36 @@ class AssistantService:
 		def _maybe_sanitize(text: str) -> str:
 			return self._humanize_model_text(text) if sanitize_output else text
 
-		# Пробуем PROXYAPI первым, если выбран
-		proxyapi_text = None
-		if self.provider == "proxyapi":
-			proxyapi_text = self._generate_proxyapi(prompt, messages, max_new_tokens)
-			if proxyapi_text:
-				return _maybe_sanitize(proxyapi_text)
-			# Fallback на другие провайдеры если PROXYAPI недоступна
-			print("PROXYAPI недоступна, пробуем другие провайдеры...")
-		
-		# Пробуем OpenAI
-		openai_text = None
-		if self.provider == "openai":
-			openai_text = self._generate_openai(prompt, messages, max_new_tokens)
-			if openai_text:
-				return _maybe_sanitize(openai_text)
-			# Fallback на другие провайдеры если OpenAI недоступна
-			print("OpenAI недоступна, пробуем другие провайдеры...")
-		
-		# Fallback на PROXYAPI, если OpenAI была выбрана но не работает
-		if self.provider == "openai" and not openai_text and self.proxyapi_key:
-			proxyapi_text = self._generate_proxyapi(prompt, messages, max_new_tokens)
-			if proxyapi_text:
-				return _maybe_sanitize(proxyapi_text)
-		
-		# Fallback на OpenAI, если PROXYAPI была выбрана но не работает
-		if self.provider == "proxyapi" and not proxyapi_text and openai_available and self.openai_api_key:
-			openai_text = self._generate_openai(prompt, messages, max_new_tokens)
-			if openai_text:
-				return _maybe_sanitize(openai_text)
-		
-		if self.provider == "hf_api" or ((self.provider == "openai" or self.provider == "proxyapi") and not openai_text and not proxyapi_text):
-			api_text = self._generate_hf_api(prompt, max_new_tokens)
+		# Приоритет: онлайн (OpenAI-compatible HTTP), затем Hugging Face Inference. Локально — только если ASSISTANT_PROVIDER=local.
+		if self.provider != "local":
+			if self.proxyapi_key:
+				proxy_text = self._generate_proxyapi(prompt, messages, max_new_tokens)
+				if proxy_text:
+					return _maybe_sanitize(proxy_text)
+				print("[AssistantService] PROXYAPI не вернул ответ; пробуем Hugging Face Inference API...")
+			hf_prompt = self._prompt_for_hf_api(prompt, messages)
+			api_text = self._generate_hf_api(hf_prompt, max_new_tokens)
 			if api_text:
 				return _maybe_sanitize(api_text)
-		
-		# Fallback на локальный pipeline
+
 		self._ensure_pipe()
 		if self._pipe is not None:
 			try:
-				result = self._pipe(prompt, max_new_tokens=max_new_tokens)
+				local_prompt = self._prompt_for_hf_api(prompt, messages) if messages else (prompt or "")
+				result = self._pipe(local_prompt, max_new_tokens=max_new_tokens)
 				if isinstance(result, list) and result:
 					text = result[0].get("generated_text") or result[0].get("summary_text") or ""
 					return _maybe_sanitize(text if isinstance(text, str) else str(text))
 			except Exception:
 				pass
 
-		openai_ok = bool(self.openai_api_key)
 		proxy_ok = bool(self.proxyapi_key)
+		hf_tok_ok = bool(self.hf_token)
 		print(
 			"[AssistantService] LLM: все провайдеры вернули пустой ответ. Для оператора платформы: "
-			f"provider={self.provider!r}; OPENAI_API_KEY={'задан' if openai_ok else 'нет'}; "
-			f"PROXYAPI_KEY={'задан' if proxy_ok else 'нет'} (опционально ASSISTANT_PROVIDER=openai|proxyapi|...; "
-			"без него выбирается автоматически по ключам)."
+			f"provider={self.provider!r}; PROXYAPI_KEY={'задан' if proxy_ok else 'нет'}; "
+			f"HF_API_TOKEN={'задан' if hf_tok_ok else 'нет'} (ASSISTANT_PROVIDER=proxyapi|hf_api|local; "
+			"без значения — автопо ключам)."
 		)
 
 		return _maybe_sanitize(ASSISTANT_UNAVAILABLE_USER_MESSAGE)
@@ -848,8 +724,8 @@ class AssistantService:
 		)
 		base_system = base_system + name_text
 		
-		# Для OpenAI используем формат с системным сообщением
-		if self.provider == "openai":
+		# OpenAI Chat Completions-совместимый HTTP (ProxyAPI / NeuroAPI): список сообщений с system.
+		if self.proxyapi_key and self.provider != "local":
 			# Добавляем системное сообщение в начало
 			formatted_messages = [{"role": "system", "content": f"{base_system}{personality_context}"}]
 			# Добавляем последние сообщения из истории

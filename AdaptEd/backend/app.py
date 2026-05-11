@@ -17,42 +17,45 @@ try:
 	env_path = os.path.join(os.path.dirname(__file__), '.env')
 	load_dotenv(env_path)
 	print(f"[App] Загружен .env из: {env_path}")
-	openai_set = bool(os.getenv("OPENAI_API_KEY"))
 	proxy_set = bool(os.getenv("PROXYAPI_KEY"))
+	hf_tok_set = bool(os.getenv("HF_API_TOKEN"))
 	exp_raw = (os.getenv("ASSISTANT_PROVIDER") or "").strip()
 	exp = exp_raw.lower()
-	if exp == "neuroapi":
+	if exp == "neuroapi" or exp == "openai":
 		exp = "proxyapi"
-	if exp in ("openai", "proxyapi", "hf_api", "local"):
+	if exp in ("proxyapi", "hf_api", "local"):
 		effective = exp
-	elif openai_set:
-		effective = "openai"
 	elif proxy_set:
 		effective = "proxyapi"
+	elif hf_tok_set:
+		effective = "hf_api"
 	else:
-		effective = "openai"
+		effective = "proxyapi"
 	if exp_raw:
-		print(f"[App] ASSISTANT_PROVIDER={exp_raw!r} → канал {effective!r}")
+		exp_disp = exp_raw
+		if exp_raw.lower() in ("openai", "neuroapi"):
+			exp_disp = f"{exp_raw} (совместимо с ProxyAPI/OpenAI-compatible HTTP)"
+		print(f"[App] ASSISTANT_PROVIDER={exp_disp!r} → канал {effective!r}")
 	else:
 		print(
 			f"[App] ASSISTANT_PROVIDER не задан → канал {effective!r} "
-			f"(ключи: OPENAI_API_KEY={'да' if openai_set else 'нет'}, PROXYAPI_KEY={'да' if proxy_set else 'нет'})"
+			f"(ключи: PROXYAPI_KEY={'да' if proxy_set else 'нет'}, HF_API_TOKEN={'да' if hf_tok_set else 'нет'})"
 		)
-	print(f"[App] OPENAI_API_KEY={'установлен' if openai_set else 'не установлен'}")
-	if not openai_set and not proxy_set:
+	print(f"[App] PROXYAPI_KEY={'установлен' if proxy_set else 'не установлен'}, HF_API_TOKEN={'установлен' if hf_tok_set else 'не установлен'}")
+	if not proxy_set and not hf_tok_set:
 		print(
-			"[App] ВНИМАНИЕ: ни OPENAI_API_KEY, ни PROXYAPI_KEY не заданы. "
-			"Чат и генерация через LLM недоступны. Задайте переменные в Railway Variables (сервис backend)."
+			"[App] ВНИМАНИЕ: ни PROXYAPI_KEY, ни HF_API_TOKEN не заданы — онлайн-LLM недоступен по ключу. "
+			"Укажите PROXYAPI_KEY (ProxyAPI / NeuroAPI) в Railway Variables или HF_API_TOKEN."
 		)
-	elif exp == "openai" and not openai_set:
-		print(
-			"[App] ВНИМАНИЕ: указан ASSISTANT_PROVIDER=openai, но OPENAI_API_KEY пуст. "
-			"Укажите ключ или уберите переменную (будет автовыбор по PROXYAPI_KEY)."
-		)
-	elif exp == "proxyapi" and not proxy_set:
+	elif exp_raw.lower() == "proxyapi" and not proxy_set:
 		print(
 			"[App] ВНИМАНИЕ: указан ASSISTANT_PROVIDER=proxyapi, но PROXYAPI_KEY пуст. "
-			"Укажите ключ или уберите переменную для автовыбора по OPENAI_API_KEY."
+			"Задайте ключ или временно попробуйте ASSISTANT_PROVIDER=hf_api с HF_API_TOKEN."
+		)
+	elif exp_raw.lower() == "hf_api" and not hf_tok_set:
+		print(
+			"[App] ВНИМАНИЕ: указан ASSISTANT_PROVIDER=hf_api, но HF_API_TOKEN пуст. "
+			"Часть запросов к Hugging Face без токена может не проходить; задайте токен."
 		)
 except Exception as e:
 	print(f"[App] Ошибка загрузки .env: {e}")
