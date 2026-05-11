@@ -142,7 +142,8 @@ async def generate_adaptive_task(request: Dict[str, Any]):
         profile = orchestrator.profiler.get_profile(user_id)
         
         # Получаем профиль личности для интересов
-        from services.assistant import get_assistant_service
+        from services.assistant import assistant_response_means_llm_down, get_assistant_service
+
         assistant = get_assistant_service()
         personality_profile = assistant.get_personality_profile(user_id)
         
@@ -213,18 +214,20 @@ async def generate_adaptive_task(request: Dict[str, Any]):
   "explanation": "Краткое пошаговое объяснение с точным ответом, без LaTeX и markdown"
 }}"""
         
-        assistant = get_assistant_service()
         raw_response = assistant._generate(
             prompt,
             max_new_tokens=650,
             sanitize_output=False,
         )
         
-        # Если модель недоступна (нет API ключа или провайдер недоступен) — возвращаем понятную ошибку
-        if raw_response and "модель временно недоступна" in raw_response:
+        # Нет ответа от LLM — в теле ошибки клиенту не передаём внутренние инструкции (они в логах backend)
+        if raw_response and assistant_response_means_llm_down(raw_response):
             raise HTTPException(
                 status_code=503,
-                detail=raw_response.strip()
+                detail=(
+                    "Генерация задания временно недоступна. "
+                    "Попробуйте позже или обратитесь к администратору платформы."
+                ),
             )
         
         # Логируем ответ для отладки

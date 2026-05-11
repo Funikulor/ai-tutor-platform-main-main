@@ -518,6 +518,7 @@ def _looks_like_provider_failure(raw: str) -> bool:
 	if not text:
 		return True
 	signals = (
+		"ответ ассистента временно недоступен",
 		"модель временно недоступна",
 		"openai api",
 		"proxyapi",

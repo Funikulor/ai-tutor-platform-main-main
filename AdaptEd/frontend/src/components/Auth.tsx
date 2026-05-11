@@ -20,23 +20,28 @@ export function Auth({ onSuccess }: AuthProps) {
     const healthTimeout = import.meta.env.PROD ? 60000 : 20000;
 
     try {
-      // Логируем для отладки
       const baseURL = (api.defaults.baseURL || '') as string;
-      console.log('Checking backend at:', baseURL || '/');
+      if (import.meta.env.DEV) {
+        console.log('Checking backend at:', baseURL || '/');
+      }
 
       // Лёгкий /health вместо / — не тянем index.html и не смешиваем с SPA
       const response = await api.get('/health', { timeout: healthTimeout });
       if (response.status === 200 && response.data) {
-        console.log('✅ Backend is online:', response.data);
+        if (import.meta.env.DEV) {
+          console.log('✅ Backend is online:', response.data);
+        }
         setBackendStatus('online');
       } else {
-        console.warn('⚠️ Backend responded but status is not 200:', response.status);
+        if (import.meta.env.DEV) {
+          console.warn('⚠️ Backend responded but status is not 200:', response.status);
+        }
         setBackendStatus('offline');
       }
     } catch (error: any) {
       const baseURL = (api.defaults.baseURL || '') as string;
       const fullURL = baseURL + '/';
-      
+
       console.error('❌ Backend check failed:', {
         error: error.message,
         code: error.code,
@@ -52,12 +57,16 @@ export function Auth({ onSuccess }: AuthProps) {
       
       // В production может быть холодный старт Railway или Neon
       if (import.meta.env.PROD && (error?.code === 'ETIMEDOUT' || error?.code === 'ECONNREFUSED' || error?.code === 'ERR_NETWORK')) {
-        console.log('⏳ Retrying backend check in 3 seconds...');
+        if (import.meta.env.DEV) {
+          console.log('⏳ Retrying backend check in 3 seconds...');
+        }
         // Даем еще одну попытку через 3 секунды
         setTimeout(() => {
           api.get('/health', { timeout: healthTimeout })
             .then(() => {
-              console.log('✅ Backend is online (after retry)');
+              if (import.meta.env.DEV) {
+                console.log('✅ Backend is online (after retry)');
+              }
               setBackendStatus('online');
             })
             .catch(() => {
@@ -72,11 +81,16 @@ export function Auth({ onSuccess }: AuthProps) {
   }, []);
 
   useEffect(() => {
-    checkBackend();
-    const intervalMs = import.meta.env.PROD ? 45000 : 20000;
-    const interval = setInterval(checkBackend, intervalMs);
-    return () => clearInterval(interval);
+    void checkBackend();
   }, [checkBackend]);
+
+  /** Периодический опрос только если бэкенд помечен offline (не спамим /health в production). */
+  useEffect(() => {
+    if (backendStatus !== 'offline') return;
+    const intervalMs = import.meta.env.PROD ? 45000 : 20000;
+    const interval = setInterval(() => void checkBackend(), intervalMs);
+    return () => clearInterval(interval);
+  }, [backendStatus, checkBackend]);
 
   const getAuthErrorMessage = (err: any) => {
     const fallback = 'Ошибка входа. Проверьте email и пароль.';

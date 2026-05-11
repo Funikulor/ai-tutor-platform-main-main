@@ -32,6 +32,23 @@ import requests
 from utils.db import has_db, get_db
 from models.personality_profile import PersonalityProfile, PersonalityTrait, CommunicationStyle
 
+# Текст для ученика/учителя: без секретов, имён переменных и окружений (это только в логах backend).
+ASSISTANT_UNAVAILABLE_USER_MESSAGE = (
+	"Извините, сейчас ответ ассистента временно недоступен. "
+	"Попробуйте позже или сообщите учителю или администратору платформы, если ошибка повторяется."
+)
+
+
+def assistant_response_means_llm_down(text: Optional[str]) -> bool:
+	"""Провайдер не вернул ответ; наш публичный fallback (для 503 и валидации в роутерах)."""
+	if not text:
+		return False
+	low = (text or "").lower()
+	if "ответ ассистента временно недоступен" in low:
+		return True
+	# Совместимость со старым текстом ошибки до правки UX
+	return "модель временно недоступна" in low
+
 
 class AssistantService:
 	"""AI Assistant wrapper with provider selection: hf_api or local pipeline."""
@@ -387,8 +404,8 @@ class AssistantService:
 					
 					# Обработка ошибок аутентификации
 					elif response.status_code in [401, 403]:
-						print(f"[PROXYAPI] Ошибка аутентификации. Проверьте PROXYAPI_KEY")
-						return "Извините, ошибка аутентификации PROXYAPI. Проверьте настройки API ключа."
+						print("[PROXYAPI] Ошибка аутентификации (401/403). Проверьте PROXYAPI_KEY в Variables/backend .env.")
+						return ASSISTANT_UNAVAILABLE_USER_MESSAGE
 					
 					# Другие ошибки
 					else:
@@ -525,8 +542,17 @@ class AssistantService:
 					return _maybe_sanitize(text if isinstance(text, str) else str(text))
 			except Exception:
 				pass
-		
-		return _maybe_sanitize("Извините, модель временно недоступна. Убедитесь, что API ключ задан: локально — в .env (OPENAI_API_KEY или PROXYAPI_KEY), на Railway — в разделе Variables. Также проверьте настройки провайдера (ASSISTANT_PROVIDER).")
+
+		openai_ok = bool(self.openai_api_key)
+		proxy_ok = bool(self.proxyapi_key)
+		print(
+			"[AssistantService] LLM: все провайдеры вернули пустой ответ. Для оператора платформы: "
+			f"ASSISTANT_PROVIDER={self.provider!r}; OPENAI_API_KEY={'задан' if openai_ok else 'нет'}; "
+			f"PROXYAPI_KEY={'задан' if proxy_ok else 'нет'}; ключи задаются в переменных окружения сервиса "
+			"с backend (например Railway → Variables)."
+		)
+
+		return _maybe_sanitize(ASSISTANT_UNAVAILABLE_USER_MESSAGE)
 
 	def _hw_due_display(self, due: Any) -> str:
 		if due is None:
