@@ -17,23 +17,43 @@ try:
 	env_path = os.path.join(os.path.dirname(__file__), '.env')
 	load_dotenv(env_path)
 	print(f"[App] Загружен .env из: {env_path}")
-	raw_prov = os.getenv('ASSISTANT_PROVIDER', 'не установлен')
-	print(f"[App] ASSISTANT_PROVIDER={raw_prov}")
-	if str(raw_prov).strip().lower() == 'neuroapi':
-		print("[App] Подсказка: ASSISTANT_PROVIDER=neuroapi обрабатывается как совместимый с ProxyAPI (те же PROXYAPI_* переменные).")
-	print(f"[App] OPENAI_MODEL={os.getenv('OPENAI_MODEL', 'не установлен')}")
-	print(f"[App] OPENAI_API_KEY={'установлен' if os.getenv('OPENAI_API_KEY') else 'не установлен'}")
-	provider = (os.getenv('ASSISTANT_PROVIDER', 'openai') or 'openai').strip().lower()
-	if provider == 'neuroapi':
-		provider = 'proxyapi'
-	openai_set = bool(os.getenv('OPENAI_API_KEY'))
-	proxy_set = bool(os.getenv('PROXYAPI_KEY'))
-	if provider == 'openai' and not openai_set:
-		print("[App] ВНИМАНИЕ: ASSISTANT_PROVIDER=openai, но OPENAI_API_KEY не задан. Добавьте ключ в .env (локально) или в Railway → Variables.")
-	if provider == 'proxyapi' and not proxy_set:
-		print("[App] ВНИМАНИЕ: ASSISTANT_PROVIDER=proxyapi, но PROXYAPI_KEY не задан. Добавьте ключ в .env (локально) или в Railway → Variables.")
-	if provider in ('openai', 'proxyapi') and not openai_set and not proxy_set:
-		print("[App] ВНИМАНИЕ: Ни OPENAI_API_KEY, ни PROXYAPI_KEY не заданы. Генерация заданий и чат будут возвращать ошибку. Задайте переменные в .env (локально) или в Railway → Variables.")
+	openai_set = bool(os.getenv("OPENAI_API_KEY"))
+	proxy_set = bool(os.getenv("PROXYAPI_KEY"))
+	exp_raw = (os.getenv("ASSISTANT_PROVIDER") or "").strip()
+	exp = exp_raw.lower()
+	if exp == "neuroapi":
+		exp = "proxyapi"
+	if exp in ("openai", "proxyapi", "hf_api", "local"):
+		effective = exp
+	elif openai_set:
+		effective = "openai"
+	elif proxy_set:
+		effective = "proxyapi"
+	else:
+		effective = "openai"
+	if exp_raw:
+		print(f"[App] ASSISTANT_PROVIDER={exp_raw!r} → канал {effective!r}")
+	else:
+		print(
+			f"[App] ASSISTANT_PROVIDER не задан → канал {effective!r} "
+			f"(ключи: OPENAI_API_KEY={'да' if openai_set else 'нет'}, PROXYAPI_KEY={'да' if proxy_set else 'нет'})"
+		)
+	print(f"[App] OPENAI_API_KEY={'установлен' if openai_set else 'не установлен'}")
+	if not openai_set and not proxy_set:
+		print(
+			"[App] ВНИМАНИЕ: ни OPENAI_API_KEY, ни PROXYAPI_KEY не заданы. "
+			"Чат и генерация через LLM недоступны. Задайте переменные в Railway Variables (сервис backend)."
+		)
+	elif exp == "openai" and not openai_set:
+		print(
+			"[App] ВНИМАНИЕ: указан ASSISTANT_PROVIDER=openai, но OPENAI_API_KEY пуст. "
+			"Укажите ключ или уберите переменную (будет автовыбор по PROXYAPI_KEY)."
+		)
+	elif exp == "proxyapi" and not proxy_set:
+		print(
+			"[App] ВНИМАНИЕ: указан ASSISTANT_PROVIDER=proxyapi, но PROXYAPI_KEY пуст. "
+			"Укажите ключ или уберите переменную для автовыбора по OPENAI_API_KEY."
+		)
 except Exception as e:
 	print(f"[App] Ошибка загрузки .env: {e}")
 	def load_dotenv():

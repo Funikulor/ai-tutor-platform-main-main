@@ -54,19 +54,31 @@ class AssistantService:
 	"""AI Assistant wrapper with provider selection: hf_api or local pipeline."""
 
 	def __init__(self, model_name: str = None):
-		# openai | proxyapi | neuroapi (алиас proxyapi — тот же OpenAI-compatible HTTP клиент) | hf_api | local
-		raw = (os.getenv("ASSISTANT_PROVIDER", "openai") or "openai").strip().lower()
-		if raw == "neuroapi":
-			raw = "proxyapi"
-		self.provider = raw
 		self.hf_model = os.getenv("HF_MODEL", model_name or "microsoft/DialoGPT-medium")
 		self.hf_token = os.getenv("HF_API_TOKEN", "")
 		self.openai_api_key = os.getenv("OPENAI_API_KEY", "")
 		self.openai_model = os.getenv("OPENAI_MODEL", "gpt-4o")  # gpt-4o (рекомендуется), gpt-4o-mini, gpt-3.5-turbo; при появлении — gpt-5
 		self.proxyapi_key = os.getenv("PROXYAPI_KEY", "")
-		# PROXYAPI URL: https://api.proxyapi.ru/openai/v1/chat/completions
+		# OpenAI-compatible POST (ProxyAPI, NeuroAPI и др.)
 		self.proxyapi_url = os.getenv("PROXYAPI_URL", "https://api.proxyapi.ru/openai/v1/chat/completions")
-		self.proxyapi_model = os.getenv("PROXYAPI_MODEL", "gpt-4o")  # Модель для PROXYAPI: gpt-4o (рекомендуется), gpt-4o-mini и т.д.
+		self.proxyapi_model = os.getenv("PROXYAPI_MODEL", "gpt-4o")  # gpt-4o (рекомендуется), gpt-4o-mini и т.д.
+
+		explicit = (os.getenv("ASSISTANT_PROVIDER") or "").strip().lower()
+		if explicit == "neuroapi":
+			explicit = "proxyapi"
+		if explicit in ("openai", "proxyapi", "hf_api", "local"):
+			self.provider = explicit
+			self._provider_source = "env"
+		else:
+			self._provider_source = "auto"
+			# Автовыбор: прямой OpenAI, иначе HTTP-совместимый прокси; без ключей — openai (ответ будет заглушкой)
+			if self.openai_api_key:
+				self.provider = "openai"
+			elif self.proxyapi_key:
+				self.provider = "proxyapi"
+			else:
+				self.provider = "openai"
+
 		self._openai_client = None
 		if openai_available and self.openai_api_key:
 			try:
@@ -80,8 +92,8 @@ class AssistantService:
 		self._personality_profiles: Dict[str, PersonalityProfile] = {}
 		self._load_personality_profiles()  # Загружаем профили при инициализации
 		
-		# Логируем настройки при инициализации
-		print(f"[AssistantService] Провайдер: {self.provider}")
+		ps = getattr(self, "_provider_source", "env")
+		print(f"[AssistantService] Провайдер: {self.provider}" + (f" ({ps})" if ps else ""))
 		print(f"[AssistantService] OpenAI модель: {self.openai_model}")
 		print(f"[AssistantService] OpenAI API ключ: {'установлен' if self.openai_api_key else 'не установлен'}")
 		print(f"[AssistantService] PROXYAPI URL: {self.proxyapi_url}")
@@ -551,9 +563,9 @@ class AssistantService:
 		proxy_ok = bool(self.proxyapi_key)
 		print(
 			"[AssistantService] LLM: все провайдеры вернули пустой ответ. Для оператора платформы: "
-			f"ASSISTANT_PROVIDER={self.provider!r}; OPENAI_API_KEY={'задан' if openai_ok else 'нет'}; "
-			f"PROXYAPI_KEY={'задан' if proxy_ok else 'нет'}; ключи задаются в переменных окружения сервиса "
-			"с backend (например Railway → Variables)."
+			f"provider={self.provider!r}; OPENAI_API_KEY={'задан' if openai_ok else 'нет'}; "
+			f"PROXYAPI_KEY={'задан' if proxy_ok else 'нет'} (опционально ASSISTANT_PROVIDER=openai|proxyapi|...; "
+			"без него выбирается автоматически по ключам)."
 		)
 
 		return _maybe_sanitize(ASSISTANT_UNAVAILABLE_USER_MESSAGE)
