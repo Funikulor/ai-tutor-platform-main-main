@@ -167,6 +167,15 @@ async def get_teacher_student_card(
     strengths = sorted(strengths, key=lambda x: x["mastery"], reverse=True)[:6]
     weaknesses = sorted(weaknesses, key=lambda x: x["mastery"])[:6]
 
+    # Статистика попыток по адаптивным заданиям (одно задание может решаться в несколько попыток)
+    task_history = getattr(profile, "task_history", None) or []
+    tasks_count = len(task_history)
+    total_attempts = sum(int(getattr(t, "attempts_count", 1) or 1) for t in task_history)
+    avg_attempts_per_task = round(total_attempts / tasks_count, 2) if tasks_count else 0.0
+    tasks_with_retries = sum(
+        1 for t in task_history if int(getattr(t, "attempts_count", 1) or 1) > 1
+    )
+
     rating_snapshot = _student_rating_row(db, student)
     active_test_assignments = []
     for hw in homeworks:
@@ -201,6 +210,9 @@ async def get_teacher_student_card(
             "accuracy_rate": round(float(getattr(profile, "accuracy_rate", 0.0) or 0.0), 1) if profile else 0.0,
             "total_tasks": getattr(profile, "total_tasks_completed", 0) if profile else 0,
             "correct_tasks": getattr(profile, "correct_tasks_count", 0) if profile else 0,
+            "total_attempts": total_attempts,
+            "avg_attempts_per_task": avg_attempts_per_task,
+            "tasks_with_retries": tasks_with_retries,
             "earned_points": rating_snapshot["earned_points"],
             "max_points": rating_snapshot["max_points"],
         },

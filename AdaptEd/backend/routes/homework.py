@@ -1141,6 +1141,8 @@ async def get_student_progress(
                 "earnedPoints": earned_points_total,
                 "maxPoints": max_points_total,
                 "averageAccuracy": round(profile.accuracy_rate, 1),
+                "totalTasks": profile.total_tasks_completed,
+                "correctTasks": profile.correct_tasks_count,
                 "weakTopics": weak_topics,
                 "recentActivities": recent_activities[:10],  # Последние 10 активностей
                 "errorTypes": error_types_data  # Типы ошибок для графика

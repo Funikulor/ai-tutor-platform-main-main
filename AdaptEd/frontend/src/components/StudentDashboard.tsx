@@ -19,6 +19,8 @@ interface ProgressData {
   earnedPoints?: number;
   maxPoints?: number;
   averageAccuracy: number;
+  totalTasks?: number;
+  correctTasks?: number;
   weakTopics: Array<{
     name: string;
     progress: number;
@@ -217,7 +219,7 @@ export function StudentDashboard() {
                     <p className="text-blue-100">Изучено тем</p>
                     <p className="text-3xl mt-2">{studentProgress.studiedTopics ?? studentProgress.completedTopics}</p>
                     <p className="text-xs mt-2 text-blue-100">
-                      Освоено: {studentProgress.masteredTopics ?? 0}
+                      Освоено (≥70% верных): {studentProgress.masteredTopics ?? 0}
                     </p>
                   </div>
                   <BookOpen className="w-12 h-12 text-blue-200 opacity-80" />
@@ -227,8 +229,11 @@ export function StudentDashboard() {
               <div className="bg-gradient-to-br from-green-500 to-green-600 rounded-xl p-6 text-white">
                 <div className="flex items-center justify-between">
                   <div>
-                    <p className="text-green-100">Точность</p>
+                    <p className="text-green-100">Точность в заданиях</p>
                     <p className="text-3xl mt-2">{studentProgress.averageAccuracy.toFixed(1)}%</p>
+                    <p className="text-xs mt-2 text-green-100">
+                      {studentProgress.correctTasks ?? 0} из {studentProgress.totalTasks ?? 0} верно
+                    </p>
                   </div>
                   <Target className="w-12 h-12 text-green-200 opacity-80" />
                 </div>
@@ -239,6 +244,9 @@ export function StudentDashboard() {
                   <div>
                     <p className="text-purple-100">Дней подряд</p>
                     <p className="text-3xl mt-2">{studentProgress.currentStreak}</p>
+                    <p className="text-xs mt-2 text-purple-100">
+                      Дней с решёнными заданиями без пропусков
+                    </p>
                   </div>
                   <TrendingUp className="w-12 h-12 text-purple-200 opacity-80" />
                 </div>
@@ -247,10 +255,14 @@ export function StudentDashboard() {
               <div className="bg-gradient-to-br from-orange-500 to-orange-600 rounded-xl p-6 text-white">
                 <div className="flex items-center justify-between">
                   <div>
-                    <p className="text-orange-100">Баллы</p>
-                    <p className="text-3xl mt-2">{studentProgress.earnedPoints ?? 0}/{studentProgress.maxPoints ?? 0}</p>
+                    <p className="text-orange-100">Баллы за тесты</p>
+                    <p className="text-3xl mt-2">
+                      {(studentProgress.maxPoints ?? 0) > 0
+                        ? `${studentProgress.earnedPoints ?? 0}/${studentProgress.maxPoints ?? 0}`
+                        : '—'}
+                    </p>
                     <p className="text-xs mt-2 text-orange-100">
-                      Внутренние очки профиля: {studentProgress.totalPoints}
+                      Очки за активность: {studentProgress.totalPoints}
                     </p>
                   </div>
                   <Brain className="w-12 h-12 text-orange-200 opacity-80" />

@@ -114,9 +114,33 @@ class ProfilerAgent(BaseAgent):
         
         profile = self.profiles[user_id]
         
-        # Добавляем попытку выполнения
+        # Добавляем попытку выполнения.
+        # Повторная отправка того же задания (task_id уже есть в истории) НЕ создаёт
+        # новую запись, а обновляет существующую и увеличивает attempts_count. Так ученик
+        # может сделать несколько попыток одной задачи, а статистика (точность, число
+        # заданий, очки) считается по уникальным заданиям, а не по каждой отправке.
+        awarded_first_correct = False
+        is_retry = False
         if task_attempt:
-            profile.task_history.append(task_attempt)
+            existing = next(
+                (t for t in profile.task_history if t.task_id == task_attempt.task_id),
+                None,
+            )
+            if existing is not None:
+                is_retry = True
+                # Очки начисляем, только если задание стало верным ВПЕРВЫЕ
+                awarded_first_correct = task_attempt.is_correct and not existing.is_correct
+                existing.attempts_count = (existing.attempts_count or 1) + 1
+                existing.user_answer = task_attempt.user_answer
+                existing.is_correct = task_attempt.is_correct
+                existing.time_spent_seconds = task_attempt.time_spent_seconds
+                existing.topic = task_attempt.topic or existing.topic
+                existing.error_analysis = task_attempt.error_analysis or existing.error_analysis
+                existing.timestamp = task_attempt.timestamp
+                task_attempt = existing
+            else:
+                profile.task_history.append(task_attempt)
+                awarded_first_correct = task_attempt.is_correct
         
         # Обновляем статистику
         self._update_statistics(profile)
@@ -125,9 +149,11 @@ class ProfilerAgent(BaseAgent):
         if task_attempt:
             self._update_topic_mastery(profile, task_attempt)
         
-        # Обновляем историю ошибок
+        # Обновляем историю ошибок (для повторных попыток ошибка не считается заново)
         if error_analysis:
-            self._update_error_patterns(profile, error_analysis)
+            self._update_error_patterns(
+                profile, error_analysis, task_attempt=task_attempt, is_retry=is_retry
+            )
         
         # Определяем стиль обучения
         self._detect_learning_style(profile)
@@ -135,8 +161,8 @@ class ProfilerAgent(BaseAgent):
         # Обновляем эмоциональное состояние
         self._update_emotional_state(profile)
         
-        # Управляем мотивацией
-        self._update_motivation(profile)
+        # Управляем мотивацией (очки только за первое верное решение задания)
+        self._update_motivation(profile, award_points=awarded_first_correct)
         
         # Обновляем долгосрочную память о прогрессе
         self._update_progress_history(profile)
@@ -179,42 +205,78 @@ class ProfilerAgent(BaseAgent):
         profile.accuracy_rate = (correct_count / profile.total_tasks_completed * 100) if profile.total_tasks_completed > 0 else 0.0
     
     def _update_topic_mastery(self, profile: CognitiveProfile, task_attempt: TaskAttempt):
-        """Обновляет мастерство по темам на основе выполнения заданий"""
+        """Пересчитывает мастерство по теме как сглаженную долю верных заданий по ней.
+
+        Используем сглаживание Лапласа: mastery = (верные + 1) / (всего + 2).
+        - 0 попыток → ~0.5 (нейтрально);
+        - 2 верных без ошибок → 0.75 (тема «освоена», порог 0.7 достижим);
+        - 1 верный из 2 → 0.5.
+        Это интерпретируемее прежней схемы ±дельта (которая почти никогда не доходила
+        до 0.7) и устойчиво самокорректируется при каждой новой попытке.
+        """
         if not task_attempt.topic:
             return
-        
+
         topic = task_attempt.topic
-        
-        # Инициализируем тему, если её нет
-        if topic not in profile.topic_mastery:
-            profile.topic_mastery[topic] = 0.5  # Начальное значение 50%
-        
-        # Обновляем мастерство на основе результата
-        if task_attempt.is_correct:
-            # Правильный ответ: увеличиваем мастерство
-            profile.topic_mastery[topic] = min(1.0, profile.topic_mastery[topic] + 0.05)  # +5% за правильный ответ
-        else:
-            # Неправильный ответ: уменьшаем мастерство
-            profile.topic_mastery[topic] = max(0.0, profile.topic_mastery[topic] - 0.03)  # -3% за неправильный ответ
-        
-        # Округляем до 2 знаков после запятой
-        profile.topic_mastery[topic] = round(profile.topic_mastery[topic], 2)
+        topic_attempts = [t for t in profile.task_history if t.topic == topic]
+        total = len(topic_attempts)
+        correct = sum(1 for t in topic_attempts if t.is_correct)
+        mastery = (correct + 1) / (total + 2)
+        profile.topic_mastery[topic] = round(mastery, 2)
     
-    def _update_error_patterns(self, profile: CognitiveProfile, error_analysis: Dict[str, Any]):
-        """Обновление паттернов ошибок"""
+    def _update_error_patterns(
+        self,
+        profile: CognitiveProfile,
+        error_analysis: Dict[str, Any],
+        task_attempt: Optional[TaskAttempt] = None,
+        is_retry: bool = False,
+    ):
+        """Обновление паттернов ошибок.
+
+        Учёт идемпотентен по заданию: повторная неверная попытка того же задания НЕ
+        увеличивает счётчик ошибок повторно. Если при повторной попытке тип ошибки
+        изменился — счётчик переносится со старого типа на новый, без задвоения.
+        Это не даёт одной проблемной задаче искажать график «Типы ошибок» и слабые темы.
+        """
         error_type = error_analysis.get('error_type')
-        if error_type:
-            if error_type not in profile.error_frequency:
-                profile.error_frequency[error_type] = 0
-            profile.error_frequency[error_type] += 1
-            
-            # Добавляем в историю
-            error_record = ErrorAnalysis(
-                error_type=error_type,
-                justification=error_analysis.get('justification', ''),
-                suggested_remediation=error_analysis.get('suggested_remediation')
+        if not error_type:
+            return
+
+        new_record = ErrorAnalysis(
+            error_type=error_type,
+            justification=error_analysis.get('justification', ''),
+            suggested_remediation=error_analysis.get('suggested_remediation'),
+        )
+
+        # Какой тип ошибки уже был учтён по этому заданию ранее
+        previous_type = None
+        if task_attempt is not None and task_attempt.error_analysis is not None:
+            previous_type = getattr(
+                task_attempt.error_analysis.error_type,
+                'value',
+                task_attempt.error_analysis.error_type,
             )
-            profile.error_history.append(error_record)
+
+        if is_retry and previous_type is not None:
+            if previous_type == error_type:
+                # Тот же тип ошибки уже учтён за это задание — ничего не меняем
+                pass
+            else:
+                # Тип ошибки изменился: снимаем единицу со старого типа и добавляем новому
+                if profile.error_frequency.get(previous_type, 0) > 0:
+                    profile.error_frequency[previous_type] -= 1
+                    if profile.error_frequency[previous_type] == 0:
+                        profile.error_frequency.pop(previous_type, None)
+                profile.error_frequency[error_type] = profile.error_frequency.get(error_type, 0) + 1
+                profile.error_history.append(new_record)
+        else:
+            # Новое задание (первая ошибка по нему)
+            profile.error_frequency[error_type] = profile.error_frequency.get(error_type, 0) + 1
+            profile.error_history.append(new_record)
+
+        # Запоминаем учтённый тип ошибки на самой попытке, чтобы не задваивать при ретраях
+        if task_attempt is not None:
+            task_attempt.error_analysis = new_record
     
     def _detect_learning_style(self, profile: CognitiveProfile):
         """Определяет стиль обучения на основе поведения"""
@@ -248,13 +310,15 @@ class ProfilerAgent(BaseAgent):
         else:
             profile.current_emotional_state = EmotionalState.NEUTRAL
     
-    def _update_motivation(self, profile: CognitiveProfile):
-        """Обновляет систему мотивации"""
-        # Начисляем очки за правильные ответы
-        if profile.task_history:
-            last_task = profile.task_history[-1]
-            if last_task.is_correct:
-                profile.points += 10
+    def _update_motivation(self, profile: CognitiveProfile, award_points: bool = False):
+        """Обновляет систему мотивации.
+
+        award_points=True только когда задание решено верно ВПЕРВЫЕ (новое задание или
+        успешная повторная попытка ранее неверного) — чтобы повторные отправки одного и
+        того же задания не накручивали очки.
+        """
+        if award_points:
+            profile.points += 10
         
         # Определяем уровень
         profile.level = min(profile.points // 100 + 1, 10)

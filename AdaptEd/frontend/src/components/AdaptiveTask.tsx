@@ -8,7 +8,8 @@ const savedTaskState = {
   submitted: false,
   result: null as any,
   userAnswer: '',
-  useThematic: false
+  useThematic: false,
+  revealed: false
 };
 
 interface Task {
@@ -400,6 +401,9 @@ export function AdaptiveTask({ onComplete }: { onComplete: (result: any) => void
   const [currentTask, setCurrentTask] = useState<Task | null>(savedTaskState.task);
   const [userAnswer, setUserAnswer] = useState(savedTaskState.userAnswer);
   const [submitted, setSubmitted] = useState(savedTaskState.submitted);
+  // revealed = ученик увидел правильный ответ и подробное решение.
+  // Пока false и ответ неверный — можно сделать повторную попытку без показа ответа.
+  const [revealed, setRevealed] = useState(savedTaskState.revealed);
   const [loading, setLoading] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [result, setResult] = useState<any>(savedTaskState.result);
@@ -450,12 +454,14 @@ export function AdaptiveTask({ onComplete }: { onComplete: (result: any) => void
       setCurrentTask(task);
       setUserAnswer('');
       setSubmitted(false);
+      setRevealed(false);
       setResult(null);
       setStartTime(Date.now());
       
       // Очищаем сохраненное состояние при генерации нового задания
       savedTaskState.task = task;
       savedTaskState.submitted = false;
+      savedTaskState.revealed = false;
       savedTaskState.result = null;
       savedTaskState.userAnswer = '';
     } catch (err: any) {
@@ -470,10 +476,11 @@ export function AdaptiveTask({ onComplete }: { onComplete: (result: any) => void
   useEffect(() => {
     savedTaskState.task = currentTask;
     savedTaskState.submitted = submitted;
+    savedTaskState.revealed = revealed;
     savedTaskState.result = result;
     savedTaskState.userAnswer = userAnswer;
     savedTaskState.useThematic = useThematic;
-  }, [currentTask, submitted, result, userAnswer, useThematic]);
+  }, [currentTask, submitted, revealed, result, userAnswer, useThematic]);
 
   // Передаем текущую адаптивную задачу в AI-чат как контекст,
   // чтобы ассистент мог отвечать по конкретному уравнению/вопросу.
@@ -556,6 +563,9 @@ export function AdaptiveTask({ onComplete }: { onComplete: (result: any) => void
 
       setResult(analysisResult);
       setSubmitted(true);
+      // Верный ответ — сразу показываем решение. Неверный — прячем ответ,
+      // чтобы ученик мог сделать ещё попытку (раскроется по кнопке «Показать решение»).
+      setRevealed(isCorrect);
       onComplete(analysisResult);
     } catch (err: any) {
       console.error('Error submitting task:', err);
@@ -580,10 +590,22 @@ export function AdaptiveTask({ onComplete }: { onComplete: (result: any) => void
 
       setResult(analysisResult);
       setSubmitted(true);
+      setRevealed(isCorrect);
       onComplete(analysisResult);
     } finally {
       setLoading(false);
     }
+  };
+
+  // Повторная попытка того же задания: тот же task_id уходит на сервер,
+  // где попытка не дублируется, а увеличивает attempts_count.
+  const retryTask = () => {
+    setUserAnswer('');
+    setSubmitted(false);
+    setRevealed(false);
+    setResult(null);
+    setError(null);
+    setStartTime(Date.now());
   };
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -771,7 +793,13 @@ export function AdaptiveTask({ onComplete }: { onComplete: (result: any) => void
                     </span>
                   </p>
                   
-                  {!result.correct && currentTask?.correctAnswer && (
+                  {!result.correct && !revealed && (
+                    <p className="mb-3 text-sm text-red-700">
+                      Ответ пока не раскрыт — можно попробовать решить ещё раз. Нажмите «Показать решение», если хотите увидеть правильный ответ и разбор.
+                    </p>
+                  )}
+
+                  {!result.correct && revealed && currentTask?.correctAnswer && (
                     <p className="mb-2 text-sm text-gray-700">
                       <strong>Правильный ответ:</strong>{' '}
                       <span className="font-mono bg-gray-100 px-2 py-0.5 rounded">
@@ -801,37 +829,39 @@ export function AdaptiveTask({ onComplete }: { onComplete: (result: any) => void
                     </div>
                   )}
                   
-                  <div className="p-5 bg-gradient-to-br from-blue-50 to-purple-50 rounded-lg border-2 border-purple-200 shadow-sm">
-                    <div className="flex items-center gap-2 mb-4">
-                      <span className="text-2xl">💡</span>
-                      <strong className="text-lg text-gray-900">Объяснение решения</strong>
+                  {(result.correct || revealed) && (
+                    <div className="p-5 bg-gradient-to-br from-blue-50 to-purple-50 rounded-lg border-2 border-purple-200 shadow-sm">
+                      <div className="flex items-center gap-2 mb-4">
+                        <span className="text-2xl">💡</span>
+                        <strong className="text-lg text-gray-900">Объяснение решения</strong>
+                      </div>
+                      <div className="text-gray-800 space-y-2">
+                        {(() => {
+                          // Сначала проверяем explanation из result
+                          let explanation = result.explanation || currentTask?.explanation || '';
+                          
+                          // Если объяснение пустое или содержит только стандартные фразы, используем из currentTask
+                          if (!explanation || !explanation.trim() || 
+                              explanation.trim() === 'Решение задания' || 
+                              explanation.trim() === 'Проверьте решение самостоятельно' ||
+                              explanation.trim() === 'Подробное объяснение решения будет добавлено позже.') {
+                            explanation = currentTask?.explanation || '';
+                          }
+                          
+                          // Если все еще пустое, показываем сообщение
+                          if (!explanation || !explanation.trim()) {
+                            return (
+                              <p className="text-gray-600 italic">
+                                Подробное объяснение решения будет добавлено позже.
+                              </p>
+                            );
+                          }
+                          
+                          return formatExplanation(explanation);
+                        })()}
+                      </div>
                     </div>
-                    <div className="text-gray-800 space-y-2">
-                      {(() => {
-                        // Сначала проверяем explanation из result
-                        let explanation = result.explanation || currentTask?.explanation || '';
-                        
-                        // Если объяснение пустое или содержит только стандартные фразы, используем из currentTask
-                        if (!explanation || !explanation.trim() || 
-                            explanation.trim() === 'Решение задания' || 
-                            explanation.trim() === 'Проверьте решение самостоятельно' ||
-                            explanation.trim() === 'Подробное объяснение решения будет добавлено позже.') {
-                          explanation = currentTask?.explanation || '';
-                        }
-                        
-                        // Если все еще пустое, показываем сообщение
-                        if (!explanation || !explanation.trim()) {
-                          return (
-                            <p className="text-gray-600 italic">
-                              Подробное объяснение решения будет добавлено позже.
-                            </p>
-                          );
-                        }
-                        
-                        return formatExplanation(explanation);
-                      })()}
-                    </div>
-                  </div>
+                  )}
 
                   <div className="mt-4 flex items-center gap-4 text-sm text-gray-600">
                     <span className="flex items-center gap-2">
@@ -870,13 +900,34 @@ export function AdaptiveTask({ onComplete }: { onComplete: (result: any) => void
                 Другое задание
               </button>
             </>
-          ) : (
+          ) : (result?.correct || revealed) ? (
             <button
               onClick={generateTask}
               className="flex-1 bg-purple-600 text-white py-3 px-6 rounded-lg hover:bg-purple-700 hover:shadow-lg transition-all font-semibold"
             >
               Следующее задание
             </button>
+          ) : (
+            <>
+              <button
+                onClick={retryTask}
+                className="flex-1 bg-purple-600 text-white py-3 px-6 rounded-lg hover:bg-purple-700 hover:shadow-lg transition-all font-semibold"
+              >
+                Попробовать снова
+              </button>
+              <button
+                onClick={() => setRevealed(true)}
+                className="px-6 py-3 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-all"
+              >
+                Показать решение
+              </button>
+              <button
+                onClick={generateTask}
+                className="px-6 py-3 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-all"
+              >
+                Другое задание
+              </button>
+            </>
           )}
         </div>
       </div>

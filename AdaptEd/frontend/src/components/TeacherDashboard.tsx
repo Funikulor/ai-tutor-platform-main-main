@@ -1,9 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
-import { Users, TrendingUp, AlertCircle, Download, Filter, BarChart3, FileText, PenSquare, ClipboardList, X, Phone, Loader2, Sparkles, Database } from 'lucide-react';
+import { Users, TrendingUp, AlertCircle, Download, Filter, BarChart3, FileText, PenSquare, ClipboardList, X, Phone, Loader2, Sparkles } from 'lucide-react';
 import { TeacherTestsTab } from './TeacherTestsTab';
 import { AIChatPanel } from './AIChatPanel';
-import { RagKnowledgeBase } from './RagKnowledgeBase';
 import api from '../services/api';
 import { deleteAssignedHomework } from '../services/homework';
 import { fetchLibraryCourses, fetchMaterials } from '../services/materials';
@@ -69,7 +68,7 @@ interface LibraryPickerItem {
 
 interface StudentCardData {
   student: { user_id: string; full_name?: string; email?: string; class_id?: string };
-  stats: { points: number; level: number; accuracy_rate: number; total_tasks: number; correct_tasks: number; earned_points?: number; max_points?: number };
+  stats: { points: number; level: number; accuracy_rate: number; total_tasks: number; correct_tasks: number; total_attempts?: number; avg_attempts_per_task?: number; tasks_with_retries?: number; earned_points?: number; max_points?: number };
   strengths: Array<{ topic: string; mastery: number }>;
   weaknesses: Array<{ topic: string; mastery: number }>;
   recent_test_submissions?: Array<{ id: number; score: number; created_at?: string; correct_count?: number; total_questions?: number; earned_points?: number; max_points?: number }>;
@@ -82,7 +81,7 @@ const TABLE_PAGE_SIZE = 12;
 
 export function TeacherDashboard() {
   const [selectedClass, setSelectedClass] = useState('all');
-  const [currentView, setCurrentView] = useState<'analytics' | 'create-tests' | 'created-tests' | 'results' | 'knowledge-base'>('analytics');
+  const [currentView, setCurrentView] = useState<'analytics' | 'create-tests' | 'created-tests' | 'results'>('analytics');
   const [preselectedStudentId, setPreselectedStudentId] = useState<string | null>(null);
   const [preselectedHomeworkId, setPreselectedHomeworkId] = useState<number | null>(null);
   const [classData, setClassData] = useState<StudentRow[]>([]);
@@ -541,7 +540,7 @@ export function TeacherDashboard() {
               </div>
             </div>
           </div>
-          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-5">
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4">
             <button
               type="button"
               onClick={() => setCurrentView('analytics')}
@@ -602,30 +601,9 @@ export function TeacherDashboard() {
               </span>
               <span className="pl-7 text-xs text-slate-500">Попытки и обратная связь</span>
             </button>
-            <button
-              type="button"
-              onClick={() => setCurrentView('knowledge-base')}
-              className={`group flex flex-col gap-0.5 rounded-xl border px-4 py-3 text-left transition-all ${
-                currentView === 'knowledge-base'
-                  ? 'border-indigo-200 bg-white shadow-md ring-2 ring-indigo-500/15'
-                  : 'border-transparent bg-white/50 hover:border-slate-200 hover:bg-white hover:shadow-sm'
-              }`}
-            >
-              <span className="flex items-center gap-2 font-medium text-slate-900">
-                <Database className={`h-5 w-5 ${currentView === 'knowledge-base' ? 'text-indigo-600' : 'text-slate-400 group-hover:text-slate-600'}`} />
-                База знаний
-              </span>
-              <span className="pl-7 text-xs text-slate-500">Учебник и темы (RAG)</span>
-            </button>
           </div>
         </div>
       </div>
-
-      {currentView === 'knowledge-base' && (
-        <div className="rounded-2xl border border-slate-200/90 bg-white px-4 py-5 shadow-sm sm:px-6 sm:py-6">
-          <RagKnowledgeBase />
-        </div>
-      )}
 
       {currentView === 'create-tests' && (
         <div className="rounded-2xl border border-slate-200/90 bg-white px-4 py-5 shadow-sm sm:px-6 sm:py-6">
@@ -1093,6 +1071,23 @@ export function TeacherDashboard() {
                     <div>
                       <p className="text-slate-500">Выполнение ДЗ</p>
                       <p className="text-sm font-semibold text-slate-900">{detailCard.rating.homework_completion?.toFixed(1) ?? '0.0'}%</p>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-3 gap-2 rounded-xl border border-slate-100 bg-slate-50/70 p-3 text-xs">
+                    <div>
+                      <p className="text-slate-500">Попыток на задание</p>
+                      <p className="text-sm font-semibold text-slate-900">{(detailCard.stats.avg_attempts_per_task ?? 0).toFixed(2)}</p>
+                      <p className="text-[10px] text-slate-400">в среднем</p>
+                    </div>
+                    <div>
+                      <p className="text-slate-500">Решено не с 1-й</p>
+                      <p className="text-sm font-semibold text-slate-900">{detailCard.stats.tasks_with_retries ?? 0}</p>
+                      <p className="text-[10px] text-slate-400">заданий с ретраями</p>
+                    </div>
+                    <div>
+                      <p className="text-slate-500">Всего попыток</p>
+                      <p className="text-sm font-semibold text-slate-900">{detailCard.stats.total_attempts ?? 0}</p>
+                      <p className="text-[10px] text-slate-400">на {detailCard.stats.total_tasks ?? 0} заданий</p>
                     </div>
                   </div>
                   <div className="rounded-xl border border-slate-100 bg-white p-3">
