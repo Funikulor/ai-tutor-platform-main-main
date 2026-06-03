@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
-import { Users, TrendingUp, AlertCircle, Download, Filter, BarChart3, FileText, PenSquare, ClipboardList, X, Phone, Loader2, Sparkles } from 'lucide-react';
+import { Users, TrendingUp, AlertCircle, Download, Filter, BarChart3, FileText, PenSquare, ClipboardList, X, Phone, Loader2, Sparkles, Database } from 'lucide-react';
 import { TeacherTestsTab } from './TeacherTestsTab';
 import { AIChatPanel } from './AIChatPanel';
+import { RagKnowledgeBase } from './RagKnowledgeBase';
 import api from '../services/api';
 import { deleteAssignedHomework } from '../services/homework';
 import { fetchLibraryCourses, fetchMaterials } from '../services/materials';
@@ -81,7 +82,7 @@ const TABLE_PAGE_SIZE = 12;
 
 export function TeacherDashboard() {
   const [selectedClass, setSelectedClass] = useState('all');
-  const [currentView, setCurrentView] = useState<'analytics' | 'create-tests' | 'created-tests' | 'results'>('analytics');
+  const [currentView, setCurrentView] = useState<'analytics' | 'create-tests' | 'created-tests' | 'results' | 'knowledge-base'>('analytics');
   const [preselectedStudentId, setPreselectedStudentId] = useState<string | null>(null);
   const [preselectedHomeworkId, setPreselectedHomeworkId] = useState<number | null>(null);
   const [classData, setClassData] = useState<StudentRow[]>([]);
@@ -540,7 +541,7 @@ export function TeacherDashboard() {
               </div>
             </div>
           </div>
-          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-5">
             <button
               type="button"
               onClick={() => setCurrentView('analytics')}
@@ -601,9 +602,30 @@ export function TeacherDashboard() {
               </span>
               <span className="pl-7 text-xs text-slate-500">Попытки и обратная связь</span>
             </button>
+            <button
+              type="button"
+              onClick={() => setCurrentView('knowledge-base')}
+              className={`group flex flex-col gap-0.5 rounded-xl border px-4 py-3 text-left transition-all ${
+                currentView === 'knowledge-base'
+                  ? 'border-indigo-200 bg-white shadow-md ring-2 ring-indigo-500/15'
+                  : 'border-transparent bg-white/50 hover:border-slate-200 hover:bg-white hover:shadow-sm'
+              }`}
+            >
+              <span className="flex items-center gap-2 font-medium text-slate-900">
+                <Database className={`h-5 w-5 ${currentView === 'knowledge-base' ? 'text-indigo-600' : 'text-slate-400 group-hover:text-slate-600'}`} />
+                База знаний
+              </span>
+              <span className="pl-7 text-xs text-slate-500">Учебник и темы (RAG)</span>
+            </button>
           </div>
         </div>
       </div>
+
+      {currentView === 'knowledge-base' && (
+        <div className="rounded-2xl border border-slate-200/90 bg-white px-4 py-5 shadow-sm sm:px-6 sm:py-6">
+          <RagKnowledgeBase />
+        </div>
+      )}
 
       {currentView === 'create-tests' && (
         <div className="rounded-2xl border border-slate-200/90 bg-white px-4 py-5 shadow-sm sm:px-6 sm:py-6">

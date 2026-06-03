@@ -713,6 +713,25 @@ class AssistantService:
 			homeworks_ctx = self._get_homeworks_context(user_id)
 		test_ctx = self._get_test_context(context)
 		library_course_ctx = self._get_library_course_context(context)
+		adaptive_task_ctx = ""
+		if context:
+			task_text = str(context.get("task") or context.get("task_text") or "").strip()
+			if task_text:
+				variant = context.get("generated_variant")
+				topic = str(context.get("topic") or "").strip()
+				task_id = context.get("task_id")
+				meta = []
+				if task_id is not None:
+					meta.append(f"ID: {task_id}")
+				if variant is not None:
+					meta.append(f"вариант: {variant}")
+				if topic:
+					meta.append(f"тема: {topic}")
+				meta_line = f" ({', '.join(meta)})" if meta else ""
+				adaptive_task_ctx = (
+					f"\nКонтекст текущего адаптивного задания{meta_line}:\n"
+					f"{task_text}\n"
+				)
 
 		# Имя ученика (если есть)
 		name_text = f"\nИмя ученика: {user_name}." if user_name else ""
@@ -738,6 +757,13 @@ class AssistantService:
 					"role": "system",
 					"content": test_ctx + "\nЕсли ученик просит помочь, опирайся только на этот тестовый контекст и объясняй по шагам.",
 				})
+			if adaptive_task_ctx:
+				formatted_messages.append({
+					"role": "system",
+					"content": adaptive_task_ctx
+					+ "\nОтвечай в рамках этого задания: помогай пошагово, не проси ученика повторно прислать условие, "
+					"если оно уже есть в контексте.",
+				})
 			if library_course_ctx:
 				formatted_messages.append({
 					"role": "system",
@@ -752,7 +778,14 @@ class AssistantService:
 			lib_extra = ""
 			if library_course_ctx:
 				lib_extra = "\n" + library_course_ctx + "\n(Отвечай по мини-курсу только из этого контекста.)\n"
-			prompt = f"{base_system}{personality_context}\n{homeworks_ctx}\n{test_ctx}{lib_extra}\n{history}\nassistant:"
+			task_extra = ""
+			if adaptive_task_ctx:
+				task_extra = (
+					"\n"
+					+ adaptive_task_ctx
+					+ "\n(Если ученик просит помощь, используй это условие задачи и не проси переслать его заново.)\n"
+				)
+			prompt = f"{base_system}{personality_context}\n{homeworks_ctx}\n{test_ctx}{task_extra}{lib_extra}\n{history}\nassistant:"
 			return self._generate(prompt, max_new_tokens=1024)
 
 	def hint(self, task_text: str, student_level: Optional[str] = None) -> str:
@@ -761,8 +794,22 @@ class AssistantService:
 			"направь шагами. Спроси наводящий вопрос, предложи следующий шаг."
 		)
 		level = f" Уровень ученика: {student_level}." if student_level else ""
-		ctx_docs = self.retrieve_context(task_text)
-		ctx = "\n\n".join([f"[Источник: {d.get('title','doc')}]\n{d.get('content','')[:800]}" for d in ctx_docs])
+		# Сначала пробуем семантический поиск по загруженному учебнику (RAG),
+		# затем — старый поиск по ключевым словам в documents (fallback).
+		ctx = ""
+		try:
+			from services.rag import get_rag_service
+
+			textbook = get_rag_service().search_textbook(task_text, top_k=2)
+			if textbook:
+				ctx = "\n\n".join(
+					[f"[Учебник: {d.get('source','учебник')}]\n{d.get('text','')[:800]}" for d in textbook]
+				)
+		except Exception as e:
+			print(f"[Hint] RAG search failed, fallback to keyword context: {e}")
+		if not ctx:
+			ctx_docs = self.retrieve_context(task_text)
+			ctx = "\n\n".join([f"[Источник: {d.get('title','doc')}]\n{d.get('content','')[:800]}" for d in ctx_docs])
 		prompt = f"{policy}{level}\nКонтекст (можно использовать, нельзя раскрывать ответ):\n{ctx}\n\nЗадача: {task_text}\nПодсказка:"
 		return self._generate(prompt, max_new_tokens=120)
 

@@ -475,6 +475,32 @@ export function AdaptiveTask({ onComplete }: { onComplete: (result: any) => void
     savedTaskState.useThematic = useThematic;
   }, [currentTask, submitted, result, userAnswer, useThematic]);
 
+  // Передаем текущую адаптивную задачу в AI-чат как контекст,
+  // чтобы ассистент мог отвечать по конкретному уравнению/вопросу.
+  useEffect(() => {
+    if (!currentTask) return;
+
+    window.dispatchEvent(
+      new CustomEvent('ai-chat-context', {
+        detail: {
+          context: {
+            task_id: currentTask.id,
+            task: currentTask.question,
+            topic: currentTask.topic,
+            generated_variant: currentTask.generatedVariant,
+            label: `Адаптивное задание #${currentTask.generatedVariant}`,
+          },
+        },
+      })
+    );
+  }, [currentTask?.id, currentTask?.question, currentTask?.topic, currentTask?.generatedVariant]);
+
+  useEffect(() => {
+    return () => {
+      window.dispatchEvent(new CustomEvent('ai-chat-context', { detail: { context: null } }));
+    };
+  }, []);
+
   // Генерируем задание только если его еще нет и это первая инициализация
   useEffect(() => {
     // Если задание уже есть (было сгенерировано ранее), не генерируем новое

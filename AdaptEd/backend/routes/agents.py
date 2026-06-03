@@ -14,7 +14,77 @@ router = APIRouter()
 orchestrator = get_orchestrator()
 
 
-from utils.answer_parse import parse_numeric_answer as _parse_numeric_answer
+from utils.answer_parse import parse_numeric_answer as _parse_numeric_answer, math_answers_equal
+
+
+def _detect_strong_symbolic_topic(question: str) -> str:
+    """
+    Детерминированно ловит СИЛЬНЫЕ символьные признаки, где эмбеддинги ненадёжны
+    (квадрат vs линейное vs корень кластеризуются). Возвращает "" если не уверены.
+    """
+    if not question:
+        return ""
+    q = question.lower()
+    # Порядок важен: более специфичные паттерны раньше.
+    if "|" in q or "модул" in q:
+        return "Уравнения с модулем"
+    if "√" in q or "sqrt" in q or "корень из" in q:
+        return "Уравнения с корнем"
+    if "x^2" in q or "x²" in q or "квадратн" in q or "дискриминант" in q:
+        return "Квадратные уравнения"
+    if "систем" in q:
+        return "Системы уравнений"
+    return ""
+
+
+def _detect_topic_by_keywords(question: str) -> str:
+    """Классификатор по ключевым словам. Возвращает "" если ничего не подошло."""
+    if not question:
+        return ""
+    q = question.lower()
+    rules = [
+        ("Проценты и пропорции", ["процент", "%", "пропорц", "скидк", "подорожа"]),
+        ("Дробно-рациональные уравнения", ["знаменател", "дробн", ")/", "/("]),
+        ("Неравенства", ["неравенств", "≤", "≥"]),
+        ("Степени и выражения", ["степен", "упрост"]),
+        ("Прогрессии", ["прогресс"]),
+        ("Функции и графики", ["график", "функци", "парабол"]),
+        ("Геометрия: треугольники", ["треугольник", "пифагор", "площад"]),
+        ("Линейные уравнения", ["уравнен"]),
+    ]
+    for topic, keywords in rules:
+        if any(k in q for k in keywords):
+            return topic
+    return ""
+
+
+def resolve_specific_topic(question: str, fallback: str) -> str:
+    """
+    Определяет КОНКРЕТНУЮ тему вопроса (гибрид; от надёжного к общему):
+    1) сильные символьные признаки (x^2, √, |…|, система) — детерминированно;
+    2) точные ключевые слова (проценты, неравенства, график и т.п.);
+    3) RAG: семантическое сравнение с темами/учебником (текстовые задачи, длинный хвост);
+    4) переданный fallback.
+
+    Почему такой порядок: эмбеддинги плохо различают чисто символьные уравнения
+    (квадратное/линейное/с корнем кластеризуются), поэтому символику решаем правилами,
+    а RAG берёт на себя смысловые/текстовые случаи и расширяется на загруженный учебник.
+    """
+    strong = _detect_strong_symbolic_topic(question)
+    if strong:
+        return strong
+    kw = _detect_topic_by_keywords(question)
+    if kw:
+        return kw
+    try:
+        from services.rag import get_rag_service
+
+        match = get_rag_service().classify_topic(question)
+        if match and match.get("topic"):
+            return match["topic"]
+    except Exception as e:
+        print(f"[AdaptiveTask] RAG classify failed: {e}")
+    return fallback
 
 
 class TaskSubmission(BaseModel):
@@ -55,14 +125,9 @@ async def submit_task(submission: TaskSubmission):
     - Объяснение задания (если передано)
     """
     try:
-        # Определяем правильность ответа (с учетом разных типов заданий)
-        is_correct = submission.user_answer.lower().strip() == submission.correct_answer.lower().strip()
-
-        # Числовые ответы: поддерживаем дроби (1/2, 3/4) и десятичные (0.5)
-        user_num = _parse_numeric_answer(submission.user_answer)
-        correct_num = _parse_numeric_answer(submission.correct_answer)
-        if user_num is not None and correct_num is not None:
-            is_correct = abs(user_num - correct_num) < 0.001  # Допуск для числовых ответов
+        # Определяем правильность ответа:
+        # поддерживаем числа/дроби и интервалы-неравенства (например, 1<x<1.5).
+        is_correct = math_answers_equal(submission.user_answer, submission.correct_answer, tolerance=0.001)
         
         # Обрабатываем через orchestrator
         effective_topic = (submission.topic or "").strip() or "Адаптивные задания"
@@ -354,6 +419,12 @@ async def generate_adaptive_task(request: Dict[str, Any]):
         # Устанавливаем значения по умолчанию
         if "topic" not in task_data:
             task_data["topic"] = target_topic
+        # Переопределяем тему на КОНКРЕТНУЮ по тексту вопроса (RAG → ключевые слова).
+        # Так в профиль попадают узкие темы вместо "общая математика".
+        task_data["topic"] = resolve_specific_topic(
+            task_data.get("question", ""),
+            fallback=task_data.get("topic") or target_topic,
+        )
         if "difficulty" not in task_data:
             task_data["difficulty"] = 3
         if "type" not in task_data:

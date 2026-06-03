@@ -1115,7 +1115,6 @@ async def get_student_progress(
         studied_topics = len(studied_topics_set)
         mastered_topics = sum(1 for mastery in (profile.topic_mastery or {}).values() if mastery >= 0.7)
         total_topics = max(studied_topics, len(profile.topic_mastery or {}))
-        
         # Подсчитываем streak (дни подряд с активностью)
         current_streak = 0
         if profile.task_history:
@@ -1471,11 +1470,21 @@ async def get_class_analytics(
             fallback_score = None
             fallback_errors = 0
             fallback_topics = 0
+            points_earned_total = 0
+            points_max_total = 0
+            points_ratio = None
             if has_db() and db is not None:
                 try:
                     subs = db.execute(
                         select(TestSubmission).where(TestSubmission.user_id == user_id)
                     ).scalars().all()
+                    for sub in subs:
+                        pts = _extract_submission_points(sub)
+                        points_earned_total += pts["earned"]
+                        points_max_total += pts["max"]
+                    if points_max_total > 0:
+                        points_ratio = round((points_earned_total / points_max_total) * 100.0, 0)
+
                     test_scores = [float(sub.score) for sub in subs if sub.score is not None]
                     if test_scores:
                         fallback_score = round(sum(test_scores) / len(test_scores), 0)
@@ -1502,24 +1511,37 @@ async def get_class_analytics(
                 except Exception as e:
                     print(f"Error in class analytics fallback for {user_id}: {e}")
 
+            # Приводим "Набрано" к фактическим набранным баллам, чтобы таблица
+            # и карточка ученика не противоречили друг другу.
             score_value = profile_score
-            if (score_value <= 0 and fallback_score is not None) or (not profile and fallback_score is not None):
+            if points_ratio is not None:
+                if profile and (getattr(profile, "total_tasks_completed", 0) or 0) >= 5:
+                    # Сглаживаем профильную точность и фактические баллы по заданиям.
+                    score_value = round(profile_score * 0.6 + points_ratio * 0.4, 0)
+                else:
+                    score_value = points_ratio
+            elif (score_value <= 0 and fallback_score is not None) or (not profile and fallback_score is not None):
                 score_value = fallback_score
             if profile_errors <= 0 and fallback_errors > 0:
                 profile_errors = fallback_errors
             if completed_topics <= 0 and fallback_topics > 0:
                 completed_topics = fallback_topics
 
-            # Если профиль малоинформативен, определяем статус по фактическому баллу.
-            if (not profile) or ((getattr(profile, "total_tasks_completed", 0) or 0) < 3 and fallback_score is not None):
-                if score_value >= 85:
-                    status = "excellent"
-                elif score_value >= 70:
-                    status = "good"
-                elif score_value >= 60:
-                    status = "average"
-                else:
-                    status = "needs-help"
+            # Статус определяем по той же метрике, что и "Набрано",
+            # с усилением риска при частых ошибках.
+            if score_value >= 85:
+                status = "excellent"
+            elif score_value >= 70:
+                status = "good"
+            elif score_value >= 60:
+                status = "average"
+            else:
+                status = "needs-help"
+
+            if profile_errors >= 15:
+                status = "needs-help"
+            elif profile_errors >= 10 and score_value < 70:
+                status = "needs-help"
             
             class_data.append({
                 "student": student.get('full_name', student.get('email', 'Неизвестно')),

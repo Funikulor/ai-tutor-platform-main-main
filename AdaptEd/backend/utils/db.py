@@ -83,6 +83,7 @@ def init_db():
 			CurriculumTopic,
 			CurriculumTopicTask,
 		)
+		from models.rag_chunk import RagChunk  # noqa: F401
 		Base.metadata.create_all(bind=_engine)
 		try:
 			from sqlalchemy import text
