@@ -5,9 +5,10 @@ import { avatarInitial } from '../utils/avatar';
 import { toast } from 'sonner';
 import { TopicLibraryStudio } from './TopicLibraryStudio';
 import { AdminLibraryEditor } from './AdminLibraryEditor';
+import { RagKnowledgeBase } from './RagKnowledgeBase';
 
 export function AdminPanel() {
-  const [activeTab, setActiveTab] = useState<'content' | 'users' | 'system'>('content');
+  const [activeTab, setActiveTab] = useState<'content' | 'users' | 'system' | 'knowledge'>('content');
   /** Контент: библиотека (как у ученика) или дерево тем программы */
   const [contentMode, setContentMode] = useState<'library' | 'structure'>('library');
   const [systemStats, setSystemStats] = useState({
@@ -646,7 +647,7 @@ export function AdminPanel() {
       )}
 
       <div className="rounded-2xl border border-slate-300/90 bg-slate-100 p-1.5 shadow-sm">
-        <div className="grid grid-cols-1 gap-1 sm:grid-cols-3">
+        <div className="grid grid-cols-1 gap-1 sm:grid-cols-2 lg:grid-cols-4">
           <button
             type="button"
             onClick={() => setActiveTab('content')}
@@ -692,8 +693,30 @@ export function AdminPanel() {
             </span>
             <span className="pl-7 text-xs text-slate-500">Адаптация и API</span>
           </button>
+          <button
+            type="button"
+            onClick={() => setActiveTab('knowledge')}
+            className={`flex flex-col items-start gap-0.5 rounded-xl px-4 py-3 text-left transition-all ${
+              activeTab === 'knowledge'
+                ? 'bg-white shadow-md ring-2 ring-indigo-500/15'
+                : 'text-slate-600 hover:bg-white/80 hover:text-slate-900'
+            }`}
+          >
+            <span className="flex items-center gap-2 font-medium text-slate-900">
+              <Database className={`h-5 w-5 ${activeTab === 'knowledge' ? 'text-indigo-600' : 'text-slate-400'}`} />
+              База знаний
+            </span>
+            <span className="pl-7 text-xs text-slate-500">Учебник и темы (RAG)</span>
+          </button>
         </div>
       </div>
+
+      {/* Knowledge Base (RAG) */}
+      {activeTab === 'knowledge' && (
+        <div className="rounded-2xl border border-slate-200/90 bg-white px-4 py-5 shadow-sm sm:px-6 sm:py-6">
+          <RagKnowledgeBase />
+        </div>
+      )}
 
       {/* Content Management */}
       {activeTab === 'content' && (
