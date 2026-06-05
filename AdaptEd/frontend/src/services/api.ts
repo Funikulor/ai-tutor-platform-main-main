@@ -32,6 +32,13 @@ api.interceptors.request.use((config) => {
     config.headers = config.headers ?? {};
     config.headers.Authorization = `Bearer ${token}`;
   }
+
+  // FormData: браузер сам выставит multipart boundary; иначе сервер не разберёт тело.
+  if (config.data instanceof FormData) {
+    if (config.headers) {
+      delete config.headers['Content-Type'];
+    }
+  }
   
   // Логируем запросы только в dev (без URL и env в production)
   if (!import.meta.env.PROD && config.url?.includes('/auth/')) {

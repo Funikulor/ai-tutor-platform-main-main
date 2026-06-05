@@ -3,6 +3,7 @@ API маршруты для RAG: индексирование тем/учебн�
 Управляющие операции доступны только учителю/админу.
 """
 import re
+import threading
 from fastapi import APIRouter, HTTPException, Depends, UploadFile, File, Form
 from pydantic import BaseModel
 from typing import List, Optional, Dict, Any
@@ -11,6 +12,58 @@ from routes.auth import require_roles, get_current_user
 from services.rag import get_rag_service, DEFAULT_MATH_TAXONOMY
 
 router = APIRouter()
+
+# Фоновые задачи индексации (PDF может обрабатываться несколько минут).
+_ingest_jobs: Dict[str, Dict[str, Any]] = {}
+_ingest_jobs_lock = threading.Lock()
+
+
+def _set_ingest_job(source: str, payload: Dict[str, Any]) -> None:
+    with _ingest_jobs_lock:
+        _ingest_jobs[source] = payload
+
+
+def _get_ingest_job(source: str) -> Optional[Dict[str, Any]]:
+    with _ingest_jobs_lock:
+        job = _ingest_jobs.get(source)
+        return dict(job) if job else None
+
+
+def _run_ingest_job(source: str, text: str, topic_hint: Optional[str]) -> None:
+    rag = get_rag_service()
+    try:
+        added, err = rag.ingest_textbook(source, text, topic_hint=topic_hint)
+        if added == 0:
+            _set_ingest_job(
+                source,
+                {
+                    "status": "error",
+                    "source": source,
+                    "added": 0,
+                    "error": err or "Не удалось проиндексировать PDF.",
+                },
+            )
+            return
+        _set_ingest_job(
+            source,
+            {
+                "status": "done",
+                "source": source,
+                "added": added,
+                "auto_topics": bool(not topic_hint),
+                "topic_breakdown": rag.topic_breakdown(source),
+            },
+        )
+    except Exception as e:
+        _set_ingest_job(
+            source,
+            {
+                "status": "error",
+                "source": source,
+                "added": 0,
+                "error": str(e),
+            },
+        )
 
 
 class TaxonomyItem(BaseModel):
@@ -106,6 +159,18 @@ async def rag_ingest_text(
     }
 
 
+@router.get("/rag/ingest-job", response_model=Dict[str, Any])
+async def rag_ingest_job(
+    source: str,
+    _staff: dict = Depends(require_roles("teacher", "admin")),
+):
+    """Статус фоновой индексации PDF (после POST /rag/ingest-pdf)."""
+    job = _get_ingest_job(source)
+    if not job:
+        raise HTTPException(status_code=404, detail="Задача индексации не найдена")
+    return job
+
+
 @router.post("/rag/ingest-pdf", response_model=Dict[str, Any])
 async def rag_ingest_pdf(
     file: UploadFile = File(...),
@@ -129,6 +194,7 @@ async def rag_ingest_pdf(
         pages_text = [(page.extract_text() or "").strip() for page in reader.pages]
         text = "\n\n".join(t for t in pages_text if t)
         pages_with_text = sum(1 for t in pages_text if t)
+        total_pages = len(reader.pages)
     except HTTPException:
         raise
     except Exception as e:
@@ -139,7 +205,7 @@ async def rag_ingest_pdf(
             status_code=400,
             detail=(
                 "PDF не содержит извлекаемого текста (возможно, это скан без OCR). "
-                f"Страниц с текстом: {pages_with_text} из {len(reader.pages)}. "
+                f"Страниц с текстом: {pages_with_text} из {total_pages}. "
                 "Попробуйте другой PDF или вставьте текст вручную через «Добавить текст»."
             ),
         )
@@ -147,16 +213,36 @@ async def rag_ingest_pdf(
     # Безопасное имя источника для БД (кириллица в filename допустима, но убираем путь).
     source = re.sub(r"[^\w.\- ()\u0400-\u04FF]", "_", filename.split("/")[-1].split("\\")[-1])[:200]
 
-    added, err = rag.ingest_textbook(source, text, topic_hint=topic_hint)
-    if added == 0:
-        raise HTTPException(status_code=500, detail=err or "Не удалось проиндексировать PDF.")
+    existing = _get_ingest_job(source)
+    if existing and existing.get("status") == "processing":
+        raise HTTPException(status_code=409, detail="Индексация этого файла уже выполняется")
+
+    _set_ingest_job(
+        source,
+        {
+            "status": "processing",
+            "source": source,
+            "added": 0,
+            "pages_with_text": pages_with_text,
+            "total_pages": total_pages,
+            "auto_topics": bool(not topic_hint),
+        },
+    )
+    thread = threading.Thread(
+        target=_run_ingest_job,
+        args=(source, text, topic_hint),
+        daemon=True,
+    )
+    thread.start()
+
     return {
-        "added": added,
+        "status": "processing",
+        "added": 0,
         "source": source,
         "pages_with_text": pages_with_text,
-        "total_pages": len(reader.pages),
+        "total_pages": total_pages,
         "auto_topics": bool(not topic_hint),
-        "topic_breakdown": rag.topic_breakdown(source),
+        "message": "PDF принят, индексация идёт в фоне. Опросите /rag/ingest-job или дождитесь завершения в UI.",
     }
 
 

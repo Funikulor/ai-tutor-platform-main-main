@@ -54,8 +54,12 @@ interface TopicBreakdownItem {
 interface UploadResult {
   added: number;
   source: string;
+  status?: 'processing' | 'done' | 'error';
   auto_topics?: boolean;
   topic_breakdown?: TopicBreakdownItem[];
+  pages_with_text?: number;
+  total_pages?: number;
+  error?: string;
 }
 
 export function RagKnowledgeBase() {
@@ -104,6 +108,24 @@ export function RagKnowledgeBase() {
     setExpandedGroups((prev) => ({ ...prev, [parent]: !prev[parent] }));
   };
 
+  const pollIngestJob = async (source: string): Promise<UploadResult> => {
+    const deadline = Date.now() + 15 * 60 * 1000;
+    while (Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, 2500));
+      const { data } = await api.get<UploadResult>('/rag/ingest-job', {
+        params: { source },
+        timeout: 30000,
+      });
+      if (data.status === 'done') {
+        return data;
+      }
+      if (data.status === 'error') {
+        throw new Error(data.error || 'Ошибка фоновой индексации');
+      }
+    }
+    throw new Error('Индексация заняла слишком много времени. Проверьте статус базы знаний позже.');
+  };
+
   const handleUploadPdf = async () => {
     if (!pdfFile) {
       toast.error('Выберите PDF-файл');
@@ -115,18 +137,25 @@ export function RagKnowledgeBase() {
       form.append('file', pdfFile);
       if (pdfTopic.trim()) form.append('topic_hint', pdfTopic.trim());
       const { data } = await api.post<UploadResult>('/rag/ingest-pdf', form, {
-        headers: { 'Content-Type': 'multipart/form-data' },
-        timeout: 300000,
+        timeout: 120000,
       });
-      toast.success(`Учебник проиндексирован: фрагментов ${data.added}`);
-      setUploadResult(data);
+
+      let result = data;
+      if (data.status === 'processing' && data.source) {
+        toast.info('Индексация запущена в фоне, подождите…');
+        result = await pollIngestJob(data.source);
+      }
+
+      toast.success(`Учебник проиндексирован: фрагментов ${result.added}`);
+      setUploadResult(result);
       setPdfFile(null);
       setPdfTopic('');
       await loadStatus();
     } catch (err: unknown) {
-      const detail =
-        (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
-      toast.error(typeof detail === 'string' ? detail : 'Не удалось загрузить PDF');
+      const axiosDetail = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
+      const message = err instanceof Error ? err.message : undefined;
+      const detail = typeof axiosDetail === 'string' ? axiosDetail : message;
+      toast.error(detail || 'Не удалось загрузить PDF');
     } finally {
       setUploadingPdf(false);
     }

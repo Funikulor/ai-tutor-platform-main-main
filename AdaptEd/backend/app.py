@@ -6,7 +6,7 @@ from typing import Optional
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import Response
+from fastapi.responses import Response, JSONResponse
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from routes import lessons, users, agents, auth
@@ -172,7 +172,18 @@ async def _force_cors_headers(request, call_next):
     if request.method == "OPTIONS":
         response = Response(status_code=204)
     else:
-        response = await call_next(request)
+        try:
+            response = await call_next(request)
+        except HTTPException as exc:
+            response = JSONResponse(
+                status_code=exc.status_code,
+                content={"detail": exc.detail},
+            )
+        except Exception:
+            response = JSONResponse(
+                status_code=500,
+                content={"detail": "Internal Server Error"},
+            )
 
     if origin_allowed and origin:
         response.headers["Access-Control-Allow-Origin"] = origin
