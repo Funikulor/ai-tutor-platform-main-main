@@ -66,6 +66,8 @@ python -m scripts.seed_from_credentials --reset
 
 ## 📚 Дополнительная информация
 
+- **Обучение и подготовка к защите:** `AdaptEd/docs/LEARNING_GUIDE.md` (читать по порядку)
+- **Технический справочник:** `AdaptEd/docs/TECHNICAL_REFERENCE.md`
 - API документация: http://localhost:8000/docs
 - Руководство по проекту: `AdaptEd/README.md`
 - Диагностика и решение проблем: `TROUBLESHOOTING.md`

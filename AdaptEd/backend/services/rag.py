@@ -10,13 +10,16 @@ RAG-сервис: семантическое сопоставление текс
 (тем же ключом, что и чат). Векторное хранилище — обычная таблица в PostgreSQL,
 сравнение делаем на numpy (для прототипа этого достаточно, pgvector не нужен).
 """
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 import os
 import re
 import requests
 import numpy as np
 
 from utils.db import has_db, get_db
+
+# Сколько фрагментов отправлять в /embeddings за один запрос (целый учебник — сотни кусков).
+EMBED_BATCH_SIZE = 32
 
 
 # Тема по умолчанию, если ничего не нашли.
@@ -74,10 +77,10 @@ class RagService:
     def embeddings_available(self) -> bool:
         return bool(self.api_key and self.embeddings_url)
 
-    def embed_texts(self, texts: List[str]) -> Optional[List[List[float]]]:
-        """Считает эмбеддинги для списка строк. None — если провайдер недоступен."""
-        if not self.embeddings_available() or not texts:
-            return None
+    def _embed_batch(self, texts: List[str]) -> Optional[List[List[float]]]:
+        """Один HTTP-запрос эмбеддингов для пачки строк."""
+        if not texts:
+            return []
         try:
             resp = requests.post(
                 self.embeddings_url,
@@ -86,17 +89,34 @@ class RagService:
                     "Content-Type": "application/json",
                 },
                 json={"model": self.embeddings_model, "input": texts},
-                timeout=60,
+                timeout=120,
             )
             if resp.status_code != 200:
-                print(f"[RAG] embeddings HTTP {resp.status_code}: {resp.text[:200]}")
+                print(f"[RAG] embeddings HTTP {resp.status_code}: {resp.text[:300]}")
                 return None
             data = resp.json()
             items = sorted(data.get("data", []), key=lambda d: d.get("index", 0))
-            return [item.get("embedding", []) for item in items]
+            vectors = [item.get("embedding", []) for item in items]
+            if len(vectors) != len(texts):
+                print(f"[RAG] embeddings count mismatch: got {len(vectors)}, expected {len(texts)}")
+                return None
+            return vectors
         except Exception as e:
             print(f"[RAG] embeddings error: {e}")
             return None
+
+    def embed_texts(self, texts: List[str]) -> Optional[List[List[float]]]:
+        """Считает эмбеддинги для списка строк пачками. None — если провайдер недоступен."""
+        if not self.embeddings_available() or not texts:
+            return None
+        all_vectors: List[List[float]] = []
+        for start in range(0, len(texts), EMBED_BATCH_SIZE):
+            batch = texts[start : start + EMBED_BATCH_SIZE]
+            vectors = self._embed_batch(batch)
+            if vectors is None:
+                return None
+            all_vectors.extend(vectors)
+        return all_vectors
 
     def embed_query(self, text: str) -> Optional[List[float]]:
         vectors = self.embed_texts([text])
@@ -125,6 +145,117 @@ class RagService:
         if buffer:
             chunks.append(buffer)
         return chunks or ([text.strip()] if text and text.strip() else [])
+
+    def _normalize_textbook_text(self, text: str) -> str:
+        """Подготавливает текст PDF: переносы перед заголовками, если они «прилипли» к абзацу."""
+        text = (text or "").replace("\r\n", "\n").replace("\r", "\n")
+        text = re.sub(r"([^\n])(§\s*\d+)", r"\1\n\2", text)
+        text = re.sub(r"([^\n])((?:Глава|ГЛАВА)\s+\d+)", r"\1\n\2", text, flags=re.IGNORECASE)
+        text = re.sub(r"([^\n])(Параграф\s+\d+)", r"\1\n\2", text, flags=re.IGNORECASE)
+        text = re.sub(r"\n{3,}", "\n\n", text)
+        return text.strip()
+
+    def _looks_like_section_title(self, title: str) -> bool:
+        """Отсекает строки-задачи и оставляет похожие на заголовок параграфа."""
+        title = (title or "").strip()
+        if len(title) < 3 or len(title) > 120:
+            return False
+        if re.search(r"[\+\=\∫√]", title) and re.search(r"\d", title):
+            return False
+        if re.match(r"^\d+\s*[\)\.]", title):
+            return False
+        letters = sum(c.isalpha() for c in title)
+        return letters >= max(3, int(len(title) * 0.25))
+
+    def _parse_heading_line(self, line: str) -> Optional[Tuple[str, str]]:
+        """
+        Распознаёт строку как заголовок учебника.
+        Возвращает ('chapter'|'section', полное_название) или None.
+        """
+        line = line.strip()
+        if not line or len(line) > 200:
+            return None
+
+        m = re.match(
+            r"^(?:Глава|ГЛАВА|Chapter)\s+(\d+|[IVXLC]+)\s*[.:]?\s*(.+)$",
+            line,
+            re.IGNORECASE,
+        )
+        if m:
+            return ("chapter", f"Глава {m.group(1)}. {m.group(2).strip()}")
+
+        m = re.match(r"^(?:Часть|ЧАСТЬ)\s+(\d+)\s*[.:]?\s*(.+)$", line, re.IGNORECASE)
+        if m:
+            return ("chapter", f"Часть {m.group(1)}. {m.group(2).strip()}")
+
+        m = re.match(r"^§\s*(\d+(?:\.\d+)?)\s*[.:]?\s*(.+)$", line)
+        if m and self._looks_like_section_title(m.group(2)):
+            return ("section", f"§{m.group(1)}. {m.group(2).strip()}")
+
+        m = re.match(r"^Параграф\s+(\d+)\s*[.:]?\s*(.+)$", line, re.IGNORECASE)
+        if m and self._looks_like_section_title(m.group(2)):
+            return ("section", f"Параграф {m.group(1)}. {m.group(2).strip()}")
+
+        m = re.match(r"^(\d+\.\d+(?:\.\d+)?)\s+(.+)$", line)
+        if m and self._looks_like_section_title(m.group(2)):
+            return ("section", f"{m.group(1)}. {m.group(2).strip()}")
+
+        m = re.match(r"^(\d+)\.\s+(.+)$", line)
+        if m and self._looks_like_section_title(m.group(2)) and len(line) < 100:
+            return ("section", f"{m.group(1)}. {m.group(2).strip()}")
+
+        if 8 <= len(line) <= 80 and line == line.upper() and re.search(r"[А-ЯЁA-Z]", line):
+            if sum(c.isalpha() for c in line) >= 5:
+                return ("section", line.strip())
+
+        return None
+
+    def _structured_sections(self, full_text: str) -> List[Dict[str, Any]]:
+        """
+        Режет учебник по структуре: глава (parent_topic) → параграф/§ (topic).
+        Темы берутся из заголовков книги, без LLM и без базовой таксономии.
+        """
+        text = self._normalize_textbook_text(full_text)
+        lines = text.split("\n")
+
+        current_chapter: Optional[str] = None
+        current_section: Optional[str] = None
+        body_lines: List[str] = []
+        pieces: List[Dict[str, Any]] = []
+
+        def flush_body() -> None:
+            nonlocal body_lines
+            body = "\n".join(body_lines).strip()
+            if not body:
+                body_lines = []
+                return
+            topic = current_section or current_chapter or "Материал учебника"
+            parent = current_chapter if current_section else None
+            for chunk in self._chunk_text(body):
+                pieces.append({"topic": topic[:255], "parent_topic": parent, "text": chunk})
+            body_lines = []
+
+        for line in lines:
+            heading = self._parse_heading_line(line)
+            if heading:
+                level, title = heading
+                flush_body()
+                if level == "chapter":
+                    current_chapter = title[:255]
+                else:
+                    current_section = title[:255]
+                continue
+            if line.strip():
+                body_lines.append(line)
+
+        flush_body()
+
+        if not pieces:
+            for chunk in self._chunk_text(text):
+                pieces.append(
+                    {"topic": "Материал учебника", "parent_topic": None, "text": chunk}
+                )
+        return pieces
 
     def add_reference(self, topic: str, text: str, source: str = "taxonomy") -> bool:
         """Добавляет один эталон (тема + текст) с эмбеддингом в БД."""
@@ -188,38 +319,83 @@ class RagService:
         finally:
             sess.close()
 
-    def ingest_textbook(self, title: str, full_text: str, topic_hint: Optional[str] = None) -> int:
-        """Режет учебник на куски, считает эмбеддинги и сохраняет. topic = название/раздел."""
+    def ingest_textbook(
+        self, title: str, full_text: str, topic_hint: Optional[str] = None
+    ) -> Tuple[int, Optional[str]]:
+        """
+        Режет учебник на куски, считает эмбеддинги и сохраняет.
+
+        Тема фрагмента:
+        - если задан topic_hint — одна тема на весь файл (ручное переопределение);
+        - иначе темы берутся из структуры учебника (глава → параграф/§), без LLM.
+
+        Возвращает (число фрагментов, текст ошибки или None).
+        """
         if not has_db():
-            return 0
-        chunks = self._chunk_text(full_text)
-        if not chunks:
-            return 0
-        vectors = self.embed_texts(chunks)
-        if not vectors or len(vectors) != len(chunks):
-            return 0
+            return 0, "База данных недоступна"
+
+        if topic_hint:
+            pieces = [
+                {"topic": topic_hint[:255], "parent_topic": None, "text": c}
+                for c in self._chunk_text(full_text)
+            ]
+        else:
+            pieces = self._structured_sections(full_text)
+
+        if not pieces:
+            return 0, "Текст пустой или слишком короткий для нарезки на фрагменты"
+
+        texts = [p["text"] for p in pieces]
+        vectors = self.embed_texts(texts)
+        if not vectors or len(vectors) != len(texts):
+            return 0, (
+                f"Не удалось получить эмбеддинги для {len(texts)} фрагментов "
+                f"(проверьте PROXYAPI_KEY и лимиты API)"
+            )
+
         sess = get_db()
         if sess is None:
-            return 0
+            return 0, "Не удалось открыть сессию БД"
         try:
             from models.rag_chunk import RagChunk  # type: ignore
 
             count = 0
-            for chunk, vec in zip(chunks, vectors):
-                sess.add(RagChunk(topic=topic_hint or title, text=chunk, source=title, embedding=vec))
+            for piece, vec in zip(pieces, vectors):
+                if not vec:
+                    return count, f"Пустой вектор на фрагменте #{count + 1}"
+                sess.add(
+                    RagChunk(
+                        topic=piece["topic"],
+                        parent_topic=piece.get("parent_topic"),
+                        text=piece["text"],
+                        source=title,
+                        embedding=vec,
+                    )
+                )
                 count += 1
             sess.commit()
             self._invalidate()
-            return count
+            return count, None
         except Exception as e:
             print(f"[RAG] ingest_textbook error: {e}")
             try:
                 sess.rollback()
             except Exception:
                 pass
-            return 0
+            return 0, f"Ошибка сохранения в БД: {e}"
         finally:
             sess.close()
+
+    def topic_breakdown(self, source: str) -> List[Dict[str, Any]]:
+        """Сколько фрагментов по каждой теме внутри источника (для отчёта в UI)."""
+        counts: Dict[str, Dict[str, Any]] = {}
+        for ch in self._load_chunks():
+            if ch.get("source") == source:
+                t = ch.get("topic") or "—"
+                if t not in counts:
+                    counts[t] = {"topic": t, "parent_topic": ch.get("parent_topic"), "chunks": 0}
+                counts[t]["chunks"] += 1
+        return sorted(counts.values(), key=lambda x: x["chunks"], reverse=True)
 
     # ---------- Поиск / классификация ----------
 
@@ -239,7 +415,13 @@ class RagService:
 
             rows = sess.query(RagChunk).all()
             self._cache = [
-                {"topic": r.topic, "text": r.text, "source": r.source, "embedding": r.embedding or []}
+                {
+                    "topic": r.topic,
+                    "parent_topic": getattr(r, "parent_topic", None),
+                    "text": r.text,
+                    "source": r.source,
+                    "embedding": r.embedding or [],
+                }
                 for r in rows
             ]
             return self._cache
@@ -284,6 +466,78 @@ class RagService:
             src = ch.get("source") or "—"
             counts[src] = counts.get(src, 0) + 1
         return [{"source": s, "chunks": n} for s, n in sorted(counts.items())]
+
+    def list_topics(self) -> List[Dict[str, Any]]:
+        """Плоский список тем (параграфов) с числом фрагментов и источниками."""
+        counts: Dict[str, Dict[str, Any]] = {}
+        for ch in self._load_chunks():
+            t = ch.get("topic") or "—"
+            if t not in counts:
+                counts[t] = {
+                    "topic": t,
+                    "parent_topic": ch.get("parent_topic"),
+                    "chunks": 0,
+                    "sources": set(),
+                }
+            counts[t]["chunks"] += 1
+            counts[t]["sources"].add(ch.get("source") or "—")
+        return [
+            {
+                "topic": v["topic"],
+                "parent_topic": v["parent_topic"],
+                "chunks": v["chunks"],
+                "sources": sorted(v["sources"]),
+            }
+            for v in sorted(counts.values(), key=lambda x: x["chunks"], reverse=True)
+        ]
+
+    def list_topic_groups(self) -> List[Dict[str, Any]]:
+        """Темы, сгруппированные по главам (parent_topic) для UI."""
+        groups: Dict[str, List[Dict[str, Any]]] = {}
+        for item in self.list_topics():
+            parent = item.get("parent_topic") or "Без главы"
+            groups.setdefault(parent, []).append(
+                {
+                    "topic": item["topic"],
+                    "chunks": item["chunks"],
+                    "sources": item.get("sources") or [],
+                }
+            )
+        return [
+            {"parent_topic": parent, "topics": topics}
+            for parent, topics in sorted(
+                groups.items(),
+                key=lambda x: sum(t["chunks"] for t in x[1]),
+                reverse=True,
+            )
+        ]
+
+    def delete_topic(self, topic: str, source: Optional[str] = None) -> int:
+        """Удаляет все фрагменты темы (опционально — только в пределах одного источника)."""
+        if not has_db() or not topic:
+            return 0
+        sess = get_db()
+        if sess is None:
+            return 0
+        try:
+            from models.rag_chunk import RagChunk  # type: ignore
+
+            query = sess.query(RagChunk).filter(RagChunk.topic == topic)
+            if source:
+                query = query.filter(RagChunk.source == source)
+            deleted = query.delete(synchronize_session=False)
+            sess.commit()
+            self._invalidate()
+            return int(deleted or 0)
+        except Exception as e:
+            print(f"[RAG] delete_topic error: {e}")
+            try:
+                sess.rollback()
+            except Exception:
+                pass
+            return 0
+        finally:
+            sess.close()
 
     def delete_source(self, source: str) -> int:
         """Удаляет все фрагменты одного источника (например, перед перезаливкой учебника)."""
@@ -365,6 +619,7 @@ class RagService:
             ch = meta[int(i)]
             results.append({
                 "topic": ch["topic"],
+                "parent_topic": ch.get("parent_topic"),
                 "text": ch["text"],
                 "source": ch["source"],
                 "score": round(float(sims[int(i)]), 4),

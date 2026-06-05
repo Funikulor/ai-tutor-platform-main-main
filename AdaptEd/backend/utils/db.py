@@ -142,6 +142,7 @@ def init_db():
 						)
 					except Exception:
 						pass
+				_ensure_column(conn, "rag_chunks", "parent_topic", "VARCHAR(255)")
 				conn.commit()
 		except Exception:
 			pass

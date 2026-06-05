@@ -12,8 +12,10 @@ class RagChunk(Base):
     __tablename__ = "rag_chunks"
 
     id = Column(Integer, primary_key=True, index=True)
-    # Узкая тема, которую вернём как ярлык (например, "Квадратные уравнения").
+    # Узкая тема — название параграфа/§ из учебника (лист иерархии).
     topic = Column(String(255), nullable=False, index=True)
+    # Родительская тема — глава или часть (для группировки в UI, не для классификации).
+    parent_topic = Column(String(255), nullable=True, index=True)
     # Текст фрагмента: описание темы или кусок учебника.
     text = Column(Text, nullable=False)
     # Источник: "taxonomy" (ручной список тем) или название учебника.

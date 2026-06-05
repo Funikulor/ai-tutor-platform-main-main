@@ -2,6 +2,7 @@
 API маршруты для RAG: индексирование тем/учебника и классификация темы вопроса.
 Управляющие операции доступны только учителю/админу.
 """
+import re
 from fastapi import APIRouter, HTTPException, Depends, UploadFile, File, Form
 from pydantic import BaseModel
 from typing import List, Optional, Dict, Any
@@ -36,6 +37,8 @@ async def rag_status(_staff: dict = Depends(require_roles("teacher", "admin"))):
         "embeddings_model": rag.embeddings_model,
         "indexed_chunks": rag.count(),
         "sources": rag.list_sources(),
+        "topics": rag.list_topics(),
+        "topic_groups": rag.list_topic_groups(),
     }
 
 
@@ -47,6 +50,17 @@ async def rag_delete_source(
     """Удаляет все фрагменты одного источника (для перезаливки учебника без дублей)."""
     deleted = get_rag_service().delete_source(source)
     return {"deleted": deleted, "source": source}
+
+
+@router.delete("/rag/topic", response_model=Dict[str, Any])
+async def rag_delete_topic(
+    topic: str,
+    source: Optional[str] = None,
+    _staff: dict = Depends(require_roles("teacher", "admin")),
+):
+    """Удаляет все фрагменты темы (опционально — в пределах одного источника)."""
+    deleted = get_rag_service().delete_topic(topic, source=source)
+    return {"deleted": deleted, "topic": topic, "source": source}
 
 
 @router.delete("/rag/all", response_model=Dict[str, Any])
@@ -81,10 +95,15 @@ async def rag_ingest_text(
     rag = get_rag_service()
     if not rag.embeddings_available():
         raise HTTPException(status_code=503, detail="Эмбеддинги недоступны: проверьте PROXYAPI_KEY.")
-    added = rag.ingest_textbook(req.title, req.content, topic_hint=req.topic_hint)
+    added, err = rag.ingest_textbook(req.title, req.content, topic_hint=req.topic_hint)
     if added == 0:
-        raise HTTPException(status_code=500, detail="Не удалось проиндексировать текст.")
-    return {"added": added, "source": req.title}
+        raise HTTPException(status_code=500, detail=err or "Не удалось проиндексировать текст.")
+    return {
+        "added": added,
+        "source": req.title,
+        "auto_topics": bool(not req.topic_hint),
+        "topic_breakdown": rag.topic_breakdown(req.title),
+    }
 
 
 @router.post("/rag/ingest-pdf", response_model=Dict[str, Any])
@@ -96,21 +115,49 @@ async def rag_ingest_pdf(
     rag = get_rag_service()
     if not rag.embeddings_available():
         raise HTTPException(status_code=503, detail="Эмбеддинги недоступны: проверьте PROXYAPI_KEY.")
-    if not (file.filename or "").lower().endswith(".pdf"):
+    filename = (file.filename or "upload.pdf").strip()
+    if not filename.lower().endswith(".pdf"):
         raise HTTPException(status_code=400, detail="Ожидается PDF файл")
     try:
         from pypdf import PdfReader
         import io
 
         raw = await file.read()
+        if not raw:
+            raise HTTPException(status_code=400, detail="Файл пустой")
         reader = PdfReader(io.BytesIO(raw))
-        text = "\n\n".join((page.extract_text() or "") for page in reader.pages)
+        pages_text = [(page.extract_text() or "").strip() for page in reader.pages]
+        text = "\n\n".join(t for t in pages_text if t)
+        pages_with_text = sum(1 for t in pages_text if t)
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Ошибка разбора PDF: {e}")
-    added = rag.ingest_textbook(file.filename, text, topic_hint=topic_hint)
+
+    if not text or len(text.strip()) < 50:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "PDF не содержит извлекаемого текста (возможно, это скан без OCR). "
+                f"Страниц с текстом: {pages_with_text} из {len(reader.pages)}. "
+                "Попробуйте другой PDF или вставьте текст вручную через «Добавить текст»."
+            ),
+        )
+
+    # Безопасное имя источника для БД (кириллица в filename допустима, но убираем путь).
+    source = re.sub(r"[^\w.\- ()\u0400-\u04FF]", "_", filename.split("/")[-1].split("\\")[-1])[:200]
+
+    added, err = rag.ingest_textbook(source, text, topic_hint=topic_hint)
     if added == 0:
-        raise HTTPException(status_code=500, detail="Не удалось проиндексировать PDF (пустой текст?).")
-    return {"added": added, "source": file.filename}
+        raise HTTPException(status_code=500, detail=err or "Не удалось проиндексировать PDF.")
+    return {
+        "added": added,
+        "source": source,
+        "pages_with_text": pages_with_text,
+        "total_pages": len(reader.pages),
+        "auto_topics": bool(not topic_hint),
+        "topic_breakdown": rag.topic_breakdown(source),
+    }
 
 
 @router.get("/rag/classify", response_model=Dict[str, Any])
@@ -118,13 +165,54 @@ async def rag_classify(
     question: str,
     current_user: dict = Depends(get_current_user),
 ):
-    """Отладочный/служебный эндпоинт: к какой теме относится вопрос."""
+    """
+    Отладка определения темы: показывает ИТОГ (как в адаптивных заданиях)
+    и отдельно — ближайшие фрагменты RAG для справки.
+    """
+    from routes.agents import (
+        _detect_strong_symbolic_topic,
+        _detect_topic_by_keywords,
+        resolve_specific_topic,
+    )
+
     rag = get_rag_service()
     matches = rag.search(question, top_k=3)
-    best = matches[0] if matches else None
+
+    # Какой шаг сработал в гибридной цепочке (символы → ключевые слова → RAG → fallback)
+    method = "fallback"
+    method_label = "Тема по умолчанию (ни один метод не сработал)"
+    symbolic = _detect_strong_symbolic_topic(question)
+    if symbolic:
+        method = "symbolic"
+        method_label = "Символьный признак в условии (x^2, √, |…|, система)"
+        resolved_topic = symbolic
+    else:
+        keywords = _detect_topic_by_keywords(question)
+        if keywords:
+            method = "keywords"
+            method_label = "Ключевые слова в тексте задачи"
+            resolved_topic = keywords
+        else:
+            rag_match = rag.classify_topic(question)
+            if rag_match and rag_match.get("topic"):
+                method = "rag"
+                score_pct = int(round(float(rag_match.get("score", 0)) * 100))
+                method_label = f"Семантический поиск по базе знаний (близость {score_pct}%)"
+                resolved_topic = rag_match["topic"]
+            else:
+                resolved_topic = resolve_specific_topic(question, "общая математика")
+
     return {
         "question": question,
-        "best_topic": best["topic"] if best else None,
-        "best_score": best["score"] if best else None,
+        # Итог — именно это попадёт в профиль ученика при сдаче задания
+        "resolved_topic": resolved_topic,
+        "method": method,
+        "method_label": method_label,
+        # Сырые совпадения RAG (куски учебника/тем); topic может быть именем PDF, если не указали раздел при загрузке
         "matches": matches,
+        "matches_note": (
+            "Ниже — ближайшие фрагменты учебника в индексе. "
+            "Тема фрагмента — название параграфа/§ из книги. "
+            "Итоговая тема выше может определяться правилами (x^2 → квадратные), если они сработали раньше RAG."
+        ),
     }
