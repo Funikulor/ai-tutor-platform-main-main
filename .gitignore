@@ -51,3 +51,10 @@ AdaptEd/backend/adapted.db
 # Temporary files
 *.tmp
 *.temp
+
+# Локальные материалы к защите и обучению (не в репозитории)
+AdaptEd/docs/DEFENSE_CONSPECT.md
+AdaptEd/docs/DEFENSE_PRESENTATION_SLIDES.md
+AdaptEd/docs/LEARNING_GUIDE.md
+AdaptEd/docs/TECHNICAL_REFERENCE.md
+AdaptEd/docs/RAG_EXPLAINED.md
