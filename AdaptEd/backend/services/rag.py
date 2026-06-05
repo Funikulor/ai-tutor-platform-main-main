@@ -21,6 +21,45 @@ from utils.db import has_db, get_db
 # Сколько фрагментов отправлять в /embeddings за один запрос (целый учебник — сотни кусков).
 EMBED_BATCH_SIZE = 32
 
+# Начала строк-задач (не заголовки параграфов).
+_TASK_LINE_PREFIXES = (
+    "решите",
+    "найдите",
+    "докажите",
+    "вычислите",
+    "постройте",
+    "укажите",
+    "сколько",
+    "какова",
+    "какой",
+    "какие",
+    "какую",
+    "какое",
+    "каким",
+    "при каких",
+    "известно",
+    "даны",
+    "дано",
+    "бросают",
+    "монету",
+    "игральный",
+    "стрелок",
+    "рабочий",
+    "турист",
+    "велосипедист",
+    "подбрасывая",
+    "наугад",
+    "вероятность",
+    "катер",
+    "лодка",
+    "теплоход",
+    "дмитрий",
+    "глеб",
+    "французский",
+    "м.",
+    "мцнмо",
+)
+
 
 # Тема по умолчанию, если ничего не нашли.
 DEFAULT_TOPIC = "Общая математика"
@@ -155,22 +194,64 @@ class RagService:
         text = re.sub(r"\n{3,}", "\n\n", text)
         return text.strip()
 
+    def _clean_heading_title(self, title: str) -> str:
+        """Убирает оглавление, кавычки и хвосты из названия главы/§."""
+        title = (title or "").strip().strip("«»\"'")
+        # Оглавление: «тема . . . . . 55» или «тема.....55»
+        title = re.sub(r"(\s*\.\s*){3,}.*$", "", title)
+        title = re.sub(r"\.{2,}.*$", "", title)
+        title = re.sub(r"\s+\d{1,3}\s*$", "", title)
+        title = re.sub(r"\s+", " ", title)
+        return title[:200]
+
     def _looks_like_section_title(self, title: str) -> bool:
-        """Отсекает строки-задачи и оставляет похожие на заголовок параграфа."""
-        title = (title or "").strip()
-        if len(title) < 3 or len(title) > 120:
+        """Отсекает задачи, ответы и мусор PDF — оставляет название параграфа."""
+        title = self._clean_heading_title(title)
+        if len(title) < 4 or len(title) > 120:
             return False
-        if re.search(r"[\+\=\∫√]", title) and re.search(r"\d", title):
+        if title[0].islower():
             return False
-        if re.match(r"^\d+\s*[\)\.]", title):
+        low = title.lower()
+        if any(low.startswith(p) for p in _TASK_LINE_PREFIXES):
             return False
-        letters = sum(c.isalpha() for c in title)
-        return letters >= max(3, int(len(title) * 0.25))
+        if re.search(r"[\+\=\∫√≤≥]", title) and re.search(r"\d", title):
+            return False
+        if re.search(r"\d+\s*решений", low):
+            return False
+        if len(re.findall(r"\b\d{3,}\b", title)) >= 1:
+            return False
+        if len(re.findall(r"\d+\.", title)) >= 2:
+            return False
+        if re.search(r"\.{3,}", title):
+            return False
+        if title.rstrip().endswith("-"):
+            return False
+        if not re.search(r"[а-яёА-ЯЁ]{4,}", title):
+            return False
+        letters = [c for c in title if c.isalpha()]
+        if not letters:
+            return False
+        vowels = sum(1 for c in letters if c.lower() in "аеёиоуыэюяaeiou")
+        if vowels < max(2, len(letters) // 6):
+            return False
+        if re.fullmatch(r"[А-ЯЁA-Z\s]+", title) and " " not in title.strip():
+            return False
+        return True
+
+    def _looks_like_chapter_title(self, title: str) -> bool:
+        title = self._clean_heading_title(title)
+        if len(title) < 3:
+            return False
+        if re.search(r"\.{3,}", title):
+            return False
+        if re.fullmatch(r"\d{1,3}", title):
+            return False
+        return bool(re.search(r"[а-яёА-ЯЁ]{3,}", title))
 
     def _parse_heading_line(self, line: str) -> Optional[Tuple[str, str]]:
         """
-        Распознаёт строку как заголовок учебника.
-        Возвращает ('chapter'|'section', полное_название) или None.
+        Распознаёт заголовок учебника: только Глава/Часть и §/Параграф.
+        Номера задач (711., 1001.) и строки ответов не считаются темами.
         """
         line = line.strip()
         if not line or len(line) > 200:
@@ -182,31 +263,27 @@ class RagService:
             re.IGNORECASE,
         )
         if m:
-            return ("chapter", f"Глава {m.group(1)}. {m.group(2).strip()}")
+            title = self._clean_heading_title(m.group(2))
+            if self._looks_like_chapter_title(title):
+                return ("chapter", f"Глава {m.group(1)}. {title}")
 
         m = re.match(r"^(?:Часть|ЧАСТЬ)\s+(\d+)\s*[.:]?\s*(.+)$", line, re.IGNORECASE)
         if m:
-            return ("chapter", f"Часть {m.group(1)}. {m.group(2).strip()}")
+            title = self._clean_heading_title(m.group(2))
+            if self._looks_like_chapter_title(title):
+                return ("chapter", f"Часть {m.group(1)}. {title}")
 
-        m = re.match(r"^§\s*(\d+(?:\.\d+)?)\s*[.:]?\s*(.+)$", line)
-        if m and self._looks_like_section_title(m.group(2)):
-            return ("section", f"§{m.group(1)}. {m.group(2).strip()}")
+        m = re.match(r"^§\s*(\d+)\s*[.:]?\s*(.+)$", line)
+        if m:
+            title = self._clean_heading_title(m.group(2))
+            if self._looks_like_section_title(title):
+                return ("section", f"§{m.group(1)}. {title}")
 
         m = re.match(r"^Параграф\s+(\d+)\s*[.:]?\s*(.+)$", line, re.IGNORECASE)
-        if m and self._looks_like_section_title(m.group(2)):
-            return ("section", f"Параграф {m.group(1)}. {m.group(2).strip()}")
-
-        m = re.match(r"^(\d+\.\d+(?:\.\d+)?)\s+(.+)$", line)
-        if m and self._looks_like_section_title(m.group(2)):
-            return ("section", f"{m.group(1)}. {m.group(2).strip()}")
-
-        m = re.match(r"^(\d+)\.\s+(.+)$", line)
-        if m and self._looks_like_section_title(m.group(2)) and len(line) < 100:
-            return ("section", f"{m.group(1)}. {m.group(2).strip()}")
-
-        if 8 <= len(line) <= 80 and line == line.upper() and re.search(r"[А-ЯЁA-Z]", line):
-            if sum(c.isalpha() for c in line) >= 5:
-                return ("section", line.strip())
+        if m:
+            title = self._clean_heading_title(m.group(2))
+            if self._looks_like_section_title(title):
+                return ("section", f"Параграф {m.group(1)}. {title}")
 
         return None
 
