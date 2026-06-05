@@ -5,7 +5,6 @@
 from typing import Dict, Any, Optional
 from .error_analyzer_agent import ErrorAnalyzerAgent
 from .profiler_agent import ProfilerAgent
-from .task_generator_agent import TaskGeneratorAgent
 from .mentor_agent import MentorAgent
 from .teacher_analytics_agent import TeacherAnalyticsAgent
 from models.cognitive_profile import TaskAttempt, ErrorTag
@@ -20,7 +19,6 @@ class AgentOrchestrator:
     def __init__(self):
         self.error_analyzer = ErrorAnalyzerAgent()
         self.profiler = ProfilerAgent()
-        self.task_generator = TaskGeneratorAgent()
         self.mentor = MentorAgent()
         self.teacher_analytics = TeacherAnalyticsAgent()
     
@@ -104,20 +102,6 @@ class AgentOrchestrator:
             'updated_profile': profile_result,
             'correct_answer': correct_answer
         }
-    
-    def generate_personalized_tasks(self, user_id: str, topic: str = "general", count: int = 3) -> Dict[str, Any]:
-        """Генерирует персонализированные задания для ученика"""
-        # Получаем профиль (создается автоматически если не существует)
-        profile = self.profiler.get_profile(user_id)
-        
-        tasks = self.task_generator.process({
-            'user_id': user_id,
-            'profile': profile,
-            'topic': topic,
-            'count': count
-        })
-        
-        return tasks
     
     def get_student_dashboard(self, user_id: str) -> Dict[str, Any]:
         """Получает данные для дашборда ученика"""

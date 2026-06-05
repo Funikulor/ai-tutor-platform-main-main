@@ -98,14 +98,6 @@ class TaskSubmission(BaseModel):
     time_spent_seconds: Optional[int] = None
 
 
-class TaskGenerationRequest(BaseModel):
-    """Запрос на генерацию заданий"""
-    user_id: str
-    topic: Optional[str] = "general"
-    count: Optional[int] = 3
-    use_thematic: Optional[bool] = False  # Использовать тематические задания (с воображением)
-
-
 class TaskAssignment(BaseModel):
     """Назначение заданий ученику"""
     user_id: str
@@ -170,22 +162,6 @@ async def submit_task(submission: TaskSubmission):
             "is_correct": is_correct,
             "explanation": explanation  # Передаем объяснение из запроса
         }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@router.post("/agents/generate-tasks", response_model=Dict[str, Any])
-async def generate_tasks(request: TaskGenerationRequest):
-    """
-    Генерация персонализированных заданий для ученика
-    """
-    try:
-        result = orchestrator.generate_personalized_tasks(
-            user_id=request.user_id,
-            topic=request.topic,
-            count=request.count
-        )
-        return result
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
